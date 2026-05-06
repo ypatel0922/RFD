@@ -1,25 +1,21 @@
 # RFD Expense Tracker
 
-RFD is a first product slice for fire departments that need lightweight
+RFD is a Next.js + Supabase app for fire departments that need lightweight
 bookkeeping around receipts and recurring weekly expenses.
 
 This version includes:
 
-- A login screen backed by Supabase Auth when Supabase credentials are
-  configured.
+- A Next.js frontend backed directly by Supabase Auth, Postgres, and Storage.
+- A login screen backed by Supabase Auth.
 - A self-service account creation screen with department autocomplete and role
   selection.
 - Department membership scoping so each user only sees one department
   dashboard and ledger.
 - A two-step capture flow: upload a receipt or take a mobile photo, then review
   autofilled register fields before logging the expense.
-- Supabase Postgres expense persistence when signed in with Supabase Auth.
+- Supabase Postgres expense persistence.
 - Supabase Storage uploads/downloads using a private department-scoped
-  `receipts` bucket when signed in with Supabase Auth.
-- Local department/expense-scoped receipt storage under `data/receipts` for
-  development fallback.
-- A local department-scoped JSON expense log under `data/expenses.json` for
-  development fallback.
+  `receipts` bucket and signed receipt URLs in the ledger/reports.
 - Automatic receipt extraction through OpenAI Vision when `OPENAI_API_KEY` is
   configured.
 - A safe manual-review fallback when extraction credentials are not configured.
@@ -31,17 +27,15 @@ This version includes:
 
 ## Run locally
 
-### Next.js + Supabase frontend
-
 ```bash
-cd frontend
-npm install
+npm run install:frontend
 npm run dev
 ```
 
 Then open http://127.0.0.1:3000.
 
-The Next.js app talks directly to Supabase for Auth, Postgres, and Storage.
+The root npm scripts delegate to the Next.js app in `frontend/`. The Next.js app
+talks directly to Supabase for Auth, Postgres, and Storage.
 Receipt OCR uses the server-only Next route `app/api/extract-receipt`, which
 keeps the OpenAI key out of the browser.
 
@@ -55,22 +49,37 @@ OPENAI_API_KEY=your_openai_key
 OPENAI_RECEIPT_MODEL=gpt-4o-mini
 ```
 
-### FastAPI prototype
+Useful commands:
+
+```bash
+npm run lint
+npm run build
+npm run start
+```
+
+### Legacy FastAPI prototype
+
+The original FastAPI prototype remains in `app/` while the product is migrated
+to Next.js. Use the Next.js app for active development.
 
 ```bash
 python3 -m pip install -r requirements.txt
 python3 -m uvicorn app.main:app --reload
 ```
 
-Then open http://127.0.0.1:8000.
-
-If `SUPABASE_URL` and `SUPABASE_ANON_KEY` are not configured, the app runs in
-local development auth mode. Any non-empty email/password can sign in to the
-configured demo department so the full department-scoped flow remains testable.
-
 ## Configuration
 
-Environment variables:
+Primary Next.js environment variables:
+
+| Name | Default | Purpose |
+| --- | --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | unset | Supabase project URL. |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | unset | Supabase publishable/anon key used by the browser client. |
+| `NEXT_PUBLIC_SUPABASE_RECEIPTS_BUCKET` | `receipts` | Private Supabase Storage bucket for receipt files. |
+| `OPENAI_API_KEY` | unset | Server-only key used by `frontend/app/api/extract-receipt`. |
+| `OPENAI_RECEIPT_MODEL` | `gpt-4o-mini` | Vision-capable model for extraction. |
+
+Legacy FastAPI environment variables:
 
 | Name | Default | Purpose |
 | --- | --- | --- |
@@ -89,7 +98,7 @@ Environment variables:
 | `OPENAI_RECEIPT_MODEL` | `gpt-4o-mini` | Vision-capable model for extraction. |
 
 Without `OPENAI_API_KEY`, uploads still work and expenses are logged with
-`needs_review` extraction status.
+`needs_review` extraction status after user confirmation.
 
 For the configured Supabase project, start from `.env.example`:
 

@@ -43,6 +43,7 @@ export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
   const [membership, setMembership] = useState<DepartmentMembership | null>(null);
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
+  const [receiptUrls, setReceiptUrls] = useState<Record<string, string>>({});
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [view, setView] = useState<AppView>("dashboard");
   const [message, setMessage] = useState<string | null>(null);
@@ -69,6 +70,7 @@ export default function Home() {
       } else {
         setMembership(null);
         setExpenses([]);
+        setReceiptUrls({});
       }
     });
 
@@ -97,7 +99,23 @@ export default function Home() {
       setMessage(error.message);
       return;
     }
-    setExpenses((data || []) as ExpenseRecord[]);
+    const loadedExpenses = (data || []) as ExpenseRecord[];
+    setExpenses(loadedExpenses);
+    await loadReceiptUrls(loadedExpenses);
+  }
+
+  async function loadReceiptUrls(loadedExpenses: ExpenseRecord[]) {
+    const entries = await Promise.all(
+      loadedExpenses.map(async (expense) => {
+        const { data } = await supabase.storage
+          .from(receiptsBucket)
+          .createSignedUrl(expense.receipt_path, 60 * 60);
+        return [expense.id, data?.signedUrl || ""] as const;
+      }),
+    );
+    setReceiptUrls(
+      Object.fromEntries(entries.filter((entry) => entry[1])),
+    );
   }
 
   if (loading) {
@@ -169,6 +187,7 @@ export default function Home() {
             membership={membership}
             user={session.user}
             expenses={expenses}
+            receiptUrls={receiptUrls}
             onExpensesChanged={() => loadExpenses(membership.department_id)}
             setMessage={setMessage}
           />
@@ -176,6 +195,7 @@ export default function Home() {
           <Reports
             departmentName={membership.departments?.name || "Fire Department"}
             expenses={expenses}
+            receiptUrls={receiptUrls}
           />
         )}
       </main>
@@ -384,12 +404,14 @@ function Dashboard({
   membership,
   user,
   expenses,
+  receiptUrls,
   onExpensesChanged,
   setMessage,
 }: {
   membership: DepartmentMembership;
   user: User;
   expenses: ExpenseRecord[];
+  receiptUrls: Record<string, string>;
   onExpensesChanged: () => Promise<void>;
   setMessage: (message: string | null) => void;
 }) {
@@ -556,7 +578,7 @@ function Dashboard({
           />
         )}
       </section>
-      <ExpenseLedger expenses={expenses} />
+      <ExpenseLedger expenses={expenses} receiptUrls={receiptUrls} />
     </>
   );
 }
@@ -698,7 +720,13 @@ function TextField({
   );
 }
 
-function ExpenseLedger({ expenses }: { expenses: ExpenseRecord[] }) {
+function ExpenseLedger({
+  expenses,
+  receiptUrls,
+}: {
+  expenses: ExpenseRecord[];
+  receiptUrls: Record<string, string>;
+}) {
   return (
     <section className="card">
       <div className="section-heading">
@@ -724,8 +752,14 @@ function ExpenseLedger({ expenses }: { expenses: ExpenseRecord[] }) {
               {expenses.map((expense) => (
                 <tr key={expense.id}>
                   <td>
+                    {receiptUrls[expense.id] ? (
+                      <a href={receiptUrls[expense.id]} target="_blank" rel="noopener noreferrer">
+                        View source
+                      </a>
+                    ) : (
+                      <span>Receipt stored</span>
+                    )}
                     <span className="filename">{expense.original_filename}</span>
-                    <span>{expense.receipt_path}</span>
                   </td>
                   <td>{expense.payee || expense.merchant_name || "Needs review"}</td>
                   <td>{expense.payment_reference || "-"}</td>
@@ -760,9 +794,11 @@ function ExpenseLedger({ expenses }: { expenses: ExpenseRecord[] }) {
 function Reports({
   departmentName,
   expenses,
+  receiptUrls,
 }: {
   departmentName: string;
   expenses: ExpenseRecord[];
+  receiptUrls: Record<string, string>;
 }) {
   const [startDate, setStartDate] = useState(defaultReportStart);
   const [endDate, setEndDate] = useState(defaultReportEnd);
@@ -780,7 +816,7 @@ function Reports({
   );
 
   function downloadCsv() {
-    const blob = new Blob([reconciliationReportCsv(report)], { type: "text/csv" });
+    const blob = new Blob([reconciliationReportCsv(report, receiptUrls)], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -835,6 +871,7 @@ function Reports({
               <th>Amount</th>
               <th>Balance</th>
               <th>Bank</th>
+              <th>Receipt</th>
             </tr>
           </thead>
           <tbody>
@@ -857,6 +894,15 @@ function Reports({
                     : ""}
                 </td>
                 <td>{row.expense.bank_account_name || ""}</td>
+                <td>
+                  {receiptUrls[row.expense.id] ? (
+                    <a href={receiptUrls[row.expense.id]} target="_blank" rel="noopener noreferrer">
+                      Receipt
+                    </a>
+                  ) : (
+                    ""
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

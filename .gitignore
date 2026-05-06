@@ -5,3 +5,5 @@ __pycache__/
 venv/
 data/
 .env
+node_modules/
+npm-debug.log*

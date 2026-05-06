@@ -76,7 +76,10 @@ function csvCell(value: string | number | null | undefined) {
   return `"${text.replaceAll('"', '""')}"`;
 }
 
-export function reconciliationReportCsv(report: ReconciliationReport) {
+export function reconciliationReportCsv(
+  report: ReconciliationReport,
+  receiptUrls: Record<string, string> = {},
+) {
   const rows = [
     [
       "Section",
@@ -106,7 +109,7 @@ export function reconciliationReportCsv(report: ReconciliationReport) {
         expense.bank_account_name || "",
         expense.bank_posted_date || "",
         expense.bank_description || "",
-        `/receipts/${expense.receipt_id}`,
+        receiptUrls[expense.id] || expense.receipt_path,
       ];
     }),
   ];

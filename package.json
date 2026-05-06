@@ -1,0 +1,15 @@
+{
+  "name": "rfd",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "lint": "npm --prefix frontend run lint",
+    "start": "npm --prefix frontend run start",
+    "install:frontend": "npm --prefix frontend install"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
