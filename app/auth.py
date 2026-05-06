@@ -119,16 +119,17 @@ class AuthService:
             raise AuthError(_supabase_error_message(response))
 
         payload = response.json()
-        access_token = payload.get("access_token")
-        user_payload = payload.get("user") or {}
+        access_token = _auth_access_token(payload)
+        user_payload = _auth_user_payload(payload)
         user_id = user_payload.get("id")
         user_email = user_payload.get("email") or email
         if not access_token or not user_id:
             raise AuthError("Supabase did not return a valid session.")
 
-        department = self._load_department_membership(
+        department = self._load_or_create_department_membership(
             access_token=access_token,
             user_id=user_id,
+            user_payload=user_payload,
         )
         return AuthenticatedUser(
             id=user_id,
@@ -156,7 +157,15 @@ class AuthService:
                     "apikey": self.settings.supabase_anon_key,
                     "Content-Type": "application/json",
                 },
-                json={"email": email, "password": password},
+                json={
+                    "email": email,
+                    "password": password,
+                    "data": {
+                        "pending_department_id": department_id,
+                        "pending_department_name": department_name,
+                        "pending_department_role": role,
+                    },
+                },
                 timeout=10,
             )
         except httpx.HTTPError as exc:
@@ -166,15 +175,15 @@ class AuthService:
             raise AuthError(_supabase_error_message(response))
 
         payload = response.json()
-        access_token = payload.get("access_token")
-        user_payload = payload.get("user") or {}
+        access_token = _auth_access_token(payload)
+        user_payload = _auth_user_payload(payload)
         user_id = user_payload.get("id")
         user_email = user_payload.get("email") or email
         if not user_id:
             raise AuthError("Supabase did not return a valid user.")
         if not access_token:
             raise AuthError(
-                "Supabase created the account, but email confirmation is required before department access can be set up."
+                "Account created. Check your email to confirm it, then log in to finish department setup."
             )
 
         self._create_department_membership(
@@ -256,6 +265,34 @@ class AuthService:
         if response.status_code >= 400:
             raise AuthError(_supabase_error_message(response))
 
+    def _load_or_create_department_membership(
+        self,
+        *,
+        access_token: str,
+        user_id: str,
+        user_payload: dict[str, Any],
+    ) -> DepartmentContext:
+        try:
+            return self._load_department_membership(
+                access_token=access_token,
+                user_id=user_id,
+            )
+        except AuthError as exc:
+            if "not assigned to a fire department" not in str(exc):
+                raise
+
+        pending_department = _pending_department_from_user(user_payload)
+        if pending_department is None:
+            raise AuthError("Your account is not assigned to a fire department yet.")
+
+        self._create_department_membership(
+            access_token=access_token,
+            department_id=pending_department.id,
+            user_id=user_id,
+            role=pending_department.role,
+        )
+        return pending_department
+
     def _load_department_membership(self, *, access_token: str, user_id: str) -> DepartmentContext:
         assert self.settings.supabase_url is not None
         assert self.settings.supabase_anon_key is not None
@@ -304,6 +341,61 @@ def _supabase_error_message(response: httpx.Response) -> str:
         or payload.get("error_description")
         or payload.get("error")
         or "Supabase rejected the request."
+    )
+
+
+def _auth_user_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    nested_user = payload.get("user")
+    if isinstance(nested_user, dict):
+        return nested_user
+
+    data = payload.get("data")
+    if isinstance(data, dict) and isinstance(data.get("user"), dict):
+        return data["user"]
+
+    if payload.get("id"):
+        return payload
+
+    return {}
+
+
+def _auth_access_token(payload: dict[str, Any]) -> str | None:
+    access_token = payload.get("access_token")
+    if isinstance(access_token, str) and access_token:
+        return access_token
+
+    session = payload.get("session")
+    if isinstance(session, dict) and isinstance(session.get("access_token"), str):
+        return session["access_token"]
+
+    data = payload.get("data")
+    if isinstance(data, dict):
+        data_session = data.get("session")
+        if isinstance(data_session, dict) and isinstance(data_session.get("access_token"), str):
+            return data_session["access_token"]
+
+    return None
+
+
+def _pending_department_from_user(user_payload: dict[str, Any]) -> DepartmentContext | None:
+    metadata = (
+        user_payload.get("user_metadata")
+        or user_payload.get("raw_user_meta_data")
+        or {}
+    )
+    if not isinstance(metadata, dict):
+        return None
+
+    department_id = str(metadata.get("pending_department_id") or "").strip()
+    department_name = str(metadata.get("pending_department_name") or "").strip()
+    role = str(metadata.get("pending_department_role") or "").strip()
+    if not department_id or not role:
+        return None
+
+    return DepartmentContext(
+        id=department_id,
+        name=department_name or "Fire Department",
+        role=_validate_role(role),
     )
 
 

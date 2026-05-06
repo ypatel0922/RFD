@@ -400,12 +400,161 @@ def test_supabase_signup_creates_auth_user_and_membership(tmp_path, monkeypatch)
     assert user.department.role == "Captain"
     assert requests[0]["url"] == "https://example.supabase.co/auth/v1/signup"
     assert requests[0]["json"]["email"] == "captain@lakefd.test"
+    assert requests[0]["json"]["data"] == {
+        "pending_department_id": _SUPABASE_DEPARTMENT_ID,
+        "pending_department_name": "Lake Fire Department",
+        "pending_department_role": "Captain",
+    }
     assert requests[1]["url"] == "https://example.supabase.co/rest/v1/department_members"
     assert requests[1]["headers"]["Authorization"] == "Bearer access-token"
     assert requests[1]["json"] == {
         "department_id": _SUPABASE_DEPARTMENT_ID,
         "user_id": "33333333-3333-4333-8333-333333333333",
         "role": "Captain",
+    }
+
+
+def test_supabase_signup_accepts_direct_user_payload(tmp_path, monkeypatch):
+    monkeypatch.setenv("RFD_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_ANON_KEY", "anon-key")
+    get_settings.cache_clear()
+
+    requests: list[dict] = []
+
+    def fake_post(url, *, headers, json, timeout, params=None):
+        requests.append({
+            "url": url,
+            "headers": headers,
+            "json": json,
+            "timeout": timeout,
+            "params": params,
+        })
+        if url.endswith("/auth/v1/signup"):
+            return httpx.Response(
+                200,
+                json={
+                    "id": "33333333-3333-4333-8333-333333333333",
+                    "email": "chief@lakefd.test",
+                    "access_token": "access-token",
+                },
+            )
+        return httpx.Response(201)
+
+    monkeypatch.setattr("app.auth.httpx.post", fake_post)
+
+    from app.auth import AuthService
+
+    user = AuthService(get_settings()).signup(
+        department_id=_SUPABASE_DEPARTMENT_ID,
+        department_name="Lake Fire Department",
+        email="chief@lakefd.test",
+        password="password",
+        role="Chief",
+    )
+
+    assert user.email == "chief@lakefd.test"
+    assert user.department.role == "Chief"
+    assert requests[1]["json"]["role"] == "Chief"
+
+
+def test_supabase_signup_with_email_confirmation_returns_actionable_message(tmp_path, monkeypatch):
+    monkeypatch.setenv("RFD_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_ANON_KEY", "anon-key")
+    get_settings.cache_clear()
+
+    def fake_post(url, *, headers, json, timeout, params=None):
+        return httpx.Response(
+            200,
+            json={
+                "id": "33333333-3333-4333-8333-333333333333",
+                "email": "lieutenant@lakefd.test",
+            },
+        )
+
+    monkeypatch.setattr("app.auth.httpx.post", fake_post)
+
+    from app.auth import AuthError, AuthService
+
+    try:
+        AuthService(get_settings()).signup(
+            department_id=_SUPABASE_DEPARTMENT_ID,
+            department_name="Lake Fire Department",
+            email="lieutenant@lakefd.test",
+            password="password",
+            role="Lieutenant",
+        )
+    except AuthError as exc:
+        assert "Account created" in str(exc)
+        assert "confirm" in str(exc)
+    else:
+        raise AssertionError("Expected email-confirmation signup message")
+
+
+def test_supabase_login_finishes_pending_department_membership(tmp_path, monkeypatch):
+    monkeypatch.setenv("RFD_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_ANON_KEY", "anon-key")
+    get_settings.cache_clear()
+
+    calls: list[dict] = []
+
+    def fake_post(url, *, headers, json, timeout, params=None):
+        calls.append({
+            "method": "POST",
+            "url": url,
+            "headers": headers,
+            "json": json,
+            "timeout": timeout,
+            "params": params,
+        })
+        if url.endswith("/auth/v1/token"):
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "access-token",
+                    "user": {
+                        "id": "33333333-3333-4333-8333-333333333333",
+                        "email": "secretary@lakefd.test",
+                        "user_metadata": {
+                            "pending_department_id": _SUPABASE_DEPARTMENT_ID,
+                            "pending_department_name": "Lake Fire Department",
+                            "pending_department_role": "Secretary",
+                        },
+                    },
+                },
+            )
+        return httpx.Response(201)
+
+    def fake_get(url, *, params, headers, timeout):
+        calls.append({
+            "method": "GET",
+            "url": url,
+            "params": params,
+            "headers": headers,
+            "timeout": timeout,
+        })
+        return httpx.Response(200, json=[])
+
+    monkeypatch.setattr("app.auth.httpx.post", fake_post)
+    monkeypatch.setattr("app.auth.httpx.get", fake_get)
+
+    from app.auth import AuthService
+
+    user = AuthService(get_settings()).login(
+        email="secretary@lakefd.test",
+        password="password",
+    )
+
+    assert user.email == "secretary@lakefd.test"
+    assert user.department.id == _SUPABASE_DEPARTMENT_ID
+    assert user.department.role == "Secretary"
+    membership_insert = [call for call in calls if call["method"] == "POST" and call["url"].endswith("/department_members")][0]
+    assert membership_insert["json"] == {
+        "department_id": _SUPABASE_DEPARTMENT_ID,
+        "user_id": "33333333-3333-4333-8333-333333333333",
+        "role": "Secretary",
     }
 
 

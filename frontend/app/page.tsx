@@ -347,7 +347,12 @@ function SignupForm({
     }
 
     const membership = await createMembershipFromMetadata(data.user, role, selectedDepartment);
-    if (!membership) return;
+    if (!membership) {
+      setMessage(
+        "Account created, but department access could not be finished. Try logging in again or contact an administrator.",
+      );
+      return;
+    }
     await onSignedIn(data.session);
   }
 
