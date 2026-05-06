@@ -31,6 +31,32 @@ This version includes:
 
 ## Run locally
 
+### Next.js + Supabase frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Then open http://127.0.0.1:3000.
+
+The Next.js app talks directly to Supabase for Auth, Postgres, and Storage.
+Receipt OCR uses the server-only Next route `app/api/extract-receipt`, which
+keeps the OpenAI key out of the browser.
+
+Create `frontend/.env.local` from `frontend/.env.local.example`:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=https://qdiktqcpwahtfhrvlncd.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_publishable_key
+NEXT_PUBLIC_SUPABASE_RECEIPTS_BUCKET=receipts
+OPENAI_API_KEY=your_openai_key
+OPENAI_RECEIPT_MODEL=gpt-4o-mini
+```
+
+### FastAPI prototype
+
 ```bash
 python3 -m pip install -r requirements.txt
 python3 -m uvicorn app.main:app --reload
