@@ -21,6 +21,7 @@
         <strong>{{ department.name }}</strong>
         <span>{{ current_user.email }}</span>
         <span class="role">{{ department.role }}</span>
+        <span>{{ persistence_mode }} persistence</span>
         <form action="/logout" method="post">
           <button class="secondary-button" type="submit">Log out</button>
         </form>

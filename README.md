@@ -10,8 +10,13 @@ This version includes:
 - Department membership scoping so each user only sees one department
   dashboard and ledger.
 - A web upload form for receipt images/PDFs.
-- Department/expense-scoped receipt storage paths under `data/receipts`.
-- A department-scoped JSON expense log under `data/expenses.json`.
+- Supabase Postgres expense persistence when signed in with Supabase Auth.
+- Supabase Storage uploads/downloads using a private department-scoped
+  `receipts` bucket when signed in with Supabase Auth.
+- Local department/expense-scoped receipt storage under `data/receipts` for
+  development fallback.
+- A local department-scoped JSON expense log under `data/expenses.json` for
+  development fallback.
 - Automatic receipt extraction through OpenAI Vision when `OPENAI_API_KEY` is
   configured.
 - A safe manual-review fallback when extraction credentials are not configured.
@@ -43,6 +48,7 @@ Environment variables:
 | `RFD_SESSION_SECRET` | `dev-insecure-change-me` | Secret used to sign login session cookies. Set a strong value outside local development. |
 | `SUPABASE_URL` | unset | Enables Supabase Auth when paired with `SUPABASE_ANON_KEY`. |
 | `SUPABASE_ANON_KEY` | unset | Public anon key used for Supabase Auth and department membership lookups. |
+| `SUPABASE_RECEIPTS_BUCKET` | `receipts` | Private Supabase Storage bucket for receipt files. |
 | `RFD_DEV_AUTH_ENABLED` | `true` | Allows local development login when Supabase is not configured. |
 | `RFD_DEV_DEPARTMENT_ID` | `demo-fire-department` | Local development department id. |
 | `RFD_DEV_DEPARTMENT_NAME` | `Demo Fire Department` | Local development department name. |
@@ -72,18 +78,19 @@ Receipt object paths are designed as:
 ```
 
 That keeps every stored receipt tied to both a department and an individual
-expense line item.
+expense line item. When users sign in through Supabase Auth, the app now writes
+expenses through Supabase PostgREST and uploads/reads receipts through Supabase
+Storage using that user's access token, so the RLS policies enforce tenant
+isolation at the database and object-storage layers.
 
 ## Next production steps
 
-The first slice keeps runtime expense persistence local while adding the
-Supabase auth and RLS foundation. The storage and repository code are isolated
-so the next steps can swap in:
+The repository and storage boundaries now support Supabase in production and a
+local fallback for development. The next steps can build on that foundation:
 
-1. Supabase Postgres writes for audit-safe expense records, reconciliation
-   records, funds, and fiscal periods.
-2. Supabase Storage uploads/downloads using the private `receipts` bucket and
-   the same department/expense path structure.
-3. Bank feed integration and transaction matching for reconciliation.
-4. Report builders for quarterly/yearly summaries, NY 2% reports, and IRS 990
+1. Move funds, vendors, reconciliation records, fiscal periods, and report
+   outputs into Supabase tables.
+2. Add bank feed integration and transaction matching for reconciliation.
+3. Add editing/review screens for extracted receipt fields.
+4. Build quarterly/yearly summaries, NY 2% reports, and IRS 990
    support.

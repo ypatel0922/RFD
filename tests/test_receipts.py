@@ -1,12 +1,15 @@
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
 
 from fastapi.testclient import TestClient
+import httpx
 
 from app.config import get_settings
-from app.main import app
-from app.models import ExpenseRecord
-from app.repository import ExpenseRepository
+from app.main import app, repository_for, storage_for
+from app.models import AuthenticatedUser, DepartmentContext, ExpenseRecord
+from app.repository import ExpenseRepository, SupabaseExpenseRepository
+from app.storage import SupabaseReceiptStorage
 
 
 def _configure_local_auth(tmp_path, monkeypatch) -> None:
@@ -182,3 +185,160 @@ def test_api_requires_login(tmp_path, monkeypatch):
     response = client.get("/api/expenses")
 
     assert response.status_code == 401
+
+
+def test_supabase_session_uses_supabase_adapters(tmp_path, monkeypatch):
+    monkeypatch.setenv("RFD_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_ANON_KEY", "anon-key")
+    get_settings.cache_clear()
+
+    settings = get_settings()
+    user = _supabase_user()
+
+    assert isinstance(repository_for(settings, user), SupabaseExpenseRepository)
+    assert isinstance(storage_for(settings, user), SupabaseReceiptStorage)
+
+
+def test_supabase_repository_writes_and_maps_expenses(tmp_path, monkeypatch):
+    monkeypatch.setenv("RFD_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_ANON_KEY", "anon-key")
+    get_settings.cache_clear()
+
+    requests: list[dict] = []
+
+    def fake_post(url, *, params, headers, json, timeout):
+        requests.append({
+            "url": url,
+            "params": params,
+            "headers": headers,
+            "json": json,
+            "timeout": timeout,
+        })
+        return httpx.Response(201, json=[_supabase_expense_row()])
+
+    monkeypatch.setattr("app.repository.httpx.post", fake_post)
+
+    repository = SupabaseExpenseRepository(
+        settings=get_settings(),
+        access_token="access-token",
+        default_department_name="Fallback Fire Department",
+    )
+    saved = repository.add(_supabase_expense())
+
+    assert saved.department_name == "Lake Fire Department"
+    assert saved.receipt_url == f"/receipts/{_SUPABASE_RECEIPT_ID}"
+    assert saved.total_amount == Decimal("42.17")
+    assert requests[0]["url"] == "https://example.supabase.co/rest/v1/expenses"
+    assert requests[0]["headers"]["Authorization"] == "Bearer access-token"
+    assert requests[0]["json"]["department_id"] == _SUPABASE_DEPARTMENT_ID
+    assert "department_name" not in requests[0]["json"]
+    assert "receipt_url" not in requests[0]["json"]
+
+
+def test_supabase_storage_uploads_and_reads_private_receipts(tmp_path, monkeypatch):
+    monkeypatch.setenv("RFD_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_ANON_KEY", "anon-key")
+    get_settings.cache_clear()
+
+    calls: list[dict] = []
+
+    def fake_post(url, *, headers, content, timeout):
+        calls.append({
+            "method": "POST",
+            "url": url,
+            "headers": headers,
+            "content": content,
+            "timeout": timeout,
+        })
+        return httpx.Response(200, json={"Key": "receipts/path"})
+
+    def fake_get(url, *, headers, timeout):
+        calls.append({
+            "method": "GET",
+            "url": url,
+            "headers": headers,
+            "timeout": timeout,
+        })
+        return httpx.Response(200, content=b"receipt-bytes")
+
+    monkeypatch.setattr("app.storage.httpx.post", fake_post)
+    monkeypatch.setattr("app.storage.httpx.get", fake_get)
+
+    storage = SupabaseReceiptStorage(
+        settings=get_settings(),
+        access_token="access-token",
+        public_url_base="/receipts",
+    )
+    stored = storage.save(
+        content=b"receipt-bytes",
+        filename="receipt.png",
+        content_type="image/png",
+        department_id=_SUPABASE_DEPARTMENT_ID,
+        expense_id=_SUPABASE_EXPENSE_ID,
+    )
+    downloaded = storage.read(stored.relative_path)
+
+    assert downloaded == b"receipt-bytes"
+    assert stored.relative_path.startswith(f"{_SUPABASE_DEPARTMENT_ID}/")
+    assert f"/{_SUPABASE_EXPENSE_ID}/" in stored.relative_path
+    assert calls[0]["method"] == "POST"
+    assert "/storage/v1/object/receipts/" in calls[0]["url"]
+    assert calls[0]["headers"]["Authorization"] == "Bearer access-token"
+    assert calls[0]["headers"]["Content-Type"] == "image/png"
+    assert calls[1]["method"] == "GET"
+    assert "/storage/v1/object/authenticated/receipts/" in calls[1]["url"]
+
+
+_SUPABASE_DEPARTMENT_ID = "0a765b90-5c2a-42d7-829e-1f53ae44dc87"
+_SUPABASE_EXPENSE_ID = "11111111-1111-4111-8111-111111111111"
+_SUPABASE_RECEIPT_ID = "22222222-2222-4222-8222-222222222222"
+
+
+def _supabase_user() -> AuthenticatedUser:
+    return AuthenticatedUser(
+        id="33333333-3333-4333-8333-333333333333",
+        email="treasurer@lakefd.test",
+        access_token="access-token",
+        department=DepartmentContext(
+            id=_SUPABASE_DEPARTMENT_ID,
+            name="Lake Fire Department",
+            role="treasurer",
+        ),
+    )
+
+
+def _supabase_expense() -> ExpenseRecord:
+    return ExpenseRecord(
+        id=_SUPABASE_EXPENSE_ID,
+        department_id=_SUPABASE_DEPARTMENT_ID,
+        department_name="Lake Fire Department",
+        receipt_id=_SUPABASE_RECEIPT_ID,
+        receipt_url=f"/receipts/{_SUPABASE_RECEIPT_ID}",
+        receipt_path=(
+            f"{_SUPABASE_DEPARTMENT_ID}/2026/05/"
+            f"{_SUPABASE_EXPENSE_ID}/{_SUPABASE_RECEIPT_ID}.png"
+        ),
+        original_filename="receipt.png",
+        content_type="image/png",
+        created_at=datetime(2026, 5, 6, tzinfo=UTC),
+        created_by_user_id="33333333-3333-4333-8333-333333333333",
+        created_by_email="treasurer@lakefd.test",
+        merchant_name="Fuel Stop",
+        transaction_date=datetime(2026, 5, 5, tzinfo=UTC).date(),
+        total_amount=Decimal("42.17"),
+        tax_amount=Decimal("1.23"),
+        category="Fuel",
+        extraction_status="extracted",
+        extraction_confidence=0.91,
+    )
+
+
+def _supabase_expense_row() -> dict:
+    row = _supabase_expense().model_dump(mode="json")
+    row.pop("department_name")
+    row.pop("receipt_url")
+    row["departments"] = {"name": "Lake Fire Department"}
+    return row

@@ -17,6 +17,7 @@ class Settings(BaseModel):
     session_secret: str
     supabase_url: str | None = None
     supabase_anon_key: str | None = None
+    supabase_receipts_bucket: str = "receipts"
     dev_auth_enabled: bool = True
     dev_department_id: str = "demo-fire-department"
     dev_department_name: str = "Demo Fire Department"
@@ -43,6 +44,7 @@ def get_settings() -> Settings:
         session_secret=os.getenv("RFD_SESSION_SECRET", "dev-insecure-change-me"),
         supabase_url=_strip_trailing_slash(os.getenv("SUPABASE_URL")),
         supabase_anon_key=os.getenv("SUPABASE_ANON_KEY"),
+        supabase_receipts_bucket=os.getenv("SUPABASE_RECEIPTS_BUCKET", "receipts"),
         dev_auth_enabled=_env_bool("RFD_DEV_AUTH_ENABLED", default=True),
         dev_department_id=os.getenv("RFD_DEV_DEPARTMENT_ID", "demo-fire-department"),
         dev_department_name=os.getenv("RFD_DEV_DEPARTMENT_NAME", "Demo Fire Department"),

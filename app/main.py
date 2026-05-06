@@ -6,7 +6,7 @@ from urllib.parse import quote
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -14,9 +14,9 @@ from app.auth import AuthError, AuthService
 from app.config import Settings, get_settings
 from app.extractor import ReceiptExtractor
 from app.models import AuthenticatedUser, ExpenseRecord
-from app.repository import ExpenseRepository
+from app.repository import ExpenseRepository, SupabaseExpenseRepository
 from app.session import SessionManager
-from app.storage import LocalReceiptStorage
+from app.storage import LocalReceiptStorage, SupabaseReceiptStorage
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -28,18 +28,6 @@ app.mount("/static", StaticFiles(directory=PROJECT_ROOT / "static"), name="stati
 
 def settings_dependency() -> Settings:
     return get_settings()
-
-
-def repository_dependency(
-    settings: Settings = Depends(settings_dependency),
-) -> ExpenseRepository:
-    return ExpenseRepository(settings.database_path)
-
-
-def storage_dependency(
-    settings: Settings = Depends(settings_dependency),
-) -> LocalReceiptStorage:
-    return LocalReceiptStorage(settings.receipt_dir, settings.receipt_base_url)
 
 
 def extractor_dependency(
@@ -130,18 +118,19 @@ def dashboard(
     request: Request,
     uploaded: str | None = None,
     settings: Settings = Depends(settings_dependency),
-    repository: ExpenseRepository = Depends(repository_dependency),
     current_user: AuthenticatedUser | None = Depends(optional_user_dependency),
 ) -> Response:
     if current_user is None:
         return RedirectResponse(url="/login", status_code=303)
 
+    repository = repository_for(settings, current_user)
     context = {
         "expenses": repository.list_expenses(current_user.department.id, limit=100),
         "uploaded": uploaded,
         "app_name": settings.app_name,
         "current_user": current_user,
         "department": current_user.department,
+        "persistence_mode": "Supabase" if current_user.access_token else "Local development",
         "automatic_extraction_enabled": bool(settings.openai_api_key),
         "max_upload_mb": round(settings.max_upload_bytes / (1024 * 1024)),
     }
@@ -157,8 +146,6 @@ async def upload_receipt(
     receipt: UploadFile = File(...),
     uploaded_by: str | None = Form(default=None),
     fund: str | None = Form(default=None),
-    repository: ExpenseRepository = Depends(repository_dependency),
-    storage: LocalReceiptStorage = Depends(storage_dependency),
     extractor: ReceiptExtractor = Depends(extractor_dependency),
     settings: Settings = Depends(settings_dependency),
     current_user: AuthenticatedUser | None = Depends(optional_user_dependency),
@@ -171,8 +158,8 @@ async def upload_receipt(
         uploaded_by=uploaded_by,
         fund=fund,
         current_user=current_user,
-        repository=repository,
-        storage=storage,
+        repository=repository_for(settings, current_user),
+        storage=storage_for(settings, current_user),
         extractor=extractor,
         settings=settings,
     )
@@ -184,8 +171,6 @@ async def upload_receipt_api(
     receipt: UploadFile = File(...),
     uploaded_by: str | None = Form(default=None),
     fund: str | None = Form(default=None),
-    repository: ExpenseRepository = Depends(repository_dependency),
-    storage: LocalReceiptStorage = Depends(storage_dependency),
     extractor: ReceiptExtractor = Depends(extractor_dependency),
     settings: Settings = Depends(settings_dependency),
     current_user: AuthenticatedUser = Depends(require_user_dependency),
@@ -195,8 +180,8 @@ async def upload_receipt_api(
         uploaded_by=uploaded_by,
         fund=fund,
         current_user=current_user,
-        repository=repository,
-        storage=storage,
+        repository=repository_for(settings, current_user),
+        storage=storage_for(settings, current_user),
         extractor=extractor,
         settings=settings,
     )
@@ -204,9 +189,10 @@ async def upload_receipt_api(
 
 @app.get("/api/expenses", response_class=JSONResponse)
 def list_expenses(
-    repository: ExpenseRepository = Depends(repository_dependency),
+    settings: Settings = Depends(settings_dependency),
     current_user: AuthenticatedUser = Depends(require_user_dependency),
 ) -> JSONResponse:
+    repository = repository_for(settings, current_user)
     expenses = [
         expense.model_dump(mode="json")
         for expense in repository.list_expenses(current_user.department.id, limit=100)
@@ -217,22 +203,27 @@ def list_expenses(
 @app.get("/receipts/{receipt_id}")
 def get_receipt(
     receipt_id: str,
-    repository: ExpenseRepository = Depends(repository_dependency),
-    storage: LocalReceiptStorage = Depends(storage_dependency),
+    settings: Settings = Depends(settings_dependency),
     current_user: AuthenticatedUser = Depends(require_user_dependency),
-) -> FileResponse:
+) -> Response:
+    repository = repository_for(settings, current_user)
+    storage = storage_for(settings, current_user)
     expense = repository.find_by_receipt_id(receipt_id, current_user.department.id)
     if expense is None:
         raise HTTPException(status_code=404, detail="Receipt not found")
 
-    path = storage.path_for(expense.receipt_path)
-    if not path.exists():
+    try:
+        content = storage.read(expense.receipt_path)
+    except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Receipt file is missing")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    return FileResponse(
-        path,
+    filename = expense.original_filename.replace('"', "")
+    return Response(
+        content=content,
         media_type=expense.content_type,
-        filename=expense.original_filename,
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
     )
 
 
@@ -313,3 +304,29 @@ def _validate_upload(receipt: UploadFile) -> None:
         status_code=400,
         detail="Upload a JPG, PNG, WebP, GIF, or PDF receipt.",
     )
+
+
+def repository_for(
+    settings: Settings,
+    current_user: AuthenticatedUser,
+) -> ExpenseRepository | SupabaseExpenseRepository:
+    if settings.supabase_auth_enabled and current_user.access_token:
+        return SupabaseExpenseRepository(
+            settings=settings,
+            access_token=current_user.access_token,
+            default_department_name=current_user.department.name,
+        )
+    return ExpenseRepository(settings.database_path)
+
+
+def storage_for(
+    settings: Settings,
+    current_user: AuthenticatedUser,
+) -> LocalReceiptStorage | SupabaseReceiptStorage:
+    if settings.supabase_auth_enabled and current_user.access_token:
+        return SupabaseReceiptStorage(
+            settings=settings,
+            access_token=current_user.access_token,
+            public_url_base=settings.receipt_base_url,
+        )
+    return LocalReceiptStorage(settings.receipt_dir, settings.receipt_base_url)
