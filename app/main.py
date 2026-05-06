@@ -52,16 +52,17 @@ def dashboard(
     settings: Settings = Depends(settings_dependency),
     repository: ExpenseRepository = Depends(repository_dependency),
 ) -> HTMLResponse:
+    context = {
+        "expenses": repository.list_expenses(limit=100),
+        "uploaded": uploaded,
+        "app_name": settings.app_name,
+        "automatic_extraction_enabled": bool(settings.openai_api_key),
+        "max_upload_mb": round(settings.max_upload_bytes / (1024 * 1024)),
+    }
     return templates.TemplateResponse(
-        "index.html",
-        {
-            "request": request,
-            "expenses": repository.list_expenses(limit=100),
-            "uploaded": uploaded,
-            "app_name": settings.app_name,
-            "automatic_extraction_enabled": bool(settings.openai_api_key),
-            "max_upload_mb": round(settings.max_upload_bytes / (1024 * 1024)),
-        },
+        request=request,
+        name="index.html",
+        context=context,
     )
 
 

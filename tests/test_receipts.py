@@ -83,3 +83,15 @@ def test_expenses_api_returns_logged_expenses(tmp_path, monkeypatch):
     payload = response.json()
     assert len(payload["expenses"]) == 1
     assert payload["expenses"][0]["receipt_url"].startswith("/receipts/")
+
+
+def test_dashboard_renders(tmp_path, monkeypatch):
+    monkeypatch.setenv("RFD_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    get_settings.cache_clear()
+
+    client = TestClient(app)
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "Receipt-first expense tracking" in response.text
