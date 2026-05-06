@@ -63,6 +63,14 @@ Environment variables:
 Without `OPENAI_API_KEY`, uploads still work and expenses are logged with
 `needs_review` extraction status.
 
+For the configured Supabase project, start from `.env.example`:
+
+```bash
+SUPABASE_URL=https://qdiktqcpwahtfhrvlncd.supabase.co
+SUPABASE_ANON_KEY=your_supabase_anon_key
+RFD_SESSION_SECRET=replace_with_a_long_random_secret
+```
+
 ## Supabase setup
 
 Run the migrations in `supabase/migrations/` against your Supabase project. They
