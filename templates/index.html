@@ -16,6 +16,15 @@
           expense details needed for reconciliation, audits, and annual reports.
         </p>
       </div>
+      <div class="account-panel">
+        <span class="eyebrow">Signed in</span>
+        <strong>{{ department.name }}</strong>
+        <span>{{ current_user.email }}</span>
+        <span class="role">{{ department.role }}</span>
+        <form action="/logout" method="post">
+          <button class="secondary-button" type="submit">Log out</button>
+        </form>
+      </div>
     </header>
 
     <main class="layout">
@@ -66,7 +75,7 @@
       <section class="card">
         <div class="section-heading">
           <p class="eyebrow">Expense ledger</p>
-          <h2>Recent receipts</h2>
+          <h2>{{ department.name }} receipts</h2>
         </div>
 
         {% if expenses %}

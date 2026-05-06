@@ -31,6 +31,10 @@ a {
 }
 
 .hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
   background: linear-gradient(135deg, #7f1d1d, #b42318 48%, #f97316);
   color: #ffffff;
   padding: 56px max(24px, calc((100vw - 1120px) / 2)) 48px;
@@ -56,6 +60,25 @@ a {
   margin: 0;
   color: #fff3ed;
   font-size: 1.125rem;
+}
+
+.account-panel {
+  display: grid;
+  gap: 6px;
+  min-width: 240px;
+  border: 1px solid rgb(255 255 255 / 28%);
+  border-radius: 20px;
+  background: rgb(255 255 255 / 14%);
+  padding: 18px;
+}
+
+.account-panel strong,
+.account-panel span {
+  overflow-wrap: anywhere;
+}
+
+.role {
+  text-transform: capitalize;
 }
 
 .layout {
@@ -100,6 +123,8 @@ label {
 }
 
 input[type="text"],
+input[type="email"],
+input[type="password"],
 input[type="file"] {
   width: 100%;
   border: 1px solid var(--border);
@@ -124,12 +149,49 @@ button:hover {
   background: var(--primary-dark);
 }
 
+.secondary-button {
+  width: auto;
+  border: 1px solid rgb(255 255 255 / 46%);
+  background: rgb(255 255 255 / 12%);
+  padding: 9px 12px;
+}
+
+.secondary-button:hover {
+  background: rgb(255 255 255 / 22%);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  margin: 16px 0;
+}
+
+.integration-note {
+  margin-top: 18px;
+  border-radius: 16px;
+  background: #fff7ed;
+  color: #9a3412;
+  padding: 12px 14px;
+  font-size: 0.92rem;
+}
+
 .notice {
   margin: 0 0 18px;
   border: 1px solid #abefc6;
   border-radius: 16px;
   background: #ecfdf3;
   color: #067647;
+  padding: 12px 14px;
+  font-weight: 800;
+}
+
+.error {
+  margin: 0 0 18px;
+  border: 1px solid #fecdca;
+  border-radius: 16px;
+  background: #fef3f2;
+  color: #b42318;
   padding: 12px 14px;
   font-weight: 800;
 }
@@ -217,7 +279,42 @@ th {
   padding: 36px 24px 48px;
 }
 
+.filename,
+.notes {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.auth-layout {
+  width: min(460px, calc(100vw - 32px));
+  margin: 48px auto;
+}
+
+.auth-card {
+  padding: 24px;
+}
+
+.auth-card h1 {
+  margin: 0 0 8px;
+}
+
+.auth-card form {
+  margin-top: 18px;
+}
+
+.notice-error {
+  border-color: #fecdca;
+  background: #fef3f2;
+  color: #b42318;
+}
+
 @media (max-width: 860px) {
+  .hero {
+    display: grid;
+  }
+
   .layout {
     grid-template-columns: 1fr;
   }

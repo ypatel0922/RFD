@@ -33,11 +33,25 @@ class LocalReceiptStorage:
         self.root = root
         self.public_url_base = public_url_base.rstrip("/")
 
-    def save(self, content: bytes, filename: str | None, content_type: str | None) -> StoredReceipt:
+    def save(
+        self,
+        *,
+        content: bytes,
+        filename: str | None,
+        content_type: str | None,
+        department_id: str,
+        expense_id: str,
+    ) -> StoredReceipt:
         receipt_id = str(uuid4())
         suffix = self._suffix_for(filename, content_type)
         now = datetime.now(UTC)
-        relative_path = Path(str(now.year)) / f"{now.month:02d}" / f"{receipt_id}{suffix}"
+        relative_path = (
+            Path(_safe_path_segment(department_id))
+            / str(now.year)
+            / f"{now.month:02d}"
+            / _safe_path_segment(expense_id)
+            / f"{receipt_id}{suffix}"
+        )
         target = (self.root / relative_path).resolve()
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(content)
@@ -66,3 +80,7 @@ class LocalReceiptStorage:
                 return ".jpg" if suffix == ".jpeg" else suffix
 
         return ".bin"
+
+
+def _safe_path_segment(value: str) -> str:
+    return "".join(character if character.isalnum() or character in {"-", "_"} else "-" for character in value)

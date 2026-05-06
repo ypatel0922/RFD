@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Log in | {{ app_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
+  </head>
+  <body>
+    <main class="auth-layout">
+      <section class="card auth-card">
+        <p class="eyebrow">Fire department bookkeeping</p>
+        <h1>Log in to your department</h1>
+        <p class="hero-copy">
+          Each user signs in to the department they belong to. Expenses,
+          receipts, reports, and future bank reconciliation stay scoped to that
+          department.
+        </p>
+
+        {% if error %}
+          <div class="notice notice-error">{{ error }}</div>
+        {% endif %}
+
+        <form action="/login" method="post" class="upload-form">
+          <label>
+            Email
+            <input type="email" name="email" autocomplete="email" required>
+          </label>
+          <label>
+            Password
+            <input type="password" name="password" autocomplete="current-password" required>
+          </label>
+          <button type="submit">Log in</button>
+        </form>
+
+        <div class="integration-note">
+          {% if supabase_auth_enabled %}
+            Supabase Auth is enabled. Users must also have a
+            <code>department_members</code> row.
+          {% elif dev_auth_enabled %}
+            Local development login is enabled because Supabase is not
+            configured. Set <code>SUPABASE_URL</code> and
+            <code>SUPABASE_ANON_KEY</code> before production use.
+          {% else %}
+            Supabase Auth is not configured for this environment.
+          {% endif %}
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

@@ -37,14 +37,31 @@ class StoredReceipt(BaseModel):
     content_type: str
 
 
+class DepartmentContext(BaseModel):
+    id: str
+    name: str
+    role: str = "member"
+
+
+class AuthenticatedUser(BaseModel):
+    id: str
+    email: str
+    access_token: str | None = None
+    department: DepartmentContext
+
+
 class ExpenseRecord(BaseModel):
     id: str
+    department_id: str
+    department_name: str
     receipt_id: str
     receipt_url: str
     receipt_path: str
     original_filename: str
     content_type: str
     created_at: datetime
+    created_by_user_id: str
+    created_by_email: str
     uploaded_by: str | None = None
     fund: str | None = None
     merchant_name: str | None = None
@@ -58,7 +75,18 @@ class ExpenseRecord(BaseModel):
     extraction_notes: str | None = None
     reconciliation_status: ReconciliationStatus = "unreconciled"
 
-    @field_validator("uploaded_by", "fund", "merchant_name", "category", "payment_method", "extraction_notes")
+    @field_validator(
+        "department_id",
+        "department_name",
+        "created_by_user_id",
+        "created_by_email",
+        "uploaded_by",
+        "fund",
+        "merchant_name",
+        "category",
+        "payment_method",
+        "extraction_notes",
+    )
     @classmethod
     def normalize_optional_text(cls, value: str | None) -> str | None:
         if value is None:

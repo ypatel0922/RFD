@@ -16,8 +16,12 @@ class ExpenseRepository:
     def __init__(self, database_path: Path) -> None:
         self.database_path = database_path
 
-    def list_expenses(self, limit: int | None = 50) -> list[ExpenseRecord]:
-        records = self._read_all()
+    def list_expenses(self, department_id: str, limit: int | None = 50) -> list[ExpenseRecord]:
+        records = [
+            expense
+            for expense in self._read_all()
+            if expense.department_id == department_id
+        ]
         records.sort(key=lambda expense: expense.created_at, reverse=True)
         if limit is None:
             return records
@@ -29,9 +33,9 @@ class ExpenseRepository:
         self._write_all(records)
         return expense
 
-    def find_by_receipt_id(self, receipt_id: str) -> ExpenseRecord | None:
+    def find_by_receipt_id(self, receipt_id: str, department_id: str) -> ExpenseRecord | None:
         for expense in self._read_all():
-            if expense.receipt_id == receipt_id:
+            if expense.receipt_id == receipt_id and expense.department_id == department_id:
                 return expense
         return None
 

@@ -9,12 +9,51 @@ from app.models import ExpenseRecord
 from app.repository import ExpenseRepository
 
 
-def test_receipt_upload_stores_file_and_logs_expense(tmp_path, monkeypatch):
+def _configure_local_auth(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("RFD_DATA_DIR", str(tmp_path))
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_ANON_KEY", raising=False)
     get_settings.cache_clear()
 
+
+def _login(client: TestClient, email: str = "treasurer@example.com") -> None:
+    response = client.post(
+        "/login",
+        data={"email": email, "password": "password"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+
+def _expense(
+    *,
+    expense_id: str,
+    receipt_id: str,
+    department_id: str,
+    department_name: str,
+) -> ExpenseRecord:
+    return ExpenseRecord(
+        id=expense_id,
+        department_id=department_id,
+        department_name=department_name,
+        receipt_id=receipt_id,
+        receipt_url=f"/receipts/{receipt_id}",
+        receipt_path=f"{department_id}/2026/05/{expense_id}/{receipt_id}.png",
+        original_filename="receipt.png",
+        content_type="image/png",
+        created_at=datetime(2026, 5, 6, tzinfo=UTC),
+        created_by_user_id="user-1",
+        created_by_email="treasurer@example.com",
+    )
+
+
+def test_receipt_upload_stores_file_and_logs_expense(tmp_path, monkeypatch):
+    _configure_local_auth(tmp_path, monkeypatch)
+
     client = TestClient(app)
+    _login(client)
+
     response = client.post(
         "/receipts",
         files={"receipt": ("fuel.png", b"\x89PNG\r\n\x1a\nreceipt-bytes", "image/png")},
@@ -26,28 +65,31 @@ def test_receipt_upload_stores_file_and_logs_expense(tmp_path, monkeypatch):
 
     settings = get_settings()
     repository = ExpenseRepository(settings.database_path)
-    expenses = repository.list_expenses()
+    expenses = repository.list_expenses(settings.dev_department_id)
 
     assert len(expenses) == 1
     expense = expenses[0]
+    assert expense.department_id == settings.dev_department_id
+    assert expense.department_name == settings.dev_department_name
+    assert expense.created_by_email == "treasurer@example.com"
     assert expense.original_filename == "fuel.png"
     assert expense.uploaded_by == "Treasurer"
     assert expense.fund == "General Fund"
     assert expense.extraction_status == "needs_review"
     assert expense.reconciliation_status == "unreconciled"
+    assert expense.receipt_path.startswith(f"{settings.dev_department_id}/")
+    assert f"/{expense.id}/" in expense.receipt_path
     assert (settings.receipt_dir / expense.receipt_path).exists()
 
 
 def test_repository_round_trips_money_and_dates(tmp_path):
     repository = ExpenseRepository(tmp_path / "expenses.json")
-    expense = ExpenseRecord(
-        id="expense-1",
+    expense = _expense(
+        expense_id="expense-1",
         receipt_id="receipt-1",
-        receipt_url="/receipts/receipt-1",
-        receipt_path="2026/05/receipt-1.png",
-        original_filename="receipt.png",
-        content_type="image/png",
-        created_at=datetime(2026, 5, 6, tzinfo=UTC),
+        department_id="department-1",
+        department_name="Department 1",
+    ).model_copy(update={
         merchant_name="Fuel Stop",
         transaction_date=datetime(2026, 5, 5, tzinfo=UTC).date(),
         total_amount=Decimal("42.17"),
@@ -55,22 +97,45 @@ def test_repository_round_trips_money_and_dates(tmp_path):
         category="Fuel",
         extraction_status="extracted",
         extraction_confidence=0.91,
-    )
+    })
 
     repository.add(expense)
-    loaded = repository.list_expenses()[0]
+    loaded = repository.list_expenses("department-1")[0]
 
     assert loaded.merchant_name == "Fuel Stop"
     assert loaded.total_amount == Decimal("42.17")
     assert loaded.transaction_date.isoformat() == "2026-05-05"
 
 
+def test_repository_isolates_departments(tmp_path):
+    repository = ExpenseRepository(tmp_path / "expenses.json")
+    department_one_expense = _expense(
+        expense_id="expense-1",
+        receipt_id="receipt-1",
+        department_id="department-1",
+        department_name="Department 1",
+    )
+    department_two_expense = _expense(
+        expense_id="expense-2",
+        receipt_id="receipt-2",
+        department_id="department-2",
+        department_name="Department 2",
+    )
+
+    repository.add(department_one_expense)
+    repository.add(department_two_expense)
+
+    assert repository.list_expenses("department-1") == [department_one_expense]
+    assert repository.find_by_receipt_id("receipt-2", "department-1") is None
+    assert repository.find_by_receipt_id("receipt-2", "department-2") == department_two_expense
+
+
 def test_expenses_api_returns_logged_expenses(tmp_path, monkeypatch):
-    monkeypatch.setenv("RFD_DATA_DIR", str(tmp_path))
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    get_settings.cache_clear()
+    _configure_local_auth(tmp_path, monkeypatch)
 
     client = TestClient(app)
+    _login(client)
+
     client.post(
         "/receipts",
         files={"receipt": ("meal.jpg", b"jpeg bytes", "image/jpeg")},
@@ -83,15 +148,35 @@ def test_expenses_api_returns_logged_expenses(tmp_path, monkeypatch):
     payload = response.json()
     assert len(payload["expenses"]) == 1
     assert payload["expenses"][0]["receipt_url"].startswith("/receipts/")
+    assert payload["expenses"][0]["department_id"] == get_settings().dev_department_id
 
 
-def test_dashboard_renders(tmp_path, monkeypatch):
-    monkeypatch.setenv("RFD_DATA_DIR", str(tmp_path))
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    get_settings.cache_clear()
+def test_dashboard_redirects_to_login_without_session(tmp_path, monkeypatch):
+    _configure_local_auth(tmp_path, monkeypatch)
 
     client = TestClient(app)
+    response = client.get("/", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+
+
+def test_login_then_dashboard_renders_department_context(tmp_path, monkeypatch):
+    _configure_local_auth(tmp_path, monkeypatch)
+
+    client = TestClient(app)
+    _login(client)
     response = client.get("/")
 
     assert response.status_code == 200
     assert "Receipt-first expense tracking" in response.text
+    assert "Demo Fire Department" in response.text
+
+
+def test_api_requires_login(tmp_path, monkeypatch):
+    _configure_local_auth(tmp_path, monkeypatch)
+
+    client = TestClient(app)
+    response = client.get("/api/expenses")
+
+    assert response.status_code == 401
