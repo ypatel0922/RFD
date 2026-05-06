@@ -9,7 +9,8 @@ This version includes:
   configured.
 - Department membership scoping so each user only sees one department
   dashboard and ledger.
-- A web upload form for receipt images/PDFs.
+- A two-step capture flow: upload a receipt or take a mobile photo, then review
+  autofilled register fields before logging the expense.
 - Supabase Postgres expense persistence when signed in with Supabase Auth.
 - Supabase Storage uploads/downloads using a private department-scoped
   `receipts` bucket when signed in with Supabase Auth.
@@ -21,6 +22,8 @@ This version includes:
   configured.
 - A safe manual-review fallback when extraction credentials are not configured.
 - A receipt viewer endpoint so stored receipts remain linked to each expense.
+- Bank reconciliation fields so logged expenses can be matched against imported
+  bank transactions when they post.
 
 ## Run locally
 
@@ -60,8 +63,8 @@ Without `OPENAI_API_KEY`, uploads still work and expenses are logged with
 
 ## Supabase setup
 
-Run the migration in `supabase/migrations/001_department_expense_isolation.sql`
-against your Supabase project. It creates:
+Run the migrations in `supabase/migrations/` against your Supabase project. They
+create:
 
 - `departments`
 - `department_members`
@@ -82,6 +85,12 @@ expense line item. When users sign in through Supabase Auth, the app now writes
 expenses through Supabase PostgREST and uploads/reads receipts through Supabase
 Storage using that user's access token, so the RLS policies enforce tenant
 isolation at the database and object-storage layers.
+
+The review screen mirrors the current hand-written register workflow with fields
+for date, check/payment reference, paid-to/vendor, payment amount, tax, running
+balance, bank account, fund/budget line, category/purpose, and memo. Confirmed
+expenses start with `pending_bank_match` reconciliation status so the future
+bank feed integration can match by amount, date, vendor, and account.
 
 ## Next production steps
 

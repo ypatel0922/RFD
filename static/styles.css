@@ -125,12 +125,18 @@ label {
 input[type="text"],
 input[type="email"],
 input[type="password"],
-input[type="file"] {
+input[type="file"],
+input[type="date"],
+textarea {
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 12px;
   font: inherit;
+}
+
+textarea {
+  resize: vertical;
 }
 
 button {
@@ -165,6 +171,29 @@ button:hover {
   grid-template-columns: 1fr;
   gap: 14px;
   margin: 16px 0;
+}
+
+.capture-options {
+  display: grid;
+  gap: 18px;
+}
+
+.capture-option {
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 16px;
+}
+
+.capture-option h3 {
+  margin: 0 0 8px;
+}
+
+.capture-option p {
+  margin: 0 0 14px;
+}
+
+.two-column {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .integration-note {
@@ -270,6 +299,22 @@ th {
   color: var(--warning);
 }
 
+.status-pending_bank_match,
+.status-unreconciled {
+  background: #e0f2fe;
+  color: #026aa2;
+}
+
+.status-matched {
+  background: #dcfae6;
+  color: var(--success);
+}
+
+.status-needs_attention {
+  background: #fef0c7;
+  color: var(--warning);
+}
+
 .status-failed {
   background: #fee4e2;
   color: var(--danger);
@@ -310,12 +355,35 @@ th {
   color: #b42318;
 }
 
+.status-pending_bank_match {
+  background: #e0f2fe;
+  color: #026aa2;
+}
+
+.review-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+  gap: 24px;
+  width: min(1120px, calc(100vw - 32px));
+  margin: -28px auto 48px;
+}
+
+.review-card {
+  padding: 24px;
+  align-self: start;
+}
+
 @media (max-width: 860px) {
   .hero {
     display: grid;
   }
 
   .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .review-layout,
+  .two-column {
     grid-template-columns: 1fr;
   }
 }

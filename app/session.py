@@ -9,11 +9,13 @@ from typing import Any
 from fastapi import Request, Response
 
 from app.config import Settings
-from app.models import AuthenticatedUser
+from app.models import AuthenticatedUser, ExpenseDraft
 
 
 SESSION_COOKIE_NAME = "rfd_session"
+EXPENSE_DRAFT_COOKIE_NAME = "rfd_expense_draft"
 SESSION_MAX_AGE_SECONDS = 60 * 60 * 8
+DRAFT_MAX_AGE_SECONDS = 60 * 30
 
 
 class SessionManager:
@@ -43,6 +45,31 @@ class SessionManager:
 
     def sign_out(self, response: Response) -> None:
         response.delete_cookie(SESSION_COOKIE_NAME)
+        response.delete_cookie(EXPENSE_DRAFT_COOKIE_NAME)
+
+    def load_expense_draft(self, request: Request) -> ExpenseDraft | None:
+        raw_cookie = request.cookies.get(EXPENSE_DRAFT_COOKIE_NAME)
+        if not raw_cookie:
+            return None
+
+        try:
+            payload = self._loads(raw_cookie)
+            return ExpenseDraft.model_validate(payload)
+        except (ValueError, json.JSONDecodeError):
+            return None
+
+    def save_expense_draft(self, response: Response, draft: ExpenseDraft) -> None:
+        response.set_cookie(
+            EXPENSE_DRAFT_COOKIE_NAME,
+            self._dumps(draft.model_dump(mode="json")),
+            max_age=DRAFT_MAX_AGE_SECONDS,
+            httponly=True,
+            secure=False,
+            samesite="lax",
+        )
+
+    def clear_expense_draft(self, response: Response) -> None:
+        response.delete_cookie(EXPENSE_DRAFT_COOKIE_NAME)
 
     def _dumps(self, payload: dict[str, Any]) -> str:
         encoded_payload = _base64url_encode(

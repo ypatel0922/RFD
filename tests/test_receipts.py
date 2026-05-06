@@ -1,7 +1,5 @@
 from datetime import UTC, datetime
 from decimal import Decimal
-from pathlib import Path
-
 from fastapi.testclient import TestClient
 import httpx
 
@@ -51,25 +49,53 @@ def _expense(
     )
 
 
-def test_receipt_upload_stores_file_and_logs_expense(tmp_path, monkeypatch):
+def test_receipt_upload_requires_review_before_logging(tmp_path, monkeypatch):
     _configure_local_auth(tmp_path, monkeypatch)
 
     client = TestClient(app)
     _login(client)
 
     response = client.post(
-        "/receipts",
+        "/receipts/review",
         files={"receipt": ("fuel.png", b"\x89PNG\r\n\x1a\nreceipt-bytes", "image/png")},
         data={"uploaded_by": "Treasurer", "fund": "General Fund"},
         follow_redirects=False,
     )
 
     assert response.status_code == 303
+    assert response.headers["location"] == "/receipts/review"
 
     settings = get_settings()
     repository = ExpenseRepository(settings.database_path)
     expenses = repository.list_expenses(settings.dev_department_id)
+    assert expenses == []
 
+    review_response = client.get("/receipts/review")
+    assert review_response.status_code == 200
+    assert "Review before logging" in review_response.text
+    assert "General Fund" in review_response.text
+
+    confirm_response = client.post(
+        "/receipts/confirm",
+        data={
+            "uploaded_by": "Treasurer",
+            "fund": "General Fund",
+            "payment_reference": "Debit",
+            "payee": "Fuel Stop",
+            "description": "Fuel for apparatus",
+            "bank_account_name": "Checking",
+            "transaction_date": "2026-05-06",
+            "total_amount": "42.17",
+            "tax_amount": "1.23",
+            "balance_after_transaction": "1050.25",
+            "category": "Fuel",
+            "payment_method": "Debit card",
+        },
+        follow_redirects=False,
+    )
+
+    assert confirm_response.status_code == 303
+    expenses = repository.list_expenses(settings.dev_department_id)
     assert len(expenses) == 1
     expense = expenses[0]
     assert expense.department_id == settings.dev_department_id
@@ -78,8 +104,18 @@ def test_receipt_upload_stores_file_and_logs_expense(tmp_path, monkeypatch):
     assert expense.original_filename == "fuel.png"
     assert expense.uploaded_by == "Treasurer"
     assert expense.fund == "General Fund"
+    assert expense.payment_reference == "Debit"
+    assert expense.payee == "Fuel Stop"
+    assert expense.description == "Fuel for apparatus"
+    assert expense.bank_account_name == "Checking"
+    assert expense.transaction_date.isoformat() == "2026-05-06"
+    assert expense.total_amount == Decimal("42.17")
+    assert expense.tax_amount == Decimal("1.23")
+    assert expense.balance_after_transaction == Decimal("1050.25")
+    assert expense.category == "Fuel"
+    assert expense.payment_method == "Debit card"
     assert expense.extraction_status == "needs_review"
-    assert expense.reconciliation_status == "unreconciled"
+    assert expense.reconciliation_status == "pending_bank_match"
     assert expense.receipt_path.startswith(f"{settings.dev_department_id}/")
     assert f"/{expense.id}/" in expense.receipt_path
     assert (settings.receipt_dir / expense.receipt_path).exists()
@@ -142,7 +178,7 @@ def test_expenses_api_returns_logged_expenses(tmp_path, monkeypatch):
     _login(client)
 
     client.post(
-        "/receipts",
+        "/api/receipts",
         files={"receipt": ("meal.jpg", b"jpeg bytes", "image/jpeg")},
         data={"uploaded_by": "", "fund": ""},
     )
@@ -154,6 +190,7 @@ def test_expenses_api_returns_logged_expenses(tmp_path, monkeypatch):
     assert len(payload["expenses"]) == 1
     assert payload["expenses"][0]["receipt_url"].startswith("/receipts/")
     assert payload["expenses"][0]["department_id"] == get_settings().dev_department_id
+    assert payload["expenses"][0]["reconciliation_status"] == "pending_bank_match"
 
 
 def test_dashboard_redirects_to_login_without_session(tmp_path, monkeypatch):
@@ -230,9 +267,12 @@ def test_supabase_repository_writes_and_maps_expenses(tmp_path, monkeypatch):
     assert saved.department_name == "Lake Fire Department"
     assert saved.receipt_url == f"/receipts/{_SUPABASE_RECEIPT_ID}"
     assert saved.total_amount == Decimal("42.17")
+    assert saved.payee == "Fuel Stop"
+    assert saved.reconciliation_status == "pending_bank_match"
     assert requests[0]["url"] == "https://example.supabase.co/rest/v1/expenses"
     assert requests[0]["headers"]["Authorization"] == "Bearer access-token"
     assert requests[0]["json"]["department_id"] == _SUPABASE_DEPARTMENT_ID
+    assert requests[0]["json"]["bank_account_name"] == "Checking"
     assert "department_name" not in requests[0]["json"]
     assert "receipt_url" not in requests[0]["json"]
 
@@ -326,13 +366,20 @@ def _supabase_expense() -> ExpenseRecord:
         created_at=datetime(2026, 5, 6, tzinfo=UTC),
         created_by_user_id="33333333-3333-4333-8333-333333333333",
         created_by_email="treasurer@lakefd.test",
+        payment_reference="Debit",
+        payee="Fuel Stop",
+        description="Fuel for apparatus",
+        bank_account_name="Checking",
         merchant_name="Fuel Stop",
         transaction_date=datetime(2026, 5, 5, tzinfo=UTC).date(),
         total_amount=Decimal("42.17"),
         tax_amount=Decimal("1.23"),
+        balance_after_transaction=Decimal("1050.25"),
         category="Fuel",
+        payment_method="Debit card",
         extraction_status="extracted",
         extraction_confidence=0.91,
+        reconciliation_status="pending_bank_match",
     )
 
 

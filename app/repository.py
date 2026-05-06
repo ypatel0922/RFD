@@ -165,16 +165,27 @@ class SupabaseExpenseRepository:
             created_by_email=row["created_by_email"],
             uploaded_by=row.get("uploaded_by"),
             fund=row.get("fund"),
+            payment_reference=row.get("payment_reference"),
+            payee=row.get("payee"),
+            description=row.get("description"),
+            bank_account_name=row.get("bank_account_name"),
             merchant_name=row.get("merchant_name"),
             transaction_date=row.get("transaction_date"),
             total_amount=_decimal_or_none(row.get("total_amount")),
             tax_amount=_decimal_or_none(row.get("tax_amount")),
+            balance_after_transaction=_decimal_or_none(row.get("balance_after_transaction")),
             category=row.get("category"),
             payment_method=row.get("payment_method"),
             extraction_status=row.get("extraction_status") or "needs_review",
             extraction_confidence=float(row.get("extraction_confidence") or 0),
             extraction_notes=row.get("extraction_notes"),
-            reconciliation_status=row.get("reconciliation_status") or "unreconciled",
+            reconciliation_status=row.get("reconciliation_status") or "pending_bank_match",
+            bank_transaction_id=row.get("bank_transaction_id"),
+            bank_posted_date=row.get("bank_posted_date"),
+            bank_description=row.get("bank_description"),
+            bank_amount=_decimal_or_none(row.get("bank_amount")),
+            bank_match_confidence=float(row.get("bank_match_confidence") or 0),
+            reconciled_at=_datetime_or_none(row.get("reconciled_at")),
         )
 
 
@@ -189,6 +200,12 @@ def _datetime(value: str | datetime) -> datetime:
     if isinstance(value, datetime):
         return value
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _datetime_or_none(value: str | datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    return _datetime(value)
 
 
 def _decimal_or_none(value: Any) -> Decimal | None:

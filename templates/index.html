@@ -32,18 +32,40 @@
       <section class="card upload-card">
         <div class="section-heading">
           <p class="eyebrow">New expense</p>
-          <h2>Upload a receipt</h2>
+          <h2>Capture or upload a receipt</h2>
         </div>
 
         {% if uploaded %}
           <div class="notice">
-            Receipt saved and expense record created. Review extracted fields below.
+            Expense record created. It is now waiting for a bank transaction match.
           </div>
         {% endif %}
 
-        <form action="/receipts" method="post" enctype="multipart/form-data" class="upload-form">
+        <form action="/receipts/review" method="post" enctype="multipart/form-data" class="upload-form">
           <label>
-            Receipt image or PDF
+            Take a receipt photo
+            <input type="file" name="receipt" accept="image/*" capture="environment" required>
+          </label>
+
+          <div class="form-grid">
+            <label>
+              Uploaded by
+              <input type="text" name="uploaded_by" placeholder="Treasurer or officer">
+            </label>
+            <label>
+              Fund / budget line
+              <input type="text" name="fund" placeholder="General, equipment, fuel...">
+            </label>
+          </div>
+
+          <button type="submit">Extract and review photo</button>
+        </form>
+
+        <div class="divider"><span>or</span></div>
+
+        <form action="/receipts/review" method="post" enctype="multipart/form-data" class="upload-form">
+          <label>
+            Upload receipt image or PDF
             <input type="file" name="receipt" accept="image/*,application/pdf" required>
           </label>
 
@@ -58,7 +80,7 @@
             </label>
           </div>
 
-          <button type="submit">Save receipt and log expense</button>
+          <button type="submit">Extract and review upload</button>
         </form>
 
         <div class="integration-note">
@@ -69,7 +91,8 @@
             Automatic extraction is ready but needs <code>OPENAI_API_KEY</code>.
             Uploads are still stored and flagged for manual review.
           {% endif %}
-          Uploads can be up to {{ max_upload_mb }} MB.
+          Uploads can be up to {{ max_upload_mb }} MB. You will confirm the
+          register fields before the expense is logged.
         </div>
       </section>
 
@@ -85,10 +108,11 @@
               <thead>
                 <tr>
                   <th>Receipt</th>
-                  <th>Merchant</th>
+                  <th>Payee</th>
+                  <th>Ref</th>
                   <th>Date</th>
                   <th>Total</th>
-                  <th>Category</th>
+                  <th>Purpose</th>
                   <th>Extraction</th>
                   <th>Reconcile</th>
                 </tr>
@@ -102,7 +126,8 @@
                       </a>
                       <span class="filename">{{ expense.original_filename }}</span>
                     </td>
-                    <td>{{ expense.merchant_name or "Needs review" }}</td>
+                    <td>{{ expense.payee or expense.merchant_name or "Needs review" }}</td>
+                    <td>{{ expense.payment_reference or "-" }}</td>
                     <td>{{ expense.transaction_date or "Needs review" }}</td>
                     <td>
                       {% if expense.total_amount is not none %}
@@ -111,7 +136,12 @@
                         Needs review
                       {% endif %}
                     </td>
-                    <td>{{ expense.category or "Uncategorized" }}</td>
+                    <td>
+                      {{ expense.description or expense.category or "Uncategorized" }}
+                      {% if expense.fund %}
+                        <span class="filename">{{ expense.fund }}</span>
+                      {% endif %}
+                    </td>
                     <td>
                       <span class="status status-{{ expense.extraction_status }}">
                         {{ expense.extraction_status | replace("_", " ") }}

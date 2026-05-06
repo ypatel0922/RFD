@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, field_validator
 
 
 ExtractionStatus = Literal["extracted", "needs_review", "failed"]
-ReconciliationStatus = Literal["unreconciled", "matched", "needs_attention"]
+ReconciliationStatus = Literal["pending_bank_match", "unreconciled", "matched", "needs_attention"]
 
 
 class ExtractedReceiptData(BaseModel):
@@ -14,13 +14,27 @@ class ExtractedReceiptData(BaseModel):
     transaction_date: date | None = None
     total_amount: Decimal | None = None
     tax_amount: Decimal | None = None
+    payment_reference: str | None = None
+    payee: str | None = None
+    description: str | None = None
+    bank_account_name: str | None = None
+    balance_after_transaction: Decimal | None = None
     category: str | None = None
     payment_method: str | None = None
     extraction_status: ExtractionStatus = "needs_review"
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     notes: str | None = None
 
-    @field_validator("merchant_name", "category", "payment_method", "notes")
+    @field_validator(
+        "merchant_name",
+        "payment_reference",
+        "payee",
+        "description",
+        "bank_account_name",
+        "category",
+        "payment_method",
+        "notes",
+    )
     @classmethod
     def blank_strings_to_none(cls, value: str | None) -> str | None:
         if value is None:
@@ -50,7 +64,7 @@ class AuthenticatedUser(BaseModel):
     department: DepartmentContext
 
 
-class ExpenseRecord(BaseModel):
+class ExpenseEntryBase(BaseModel):
     id: str
     department_id: str
     department_name: str
@@ -64,16 +78,20 @@ class ExpenseRecord(BaseModel):
     created_by_email: str
     uploaded_by: str | None = None
     fund: str | None = None
+    payment_reference: str | None = None
+    payee: str | None = None
+    description: str | None = None
+    bank_account_name: str | None = None
     merchant_name: str | None = None
     transaction_date: date | None = None
     total_amount: Decimal | None = None
     tax_amount: Decimal | None = None
+    balance_after_transaction: Decimal | None = None
     category: str | None = None
     payment_method: str | None = None
     extraction_status: ExtractionStatus = "needs_review"
     extraction_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     extraction_notes: str | None = None
-    reconciliation_status: ReconciliationStatus = "unreconciled"
 
     @field_validator(
         "department_id",
@@ -82,6 +100,10 @@ class ExpenseRecord(BaseModel):
         "created_by_email",
         "uploaded_by",
         "fund",
+        "payment_reference",
+        "payee",
+        "description",
+        "bank_account_name",
         "merchant_name",
         "category",
         "payment_method",
@@ -89,6 +111,28 @@ class ExpenseRecord(BaseModel):
     )
     @classmethod
     def normalize_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
+
+class ExpenseDraft(ExpenseEntryBase):
+    pass
+
+
+class ExpenseRecord(ExpenseEntryBase):
+    reconciliation_status: ReconciliationStatus = "pending_bank_match"
+    bank_transaction_id: str | None = None
+    bank_posted_date: date | None = None
+    bank_description: str | None = None
+    bank_amount: Decimal | None = None
+    bank_match_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    reconciled_at: datetime | None = None
+
+    @field_validator("bank_transaction_id", "bank_description")
+    @classmethod
+    def normalize_bank_text(cls, value: str | None) -> str | None:
         if value is None:
             return None
         value = value.strip()

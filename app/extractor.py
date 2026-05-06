@@ -12,8 +12,9 @@ from app.models import ExtractedReceiptData
 
 SYSTEM_PROMPT = """You extract bookkeeping data from fire department receipts.
 Return only valid JSON with these keys:
-merchant_name, transaction_date, total_amount, tax_amount, category,
-payment_method, confidence, notes.
+merchant_name, payee, transaction_date, total_amount, tax_amount, category,
+payment_method, payment_reference, description, bank_account_name,
+balance_after_transaction, confidence, notes.
 Use ISO date format YYYY-MM-DD when a date is visible.
 Use plain decimal numbers for money without currency symbols.
 If a field is not visible, return null for that field.
@@ -99,11 +100,16 @@ class ReceiptExtractor:
     def _normalize_payload(self, payload: dict[str, Any]) -> ExtractedReceiptData:
         normalized = {
             "merchant_name": _blank_to_none(payload.get("merchant_name")),
+            "payee": _blank_to_none(payload.get("payee")),
             "transaction_date": _blank_to_none(payload.get("transaction_date")),
             "total_amount": _decimal_or_none(payload.get("total_amount")),
             "tax_amount": _decimal_or_none(payload.get("tax_amount")),
             "category": _blank_to_none(payload.get("category")),
             "payment_method": _blank_to_none(payload.get("payment_method")),
+            "payment_reference": _blank_to_none(payload.get("payment_reference")),
+            "description": _blank_to_none(payload.get("description")),
+            "bank_account_name": _blank_to_none(payload.get("bank_account_name")),
+            "balance_after_transaction": _decimal_or_none(payload.get("balance_after_transaction")),
             "confidence": _confidence(payload.get("confidence")),
             "notes": _blank_to_none(payload.get("notes")),
         }
