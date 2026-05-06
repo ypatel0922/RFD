@@ -5,7 +5,7 @@ from pathlib import Path
 from urllib.parse import quote
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -83,7 +83,7 @@ def login_page(
     error: str | None = None,
     settings: Settings = Depends(settings_dependency),
     current_user: AuthenticatedUser | None = Depends(optional_user_dependency),
-) -> HTMLResponse | RedirectResponse:
+) -> Response:
     if current_user is not None:
         return RedirectResponse(url="/", status_code=303)
 
@@ -132,7 +132,7 @@ def dashboard(
     settings: Settings = Depends(settings_dependency),
     repository: ExpenseRepository = Depends(repository_dependency),
     current_user: AuthenticatedUser | None = Depends(optional_user_dependency),
-) -> HTMLResponse | RedirectResponse:
+) -> Response:
     if current_user is None:
         return RedirectResponse(url="/login", status_code=303)
 
