@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import csv
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
+from io import StringIO
 from pathlib import Path
 from urllib.parse import quote
 from uuid import uuid4
@@ -15,6 +17,7 @@ from app.auth import AuthError, AuthService
 from app.config import Settings, get_settings
 from app.extractor import ReceiptExtractor
 from app.models import AuthenticatedUser, ExpenseDraft, ExpenseRecord
+from app.reports import ReconciliationReport, build_reconciliation_report
 from app.repository import ExpenseRepository, SupabaseExpenseRepository
 from app.session import SessionManager
 from app.storage import LocalReceiptStorage, SupabaseReceiptStorage
@@ -301,6 +304,68 @@ def list_expenses(
     return JSONResponse({"expenses": expenses})
 
 
+@app.get("/reports/reconciliation", response_class=HTMLResponse)
+def reconciliation_report_page(
+    request: Request,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    bank_account_name: str | None = None,
+    settings: Settings = Depends(settings_dependency),
+    current_user: AuthenticatedUser | None = Depends(optional_user_dependency),
+) -> Response:
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
+
+    period_start, period_end = _report_period(start_date, end_date)
+    repository = repository_for(settings, current_user)
+    report = build_reconciliation_report(
+        expenses=repository.list_expenses(current_user.department.id, limit=None),
+        department_name=current_user.department.name,
+        period_start=period_start,
+        period_end=period_end,
+        bank_account_name=_optional_text(bank_account_name),
+    )
+    return templates.TemplateResponse(
+        request=request,
+        name="reconciliation_report.html",
+        context={
+            "app_name": settings.app_name,
+            "current_user": current_user,
+            "department": current_user.department,
+            "report": report,
+            "start_date": period_start.isoformat(),
+            "end_date": period_end.isoformat(),
+            "bank_account_name": bank_account_name or "",
+        },
+    )
+
+
+@app.get("/reports/reconciliation.csv")
+def reconciliation_report_csv(
+    start_date: str | None = None,
+    end_date: str | None = None,
+    bank_account_name: str | None = None,
+    settings: Settings = Depends(settings_dependency),
+    current_user: AuthenticatedUser = Depends(require_user_dependency),
+) -> Response:
+    period_start, period_end = _report_period(start_date, end_date)
+    repository = repository_for(settings, current_user)
+    report = build_reconciliation_report(
+        expenses=repository.list_expenses(current_user.department.id, limit=None),
+        department_name=current_user.department.name,
+        period_start=period_start,
+        period_end=period_end,
+        bank_account_name=_optional_text(bank_account_name),
+    )
+    csv_body = _reconciliation_report_csv(report)
+    filename = f"reconciliation-{period_start.isoformat()}-{period_end.isoformat()}.csv"
+    return Response(
+        content=csv_body,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.get("/receipts/{receipt_id}")
 def get_receipt(
     receipt_id: str,
@@ -549,6 +614,51 @@ def _decimal_or_none(value: str | None) -> Decimal | None:
         return Decimal(normalized)
     except (InvalidOperation, ValueError) as exc:
         raise HTTPException(status_code=400, detail=f"Invalid amount: {value}") from exc
+
+
+def _report_period(start_date: str | None, end_date: str | None) -> tuple[date, date]:
+    today = date.today()
+    period_end = _date_or_none(end_date) or today
+    period_start = _date_or_none(start_date) or date(period_end.year, 1, 1)
+    if period_start > period_end:
+        raise HTTPException(status_code=400, detail="Report start date must be before end date")
+    return period_start, period_end
+
+
+def _reconciliation_report_csv(report: ReconciliationReport) -> str:
+    buffer = StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow([
+        "Section",
+        "Type",
+        "Date",
+        "Num",
+        "Name",
+        "Reconciled on report",
+        "Amount",
+        "Balance",
+        "Bank account",
+        "Bank posted date",
+        "Bank description",
+        "Receipt",
+    ])
+    for row in report.rows:
+        expense = row.expense
+        writer.writerow([
+            row.section,
+            expense.payment_method or "Expense",
+            expense.transaction_date.isoformat() if expense.transaction_date else "",
+            expense.payment_reference or "",
+            expense.payee or expense.merchant_name or "",
+            "Yes" if row.reconciled_on_report else "No",
+            str(expense.total_amount or ""),
+            str(expense.balance_after_transaction or ""),
+            expense.bank_account_name or "",
+            expense.bank_posted_date.isoformat() if expense.bank_posted_date else "",
+            expense.bank_description or "",
+            expense.receipt_url,
+        ])
+    return buffer.getvalue()
 
 
 def _validate_upload(receipt: UploadFile) -> None:

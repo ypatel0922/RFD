@@ -22,6 +22,7 @@
         <span>{{ current_user.email }}</span>
         <span class="role">{{ department.role }}</span>
         <span>{{ persistence_mode }} persistence</span>
+        <a class="hero-link" href="/reports/reconciliation">Reconciliation reports</a>
         <form action="/logout" method="post">
           <button class="secondary-button" type="submit">Log out</button>
         </form>
@@ -93,6 +94,12 @@
           {% endif %}
           Uploads can be up to {{ max_upload_mb }} MB. You will confirm the
           register fields before the expense is logged.
+        </div>
+
+        <div class="integration-note">
+          <strong>Reports:</strong>
+          <a href="/reports/reconciliation">Generate reconciliation report</a>
+          with a reconciled-on-report flag for each expense.
         </div>
       </section>
 

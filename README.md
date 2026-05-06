@@ -24,6 +24,8 @@ This version includes:
 - A receipt viewer endpoint so stored receipts remain linked to each expense.
 - Bank reconciliation fields so logged expenses can be matched against imported
   bank transactions when they post.
+- Reconciliation report generation with summary/detail sections and a
+  `Reconciled on report` flag for each expense.
 
 ## Run locally
 
@@ -91,6 +93,13 @@ for date, check/payment reference, paid-to/vendor, payment amount, tax, running
 balance, bank account, fund/budget line, category/purpose, and memo. Confirmed
 expenses start with `pending_bank_match` reconciliation status so the future
 bank feed integration can match by amount, date, vendor, and account.
+
+Use `/reports/reconciliation` to generate a reconciliation report for a date
+range and optional bank account. The report mirrors the sample reconciliation
+summary/detail shape with cleared transactions, new/unmatched transactions,
+totals, register balance, and a `Reconciled on report` column. Use
+`/reports/reconciliation.csv` with the same query parameters to export the
+detail rows.
 
 ## Next production steps
 

@@ -215,6 +215,79 @@ def test_login_then_dashboard_renders_department_context(tmp_path, monkeypatch):
     assert "Demo Fire Department" in response.text
 
 
+def test_reconciliation_report_flags_reconciled_expenses(tmp_path, monkeypatch):
+    _configure_local_auth(tmp_path, monkeypatch)
+    settings = get_settings()
+    repository = ExpenseRepository(settings.database_path)
+    matched_expense = _expense(
+        expense_id="expense-1",
+        receipt_id="receipt-1",
+        department_id=settings.dev_department_id,
+        department_name=settings.dev_department_name,
+    ).model_copy(
+        update={
+            "payment_method": "Check",
+            "payment_reference": "debit",
+            "payee": "Target",
+            "bank_account_name": "Checking",
+            "transaction_date": datetime(2024, 12, 4, tzinfo=UTC).date(),
+            "total_amount": Decimal("234.45"),
+            "balance_after_transaction": Decimal("6848.76"),
+            "reconciliation_status": "matched",
+            "bank_posted_date": datetime(2024, 12, 5, tzinfo=UTC).date(),
+            "bank_description": "TARGET",
+            "bank_amount": Decimal("234.45"),
+            "bank_match_confidence": 0.99,
+            "reconciled_at": datetime(2025, 3, 10, tzinfo=UTC),
+        }
+    )
+    pending_expense = _expense(
+        expense_id="expense-2",
+        receipt_id="receipt-2",
+        department_id=settings.dev_department_id,
+        department_name=settings.dev_department_name,
+    ).model_copy(
+        update={
+            "payment_method": "Debit",
+            "payment_reference": "debit",
+            "payee": "Five Below",
+            "bank_account_name": "Checking",
+            "transaction_date": datetime(2024, 12, 11, tzinfo=UTC).date(),
+            "total_amount": Decimal("177.90"),
+            "balance_after_transaction": Decimal("6670.86"),
+            "reconciliation_status": "pending_bank_match",
+        }
+    )
+    repository.add(matched_expense)
+    repository.add(pending_expense)
+
+    client = TestClient(app)
+    _login(client)
+
+    response = client.get(
+        "/reports/reconciliation?start_date=2024-10-01&end_date=2024-12-31&bank_account_name=Checking"
+    )
+
+    assert response.status_code == 200
+    assert "Reconciliation report" in response.text
+    assert "Reconciled on report" in response.text
+    assert "Target" in response.text
+    assert "Five Below" in response.text
+    assert "Cleared Transactions" in response.text
+    assert "New / Unmatched Transactions" in response.text
+    assert "status-matched\">Yes" in response.text
+    assert "status-pending_bank_match\">No" in response.text
+
+    csv_response = client.get(
+        "/reports/reconciliation.csv?start_date=2024-10-01&end_date=2024-12-31&bank_account_name=Checking"
+    )
+
+    assert csv_response.status_code == 200
+    assert "Reconciled on report" in csv_response.text
+    assert "Target,Yes" in csv_response.text
+    assert "Five Below,No" in csv_response.text
+
+
 def test_api_requires_login(tmp_path, monkeypatch):
     _configure_local_auth(tmp_path, monkeypatch)
 
