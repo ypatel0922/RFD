@@ -5,6 +5,9 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 
+ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
+
+
 class Settings(BaseModel):
     app_name: str = "RFD Expense Tracker"
     data_dir: Path
@@ -29,6 +32,9 @@ class Settings(BaseModel):
 
 @lru_cache
 def get_settings() -> Settings:
+    if _env_bool("RFD_LOAD_DOTENV", default=True):
+        _load_dotenv(ENV_FILE)
+
     data_dir = Path(os.getenv("RFD_DATA_DIR", "data")).resolve()
     receipt_dir = Path(os.getenv("RFD_RECEIPT_DIR", data_dir / "receipts")).resolve()
     database_path = Path(os.getenv("RFD_EXPENSE_DB", data_dir / "expenses.json")).resolve()
@@ -49,6 +55,29 @@ def get_settings() -> Settings:
         dev_department_id=os.getenv("RFD_DEV_DEPARTMENT_ID", "demo-fire-department"),
         dev_department_name=os.getenv("RFD_DEV_DEPARTMENT_NAME", "Demo Fire Department"),
     )
+
+
+def _load_dotenv(path: Path) -> None:
+    if not path.exists():
+        return
+
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+
+        key, value = line.split("=", maxsplit=1)
+        key = key.strip()
+        if not key or key in os.environ:
+            continue
+
+        os.environ[key] = _unquote_env_value(value.strip())
+
+
+def _unquote_env_value(value: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1]
+    return value
 
 
 def _strip_trailing_slash(value: str | None) -> str | None:

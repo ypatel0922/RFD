@@ -12,6 +12,7 @@ from app.storage import SupabaseReceiptStorage
 
 def _configure_local_auth(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("RFD_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("RFD_LOAD_DOTENV", "false")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("SUPABASE_URL", raising=False)
     monkeypatch.delenv("SUPABASE_ANON_KEY", raising=False)
