@@ -89,15 +89,17 @@ def test_repository_round_trips_money_and_dates(tmp_path):
         receipt_id="receipt-1",
         department_id="department-1",
         department_name="Department 1",
-    ).model_copy(update={
-        merchant_name="Fuel Stop",
-        transaction_date=datetime(2026, 5, 5, tzinfo=UTC).date(),
-        total_amount=Decimal("42.17"),
-        tax_amount=Decimal("1.23"),
-        category="Fuel",
-        extraction_status="extracted",
-        extraction_confidence=0.91,
-    })
+    ).model_copy(
+        update={
+            "merchant_name": "Fuel Stop",
+            "transaction_date": datetime(2026, 5, 5, tzinfo=UTC).date(),
+            "total_amount": Decimal("42.17"),
+            "tax_amount": Decimal("1.23"),
+            "category": "Fuel",
+            "extraction_status": "extracted",
+            "extraction_confidence": 0.91,
+        }
+    )
 
     repository.add(expense)
     loaded = repository.list_expenses("department-1")[0]
