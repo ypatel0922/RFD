@@ -13,6 +13,9 @@ class AuthError(Exception):
     pass
 
 
+ROLE_OPTIONS = ("Chief", "Captain", "Lieutenant", "Secretary", "Treasurer", "Other")
+
+
 class AuthService:
     """Authenticate users and resolve their department membership.
 
@@ -36,11 +39,56 @@ class AuthService:
 
         raise AuthError("Supabase authentication is not configured.")
 
-    def _login_for_local_dev(self, *, email: str) -> AuthenticatedUser:
+    def signup(
+        self,
+        *,
+        department_id: str,
+        department_name: str,
+        email: str,
+        password: str,
+        role: str,
+    ) -> AuthenticatedUser:
+        department_id = department_id.strip()
+        department_name = department_name.strip()
+        email = email.strip().lower()
+        role = _validate_role(role)
+        if not department_id or not department_name:
+            raise AuthError("Choose your fire department.")
+        if not email or not password:
+            raise AuthError("Enter an email address and password.")
+
+        if self.settings.supabase_auth_enabled:
+            return self._signup_with_supabase(
+                department_id=department_id,
+                department_name=department_name,
+                email=email,
+                password=password,
+                role=role,
+            )
+        if self.settings.dev_auth_enabled:
+            return self._login_for_local_dev(email=email, role=role)
+
+        raise AuthError("Supabase authentication is not configured.")
+
+    def search_departments(self, query: str, *, limit: int = 10) -> list[DepartmentContext]:
+        query = query.strip()
+        if self.settings.supabase_auth_enabled:
+            return self._search_supabase_departments(query=query, limit=limit)
+        if self.settings.dev_auth_enabled and _matches_query(self.settings.dev_department_name, query):
+            return [
+                DepartmentContext(
+                    id=self.settings.dev_department_id,
+                    name=self.settings.dev_department_name,
+                    role="member",
+                )
+            ]
+        return []
+
+    def _login_for_local_dev(self, *, email: str, role: str = "treasurer") -> AuthenticatedUser:
         department = DepartmentContext(
             id=self.settings.dev_department_id,
             name=self.settings.dev_department_name,
-            role="treasurer",
+            role=role,
         )
         return AuthenticatedUser(
             id=f"dev-{sha256(email.encode('utf-8')).hexdigest()[:16]}",
@@ -88,6 +136,125 @@ class AuthService:
             access_token=access_token,
             department=department,
         )
+
+    def _signup_with_supabase(
+        self,
+        *,
+        department_id: str,
+        department_name: str,
+        email: str,
+        password: str,
+        role: str,
+    ) -> AuthenticatedUser:
+        assert self.settings.supabase_url is not None
+        assert self.settings.supabase_anon_key is not None
+
+        try:
+            response = httpx.post(
+                f"{self.settings.supabase_url}/auth/v1/signup",
+                headers={
+                    "apikey": self.settings.supabase_anon_key,
+                    "Content-Type": "application/json",
+                },
+                json={"email": email, "password": password},
+                timeout=10,
+            )
+        except httpx.HTTPError as exc:
+            raise AuthError(f"Could not reach Supabase Auth: {exc}") from exc
+
+        if response.status_code >= 400:
+            raise AuthError(_supabase_error_message(response))
+
+        payload = response.json()
+        access_token = payload.get("access_token")
+        user_payload = payload.get("user") or {}
+        user_id = user_payload.get("id")
+        user_email = user_payload.get("email") or email
+        if not user_id:
+            raise AuthError("Supabase did not return a valid user.")
+        if not access_token:
+            raise AuthError(
+                "Supabase created the account, but email confirmation is required before department access can be set up."
+            )
+
+        self._create_department_membership(
+            access_token=access_token,
+            department_id=department_id,
+            user_id=user_id,
+            role=role,
+        )
+        return AuthenticatedUser(
+            id=user_id,
+            email=user_email,
+            access_token=access_token,
+            department=DepartmentContext(
+                id=department_id,
+                name=department_name,
+                role=role,
+            ),
+        )
+
+    def _search_supabase_departments(self, *, query: str, limit: int) -> list[DepartmentContext]:
+        assert self.settings.supabase_url is not None
+        assert self.settings.supabase_anon_key is not None
+        params = {
+            "select": "id,name",
+            "order": "name.asc",
+            "limit": str(limit),
+        }
+        if query:
+            params["name"] = f"ilike.*{query}*"
+
+        try:
+            response = httpx.get(
+                f"{self.settings.supabase_url}/rest/v1/departments",
+                params=params,
+                headers={"apikey": self.settings.supabase_anon_key},
+                timeout=10,
+            )
+        except httpx.HTTPError as exc:
+            raise AuthError(f"Could not search departments: {exc}") from exc
+
+        if response.status_code >= 400:
+            raise AuthError(_supabase_error_message(response))
+
+        return [
+            DepartmentContext(id=row["id"], name=row["name"], role="member")
+            for row in response.json()
+        ]
+
+    def _create_department_membership(
+        self,
+        *,
+        access_token: str,
+        department_id: str,
+        user_id: str,
+        role: str,
+    ) -> None:
+        assert self.settings.supabase_url is not None
+        assert self.settings.supabase_anon_key is not None
+
+        try:
+            response = httpx.post(
+                f"{self.settings.supabase_url}/rest/v1/department_members",
+                headers={
+                    "apikey": self.settings.supabase_anon_key,
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                    "Prefer": "return=minimal",
+                },
+                json={
+                    "department_id": department_id,
+                    "user_id": user_id,
+                    "role": role,
+                },
+                timeout=10,
+            )
+        except httpx.HTTPError as exc:
+            raise AuthError(f"Could not create department membership: {exc}") from exc
+
+        if response.status_code >= 400:
+            raise AuthError(_supabase_error_message(response))
 
     def _load_department_membership(self, *, access_token: str, user_id: str) -> DepartmentContext:
         assert self.settings.supabase_url is not None
@@ -138,3 +305,15 @@ def _supabase_error_message(response: httpx.Response) -> str:
         or payload.get("error")
         or "Supabase rejected the request."
     )
+
+
+def _validate_role(role: str) -> str:
+    normalized = role.strip()
+    for option in ROLE_OPTIONS:
+        if option.casefold() == normalized.casefold():
+            return option
+    raise AuthError("Choose a valid role.")
+
+
+def _matches_query(value: str, query: str) -> bool:
+    return not query or query.casefold() in value.casefold()

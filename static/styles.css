@@ -127,6 +127,7 @@ input[type="email"],
 input[type="password"],
 input[type="file"],
 input[type="date"],
+select,
 textarea {
   width: 100%;
   border: 1px solid var(--border);
@@ -353,6 +354,15 @@ th {
   border-color: #fecdca;
   background: #fef3f2;
   color: #b42318;
+}
+
+.auth-switch {
+  margin-top: 18px;
+  color: var(--muted);
+}
+
+.auth-switch a {
+  margin-left: 4px;
 }
 
 .status-pending_bank_match {

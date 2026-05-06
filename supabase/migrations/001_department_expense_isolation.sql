@@ -11,7 +11,9 @@ create table if not exists public.department_members (
   user_id uuid not null references auth.users(id) on delete cascade,
   role text not null default 'member',
   created_at timestamptz not null default now(),
-  primary key (department_id, user_id)
+  primary key (department_id, user_id),
+  constraint department_members_role_check
+    check (role in ('Chief', 'Captain', 'Lieutenant', 'Secretary', 'Treasurer', 'Other', 'member', 'treasurer'))
 );
 
 create table if not exists public.expenses (
@@ -61,6 +63,11 @@ alter table public.departments enable row level security;
 alter table public.department_members enable row level security;
 alter table public.expenses enable row level security;
 
+create policy "Anyone can search department names"
+  on public.departments
+  for select
+  using (true);
+
 create policy "Members can view their department"
   on public.departments
   for select
@@ -84,6 +91,14 @@ create policy "Members can view users in their department"
       where dm.department_id = department_members.department_id
         and dm.user_id = auth.uid()
     )
+  );
+
+create policy "Users can create their own department membership"
+  on public.department_members
+  for insert
+  with check (
+    user_id = auth.uid()
+    and role in ('Chief', 'Captain', 'Lieutenant', 'Secretary', 'Treasurer', 'Other')
   );
 
 create policy "Members can view department expenses"

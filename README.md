@@ -7,6 +7,8 @@ This version includes:
 
 - A login screen backed by Supabase Auth when Supabase credentials are
   configured.
+- A self-service account creation screen with department autocomplete and role
+  selection.
 - Department membership scoping so each user only sees one department
   dashboard and ledger.
 - A two-step capture flow: upload a receipt or take a mobile photo, then review
@@ -83,6 +85,10 @@ create:
 - Row Level Security policies that only allow authenticated users to access
   departments, members, expenses, and receipt objects for departments they
   belong to
+
+The signup flow searches department names from Supabase, creates a Supabase Auth
+user, and inserts that user's `department_members` row with one of these roles:
+Chief, Captain, Lieutenant, Secretary, Treasurer, or Other.
 
 Receipt object paths are designed as:
 

@@ -216,6 +216,49 @@ def test_login_then_dashboard_renders_department_context(tmp_path, monkeypatch):
     assert "Demo Fire Department" in response.text
 
 
+def test_signup_page_and_department_search(tmp_path, monkeypatch):
+    _configure_local_auth(tmp_path, monkeypatch)
+
+    client = TestClient(app)
+    page_response = client.get("/signup")
+    search_response = client.get("/api/departments?q=Demo")
+
+    assert page_response.status_code == 200
+    assert "Create your account" in page_response.text
+    assert "Chief" in page_response.text
+    assert "Captain" in page_response.text
+    assert "Lieutenant" in page_response.text
+    assert "Secretary" in page_response.text
+    assert "Treasurer" in page_response.text
+    assert "Other" in page_response.text
+    assert search_response.status_code == 200
+    assert search_response.json()["departments"][0]["name"] == "Demo Fire Department"
+
+
+def test_signup_creates_local_session(tmp_path, monkeypatch):
+    _configure_local_auth(tmp_path, monkeypatch)
+
+    client = TestClient(app)
+    signup_response = client.post(
+        "/signup",
+        data={
+            "department_id": get_settings().dev_department_id,
+            "department_name": get_settings().dev_department_name,
+            "email": "new-treasurer@example.com",
+            "password": "password",
+            "role": "Treasurer",
+        },
+        follow_redirects=False,
+    )
+    dashboard_response = client.get("/")
+
+    assert signup_response.status_code == 303
+    assert signup_response.headers["location"] == "/"
+    assert dashboard_response.status_code == 200
+    assert "new-treasurer@example.com" in dashboard_response.text
+    assert "Treasurer" in dashboard_response.text
+
+
 def test_reconciliation_report_flags_reconciled_expenses(tmp_path, monkeypatch):
     _configure_local_auth(tmp_path, monkeypatch)
     settings = get_settings()
@@ -309,6 +352,61 @@ def test_supabase_session_uses_supabase_adapters(tmp_path, monkeypatch):
 
     assert isinstance(repository_for(settings, user), SupabaseExpenseRepository)
     assert isinstance(storage_for(settings, user), SupabaseReceiptStorage)
+
+
+def test_supabase_signup_creates_auth_user_and_membership(tmp_path, monkeypatch):
+    monkeypatch.setenv("RFD_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_ANON_KEY", "anon-key")
+    get_settings.cache_clear()
+
+    requests: list[dict] = []
+
+    def fake_post(url, *, headers, json, timeout, params=None):
+        requests.append({
+            "url": url,
+            "headers": headers,
+            "json": json,
+            "timeout": timeout,
+            "params": params,
+        })
+        if url.endswith("/auth/v1/signup"):
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "access-token",
+                    "user": {
+                        "id": "33333333-3333-4333-8333-333333333333",
+                        "email": "captain@lakefd.test",
+                    },
+                },
+            )
+        return httpx.Response(201)
+
+    monkeypatch.setattr("app.auth.httpx.post", fake_post)
+
+    from app.auth import AuthService
+
+    user = AuthService(get_settings()).signup(
+        department_id=_SUPABASE_DEPARTMENT_ID,
+        department_name="Lake Fire Department",
+        email="captain@lakefd.test",
+        password="password",
+        role="Captain",
+    )
+
+    assert user.email == "captain@lakefd.test"
+    assert user.department.id == _SUPABASE_DEPARTMENT_ID
+    assert user.department.role == "Captain"
+    assert requests[0]["url"] == "https://example.supabase.co/auth/v1/signup"
+    assert requests[0]["json"]["email"] == "captain@lakefd.test"
+    assert requests[1]["url"] == "https://example.supabase.co/rest/v1/department_members"
+    assert requests[1]["headers"]["Authorization"] == "Bearer access-token"
+    assert requests[1]["json"] == {
+        "department_id": _SUPABASE_DEPARTMENT_ID,
+        "user_id": "33333333-3333-4333-8333-333333333333",
+        "role": "Captain",
+    }
 
 
 def test_supabase_repository_writes_and_maps_expenses(tmp_path, monkeypatch):

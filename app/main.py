@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app.auth import AuthError, AuthService
+from app.auth import ROLE_OPTIONS, AuthError, AuthService
 from app.config import Settings, get_settings
 from app.extractor import ReceiptExtractor
 from app.models import AuthenticatedUser, ExpenseDraft, ExpenseRecord
@@ -106,6 +106,82 @@ def login(
     response = RedirectResponse(url="/", status_code=303)
     session.sign_in(response, user)
     return response
+
+
+@app.get("/signup", response_class=HTMLResponse)
+def signup_page(
+    request: Request,
+    error: str | None = None,
+    settings: Settings = Depends(settings_dependency),
+    auth: AuthService = Depends(auth_dependency),
+    current_user: AuthenticatedUser | None = Depends(optional_user_dependency),
+) -> Response:
+    if current_user is not None:
+        return RedirectResponse(url="/", status_code=303)
+
+    try:
+        departments = auth.search_departments("", limit=10)
+        department_error = None
+    except AuthError as exc:
+        departments = []
+        department_error = str(exc)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="signup.html",
+        context={
+            "app_name": settings.app_name,
+            "error": error or department_error,
+            "role_options": ROLE_OPTIONS,
+            "departments": departments,
+            "supabase_auth_enabled": settings.supabase_auth_enabled,
+            "dev_auth_enabled": settings.dev_auth_enabled,
+        },
+    )
+
+
+@app.post("/signup")
+def signup(
+    department_id: str = Form(...),
+    department_name: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    role: str = Form(...),
+    auth: AuthService = Depends(auth_dependency),
+    session: SessionManager = Depends(session_dependency),
+) -> RedirectResponse:
+    try:
+        user = auth.signup(
+            department_id=department_id,
+            department_name=department_name,
+            email=email,
+            password=password,
+            role=role,
+        )
+    except AuthError as exc:
+        return RedirectResponse(url=f"/signup?error={quote(str(exc))}", status_code=303)
+
+    response = RedirectResponse(url="/", status_code=303)
+    session.sign_in(response, user)
+    return response
+
+
+@app.get("/api/departments", response_class=JSONResponse)
+def search_departments(
+    q: str = "",
+    auth: AuthService = Depends(auth_dependency),
+) -> JSONResponse:
+    try:
+        departments = auth.search_departments(q, limit=10)
+    except AuthError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return JSONResponse({
+        "departments": [
+            department.model_dump(mode="json")
+            for department in departments
+        ]
+    })
 
 
 @app.post("/logout")
