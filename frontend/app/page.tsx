@@ -1666,15 +1666,39 @@ function Statements({
           contentType: file.type || "application/octet-stream",
         });
       }
+      const statementUrlsPayload = await Promise.all(
+        savedFiles.map(async (saved) => {
+          const signed = await supabase.storage.from(bankStatementsBucket).createSignedUrl(saved.path, 60 * 15);
+          return signed.data?.signedUrl || "";
+        }),
+      );
+      const extractionResponse = await fetch("/api/extract-bank-statement", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          statement_urls: statementUrlsPayload.filter(Boolean),
+          filenames: savedFiles.map((saved) => saved.originalFilename),
+        }),
+      });
+      const extracted = (await extractionResponse.json()) as BankStatementExtraction;
+      if (!extracted.transactions?.length) {
+        showErrorMessage(
+          "No statement transactions were detected. Try uploading clearer page photos, or split the PDF into page images.",
+        );
+      }
+      setExtraction(extracted);
+      setStartDate(startDate || extracted.statement_start_date || "");
+      setEndDate(endDate || extracted.statement_end_date || "");
+      setBankAccountName(bankAccountName || extracted.account_name || "");
       const stats = await applyStatementReconciliation({
         membership,
         user,
         extraction: {
-          ...extraction,
-          statement_start_date: startDate || extraction.statement_start_date,
-          statement_end_date: endDate || extraction.statement_end_date,
+          ...extracted,
+          statement_start_date: startDate || extracted.statement_start_date,
+          statement_end_date: endDate || extracted.statement_end_date,
         },
-        selectedBankAccountName: bankAccountName,
+        selectedBankAccountName: bankAccountName || extracted.account_name || "",
         statementFiles: savedFiles,
         autoLogUnmatched: Boolean(departmentSettings?.auto_log_statement_expenses),
       });
@@ -1982,6 +2006,12 @@ async function applyStatementReconciliation({
   let matched = 0;
   let flagged = 0;
   let autoLogged = 0;
+  const txResults: Array<{
+    tx: (typeof extraction.transactions)[number];
+    status: "matched" | "possible_match" | "unmatched";
+    confidence: number;
+    matchedExpenseId: string | null;
+  }> = [];
 
   for (const tx of extraction.transactions || []) {
     const scored = candidates
@@ -2025,6 +2055,7 @@ async function applyStatementReconciliation({
           autoLogged += 1;
         }
       }
+      txResults.push({ tx, status: "unmatched", confidence: 0, matchedExpenseId: null });
       continue;
     }
 
@@ -2049,6 +2080,12 @@ async function applyStatementReconciliation({
         })
         .eq("id", top.expense.id);
       matched += 1;
+      txResults.push({
+        tx,
+        status: "matched",
+        confidence: top.score,
+        matchedExpenseId: top.expense.id,
+      });
       continue;
     }
 
@@ -2068,10 +2105,18 @@ async function applyStatementReconciliation({
       })
       .eq("id", top.expense.id);
     flagged += 1;
+    txResults.push({
+      tx,
+      status: "possible_match",
+      confidence: top.score,
+      matchedExpenseId: top.expense.id,
+    });
   }
 
   for (const file of statementFiles) {
-    await supabase.from("bank_statement_uploads").insert({
+    const uploadInsert = await supabase
+      .from("bank_statement_uploads")
+      .insert({
       department_id: membership.department_id,
       bank_account_name: accountName,
       statement_start_date: extraction.statement_start_date,
@@ -2083,7 +2128,26 @@ async function applyStatementReconciliation({
       content_type: file.contentType,
       uploaded_by_user_id: user.id,
       uploaded_by_email: user.email || "",
-    });
+    })
+      .select("id")
+      .single();
+    const statementUploadId = uploadInsert.data?.id;
+    if (!statementUploadId) continue;
+    const rows = txResults.map((result) => ({
+      statement_upload_id: statementUploadId,
+      department_id: membership.department_id,
+      posted_date: result.tx.posted_date,
+      description: result.tx.description,
+      amount: optionalNumber(result.tx.amount),
+      balance: optionalNumber(result.tx.balance),
+      reference: result.tx.reference,
+      matched_expense_id: result.matchedExpenseId,
+      match_status: result.status,
+      match_confidence: result.confidence,
+    }));
+    if (rows.length) {
+      await supabase.from("bank_statement_transactions").insert(rows);
+    }
   }
 
   return {
