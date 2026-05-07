@@ -1757,7 +1757,7 @@ function scoreReconciliationMatch(
   const txAmount = optionalNumber(tx.amount);
   const expenseAmount = optionalNumber(expense.total_amount);
   if (txAmount != null && expenseAmount != null) {
-    const diff = Math.abs(txAmount - expenseAmount);
+    const diff = Math.abs(Math.abs(txAmount) - Math.abs(expenseAmount));
     if (diff <= 0.5) score += 0.3;
     else if (diff <= 15) score += 0.18;
   }
@@ -1766,10 +1766,10 @@ function scoreReconciliationMatch(
     if (days <= 1) score += 0.3;
     else if (days <= 3) score += 0.18;
   }
-  const description = (tx.description || "").toLowerCase();
-  const vendor = (expense.payee || expense.merchant_name || "").toLowerCase();
+  const description = normalizeMerchantText(tx.description || "");
+  const vendor = normalizeMerchantText(expense.payee || expense.merchant_name || "");
   if (vendor && description.includes(vendor)) score += 0.22;
-  else if (vendor && overlapScore(vendor, description) >= 0.5) score += 0.14;
+  else if (vendor && overlapScore(vendor, description) >= 0.2) score += 0.14;
   const category = (expense.category || "").toLowerCase();
   if (category && description.includes(category)) score += 0.12;
   return Math.max(0, Math.min(1, score));
@@ -1784,6 +1784,15 @@ function overlapScore(left: string, right: string) {
     if (b.has(token)) inter += 1;
   }
   return inter / Math.max(a.size, b.size);
+}
+
+function normalizeMerchantText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/tst\*|sq\*|pp\*|uber\s*\*|doordash\s*\*/g, " ")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function buildStatementPath({
