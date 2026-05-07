@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
-import { PDFParse } from "pdf-parse";
 
 import type { BankStatementExtraction } from "../../../lib/types";
 
@@ -44,16 +43,10 @@ export async function POST(request: NextRequest) {
       const statement = statements[index];
       const bytes = Buffer.from(await statement.arrayBuffer());
       const isPdf = statement.type === "application/pdf" || statement.name.toLowerCase().endsWith(".pdf");
-      const response = isPdf
-        ? await extractFromPdfText({
-            client,
-            bytes,
-            fileLabel: `statement file ${index + 1} of ${statements.length}`,
-          })
-        : await extractFromImage({
+      const response = await extractFromImage({
             client,
             dataUrl: `data:${statement.type || "application/octet-stream"};base64,${bytes.toString("base64")}`,
-            fileLabel: `statement image ${index + 1} of ${statements.length}`,
+            fileLabel: `${isPdf ? "statement PDF" : "statement image"} ${index + 1} of ${statements.length}`,
           });
       const raw = response.choices[0]?.message.content || "{}";
       partials.push(JSON.parse(raw) as Partial<BankStatementExtraction>);
@@ -127,36 +120,3 @@ async function extractFromImage({
   });
 }
 
-async function extractFromPdfText({
-  client,
-  bytes,
-  fileLabel,
-}: {
-  client: OpenAI;
-  bytes: Buffer;
-  fileLabel: string;
-}) {
-  const parser = new PDFParse({ data: new Uint8Array(bytes) });
-  const parsed = await parser.getText();
-  await parser.destroy();
-  const text = parsed.text?.trim();
-  if (!text) {
-    return extractFromImage({
-      client,
-      dataUrl: `data:application/pdf;base64,${bytes.toString("base64")}`,
-      fileLabel,
-    });
-  }
-  return client.chat.completions.create({
-    model: process.env.OPENAI_RECEIPT_MODEL || "gpt-4o-mini",
-    temperature: 0,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: PROMPT },
-      {
-        role: "user",
-        content: `Extract transactions and balances from this OCR text (${fileLabel}).\n\n${text.slice(0, 120000)}`,
-      },
-    ],
-  });
-}
