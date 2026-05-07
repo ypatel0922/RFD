@@ -39,6 +39,11 @@ const today = new Date();
 const defaultReportEnd = today.toISOString().slice(0, 10);
 const defaultReportStart = `${today.getFullYear()}-01-01`;
 
+function normalizeRole(role: string) {
+  const normalized = role.trim().toLowerCase();
+  return ROLE_OPTIONS.find((option) => option.toLowerCase() === normalized) ?? null;
+}
+
 export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
   const [membership, setMembership] = useState<DepartmentMembership | null>(null);
@@ -324,7 +329,11 @@ function SignupForm({
     const form = new FormData(event.currentTarget);
     const email = String(form.get("email") || "").trim();
     const password = String(form.get("password") || "");
-    const role = String(form.get("role") || "");
+    const role = normalizeRole(String(form.get("role") || ""));
+    if (!role) {
+      setMessage("Choose a valid role.");
+      return;
+    }
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -941,17 +950,19 @@ async function ensureMembership(user: User) {
 
 async function createMembershipFromMetadata(user: User | null, role: string, department: Department) {
   if (!user) return null;
+  const normalizedRole = normalizeRole(role);
+  if (!normalizedRole) return null;
   const { error } = await supabase.from("department_members").insert({
     department_id: department.id,
     user_id: user.id,
-    role,
+    role: normalizedRole,
   });
   if (error) {
     return null;
   }
   return {
     department_id: department.id,
-    role,
+    role: normalizedRole,
     departments: department,
   } satisfies DepartmentMembership;
 }

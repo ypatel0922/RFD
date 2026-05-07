@@ -350,8 +350,11 @@ def _auth_user_payload(payload: dict[str, Any]) -> dict[str, Any]:
         return nested_user
 
     data = payload.get("data")
-    if isinstance(data, dict) and isinstance(data.get("user"), dict):
-        return data["user"]
+    if isinstance(data, dict):
+        if isinstance(data.get("user"), dict):
+            return data["user"]
+        if data.get("id"):
+            return data
 
     if payload.get("id"):
         return payload

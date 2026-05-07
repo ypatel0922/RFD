@@ -458,6 +458,52 @@ def test_supabase_signup_accepts_direct_user_payload(tmp_path, monkeypatch):
     assert requests[1]["json"]["role"] == "Chief"
 
 
+def test_supabase_signup_accepts_user_payload_nested_in_data(tmp_path, monkeypatch):
+    monkeypatch.setenv("RFD_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_ANON_KEY", "anon-key")
+    get_settings.cache_clear()
+
+    requests: list[dict] = []
+
+    def fake_post(url, *, headers, json, timeout, params=None):
+        requests.append({
+            "url": url,
+            "headers": headers,
+            "json": json,
+            "timeout": timeout,
+            "params": params,
+        })
+        if url.endswith("/auth/v1/signup"):
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "access-token",
+                    "data": {
+                        "id": "33333333-3333-4333-8333-333333333333",
+                        "email": "chief2@lakefd.test",
+                    },
+                },
+            )
+        return httpx.Response(201)
+
+    monkeypatch.setattr("app.auth.httpx.post", fake_post)
+
+    from app.auth import AuthService
+
+    user = AuthService(get_settings()).signup(
+        department_id=_SUPABASE_DEPARTMENT_ID,
+        department_name="Lake Fire Department",
+        email="chief2@lakefd.test",
+        password="password",
+        role="Chief",
+    )
+
+    assert user.email == "chief2@lakefd.test"
+    assert user.department.role == "Chief"
+    assert requests[1]["json"]["role"] == "Chief"
+
+
 def test_supabase_signup_with_email_confirmation_returns_actionable_message(tmp_path, monkeypatch):
     monkeypatch.setenv("RFD_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
