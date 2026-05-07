@@ -519,7 +519,7 @@ function Dashboard({
         }
       }
 
-      const expensePayload = {
+      const expensePayload: Record<string, unknown> = {
         id: draft.id,
         department_id: membership.department_id,
         receipt_id: draft.receiptId,
@@ -550,7 +550,7 @@ function Dashboard({
       };
 
       const insert = await withTimeout(
-        (async () => supabase.from("expenses").insert(expensePayload))(),
+        insertExpenseWithSchemaFallback(expensePayload),
         30000,
         "Saving the expense timed out. Please try again.",
       );
@@ -1092,4 +1092,27 @@ function isResourceExistsError(message: string) {
 
 function isDuplicateExpenseError(message: string) {
   return /duplicate key|already exists/i.test(message);
+}
+
+async function insertExpenseWithSchemaFallback(expensePayload: Record<string, unknown>) {
+  const payload = { ...expensePayload };
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const result = await supabase.from("expenses").insert(payload);
+    if (!result.error) {
+      return result;
+    }
+
+    const missingColumn = missingColumnFromSchemaError(result.error.message);
+    if (!missingColumn || !(missingColumn in payload)) {
+      return result;
+    }
+    delete payload[missingColumn];
+  }
+
+  return supabase.from("expenses").insert(payload);
+}
+
+function missingColumnFromSchemaError(message: string) {
+  const match = message.match(/Could not find the '([^']+)' column/i);
+  return match?.[1] || null;
 }
