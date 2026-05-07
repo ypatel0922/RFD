@@ -14,8 +14,7 @@
     "openai": "^6.36.0",
     "plaid": "^42.2.0",
     "react": "^19.2.6",
-    "react-dom": "^19.2.6",
-    "react-plaid-link": "^4.1.1"
+    "react-dom": "^19.2.6"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
