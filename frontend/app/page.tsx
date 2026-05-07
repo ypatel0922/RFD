@@ -19,7 +19,7 @@ import {
 import { buildReconciliationReport, reconciliationReportCsv } from "../lib/reports";
 
 type AuthMode = "login" | "signup";
-type AppView = "dashboard" | "reports" | "settings";
+type AppView = "dashboard" | "reports" | "settings" | "statements";
 type MessageVariant = "success" | "error";
 
 const EMPTY_EXTRACTION: ExtractedReceiptData = {
@@ -248,6 +248,9 @@ export default function Home() {
             <button type="button" onClick={() => setView("settings")}>
               Settings
             </button>
+            <button type="button" onClick={() => setView("statements")}>
+              Statements
+            </button>
           </div>
           {message && <div className={`notice ${messageVariant === "error" ? "notice-error" : ""}`}>{message}</div>}
         </section>
@@ -280,11 +283,22 @@ export default function Home() {
             showErrorMessage={showErrorMessage}
             showSuccessMessage={showSuccessMessage}
           />
-          ) : (
+          ) : view === "settings" ? (
             <Settings
               membership={membership}
               bankAccounts={bankAccounts}
               onBankAccountsChanged={() => loadBankAccounts(membership.department_id)}
+              showErrorMessage={showErrorMessage}
+              showSuccessMessage={showSuccessMessage}
+            />
+          ) : (
+            <Statements
+              membership={membership}
+              user={session.user}
+              bankAccounts={bankAccounts}
+              onExpensesChanged={() => loadExpenses(membership.department_id)}
+              onStatementUrlsChanged={loadStatementUrls}
+              statementUrls={statementUrls}
               showErrorMessage={showErrorMessage}
               showSuccessMessage={showSuccessMessage}
             />
@@ -1214,9 +1228,13 @@ function Reports({
         user,
         extraction,
         selectedBankAccountName: bankAccountName,
-        statementFilePath: statementPath,
-        originalFilename: file.name || "statement",
-        contentType: file.type || "application/octet-stream",
+        statementFiles: [
+          {
+            path: statementPath,
+            originalFilename: file.name || "statement",
+            contentType: file.type || "application/octet-stream",
+          },
+        ],
       });
       await onExpensesChanged();
       await loadStatementUploads();
@@ -1492,6 +1510,215 @@ function Settings({
   );
 }
 
+function Statements({
+  membership,
+  user,
+  bankAccounts,
+  onExpensesChanged,
+  onStatementUrlsChanged,
+  statementUrls,
+  showErrorMessage,
+  showSuccessMessage,
+}: {
+  membership: DepartmentMembership;
+  user: User;
+  bankAccounts: BankAccount[];
+  onExpensesChanged: () => Promise<void>;
+  onStatementUrlsChanged: (uploads: BankStatementUpload[]) => Promise<void>;
+  statementUrls: Record<string, string>;
+  showErrorMessage: (message: string) => void;
+  showSuccessMessage: (message: string | null) => void;
+}) {
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [working, setWorking] = useState(false);
+  const [uploads, setUploads] = useState<BankStatementUpload[]>([]);
+  const [extraction, setExtraction] = useState<BankStatementExtraction | null>(null);
+  const [bankAccountName, setBankAccountName] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+
+  useEffect(() => {
+    void loadUploads();
+  }, [membership.department_id]);
+
+  function onFilesChosen(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files || []);
+    if (!files.length) return;
+    setSelectedFiles((prev) => [...prev, ...files]);
+    event.target.value = "";
+  }
+
+  async function extractPages() {
+    if (!selectedFiles.length) {
+      showErrorMessage("Add at least one statement page or file.");
+      return;
+    }
+    setWorking(true);
+    try {
+      const form = new FormData();
+      selectedFiles.forEach((file) => form.append("statements", file));
+      const response = await fetch("/api/extract-bank-statement", {
+        method: "POST",
+        body: form,
+      });
+      const payload = (await response.json()) as BankStatementExtraction;
+      setExtraction(payload);
+      setStartDate(payload.statement_start_date || "");
+      setEndDate(payload.statement_end_date || "");
+      setBankAccountName(payload.account_name || "");
+    } catch (error) {
+      showErrorMessage(error instanceof Error ? error.message : "Could not extract statement data.");
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  async function saveAndReconcile() {
+    if (!selectedFiles.length || !extraction) {
+      showErrorMessage("Upload statement pages first.");
+      return;
+    }
+    setWorking(true);
+    try {
+      const savedFiles: Array<{ path: string; originalFilename: string; contentType: string }> = [];
+      for (const file of selectedFiles) {
+        const path = buildStatementPath({ departmentId: membership.department_id, file });
+        const upload = await supabase.storage.from(bankStatementsBucket).upload(path, file, {
+          contentType: file.type || "application/octet-stream",
+          upsert: false,
+        });
+        if (upload.error) {
+          throw new Error(upload.error.message);
+        }
+        savedFiles.push({
+          path,
+          originalFilename: file.name || "statement",
+          contentType: file.type || "application/octet-stream",
+        });
+      }
+      await applyStatementReconciliation({
+        membership,
+        user,
+        extraction: {
+          ...extraction,
+          statement_start_date: startDate || extraction.statement_start_date,
+          statement_end_date: endDate || extraction.statement_end_date,
+        },
+        selectedBankAccountName: bankAccountName,
+        statementFiles: savedFiles,
+      });
+      await onExpensesChanged();
+      await loadUploads();
+      setSelectedFiles([]);
+      setExtraction(null);
+      showSuccessMessage("Statement saved and reconciliation run.");
+    } catch (error) {
+      showErrorMessage(error instanceof Error ? error.message : "Could not save and reconcile statement.");
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  async function loadUploads() {
+    const { data, error } = await supabase
+      .from("bank_statement_uploads")
+      .select("*")
+      .eq("department_id", membership.department_id)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    if (error) return;
+    const rows = (data || []) as BankStatementUpload[];
+    setUploads(rows);
+    await onStatementUrlsChanged(rows);
+  }
+
+  return (
+    <section className="card report-card report-wide">
+      <div className="section-heading">
+        <p className="eyebrow">Bank statements</p>
+        <h2>Upload, review, and reconcile statement pages</h2>
+      </div>
+      <div className="capture-options">
+        <label>
+          1) Take statement photos (multiple pages)
+          <input type="file" accept="image/*" capture="environment" multiple onChange={onFilesChosen} />
+        </label>
+        <label>
+          2) Upload from photos/files (images or PDF)
+          <input type="file" accept="image/*,application/pdf" multiple onChange={onFilesChosen} />
+        </label>
+        <button type="button" disabled={working} onClick={() => void extractPages()}>
+          {working ? "Extracting..." : "Review extracted statement data"}
+        </button>
+      </div>
+
+      {selectedFiles.length ? (
+        <div className="integration-note">
+          Selected files: {selectedFiles.map((file) => file.name).join(", ")}
+        </div>
+      ) : null}
+
+      {extraction ? (
+        <div className="report-controls">
+          <label>
+            Bank account
+            <select value={bankAccountName} onChange={(event) => setBankAccountName(event.target.value)}>
+              <option value="">Choose account</option>
+              {bankAccounts.map((account) => (
+                <option key={account.id} value={account.name}>
+                  {account.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <TextField label="Statement start date" type="date" value={startDate} onChange={setStartDate} />
+          <TextField label="Statement end date" type="date" value={endDate} onChange={setEndDate} />
+          <button type="button" disabled={working} onClick={() => void saveAndReconcile()}>
+            {working ? "Saving..." : "Save and reconcile"}
+          </button>
+        </div>
+      ) : null}
+
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Uploaded</th>
+              <th>Account</th>
+              <th>Period</th>
+              <th>Beginning</th>
+              <th>Ending</th>
+              <th>File</th>
+            </tr>
+          </thead>
+          <tbody>
+            {uploads.map((upload) => (
+              <tr key={upload.id}>
+                <td>{upload.created_at}</td>
+                <td>{upload.bank_account_name || ""}</td>
+                <td>
+                  {upload.statement_start_date || ""} - {upload.statement_end_date || ""}
+                </td>
+                <td>{upload.beginning_balance ?? ""}</td>
+                <td>{upload.ending_balance ?? ""}</td>
+                <td>
+                  {statementUrls[upload.id] ? (
+                    <a href={statementUrls[upload.id]} target="_blank" rel="noopener noreferrer">
+                      View statement
+                    </a>
+                  ) : (
+                    upload.original_filename || ""
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 async function ensureMembership(user: User) {
   const { data, error } = await supabase
     .from("department_members")
@@ -1648,17 +1875,13 @@ async function applyStatementReconciliation({
   user,
   extraction,
   selectedBankAccountName,
-  statementFilePath,
-  originalFilename,
-  contentType,
+  statementFiles,
 }: {
   membership: DepartmentMembership;
   user: User;
   extraction: BankStatementExtraction;
   selectedBankAccountName: string;
-  statementFilePath: string;
-  originalFilename: string;
-  contentType: string;
+  statementFiles: Array<{ path: string; originalFilename: string; contentType: string }>;
 }) {
   const accountName = selectedBankAccountName || extraction.account_name || null;
   const { data: expenses, error } = await supabase
@@ -1724,19 +1947,21 @@ async function applyStatementReconciliation({
       .eq("id", top.expense.id);
   }
 
-  await supabase.from("bank_statement_uploads").insert({
-    department_id: membership.department_id,
-    bank_account_name: accountName,
-    statement_start_date: extraction.statement_start_date,
-    statement_end_date: extraction.statement_end_date,
-    beginning_balance: extraction.beginning_balance,
-    ending_balance: extraction.ending_balance,
-    statement_file_path: statementFilePath,
-    original_filename: originalFilename,
-    content_type: contentType,
-    uploaded_by_user_id: user.id,
-    uploaded_by_email: user.email || "",
-  });
+  for (const file of statementFiles) {
+    await supabase.from("bank_statement_uploads").insert({
+      department_id: membership.department_id,
+      bank_account_name: accountName,
+      statement_start_date: extraction.statement_start_date,
+      statement_end_date: extraction.statement_end_date,
+      beginning_balance: extraction.beginning_balance,
+      ending_balance: extraction.ending_balance,
+      statement_file_path: file.path,
+      original_filename: file.originalFilename,
+      content_type: file.contentType,
+      uploaded_by_user_id: user.id,
+      uploaded_by_email: user.email || "",
+    });
+  }
 }
 
 function scoreReconciliationMatch(
