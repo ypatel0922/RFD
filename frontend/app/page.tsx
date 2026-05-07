@@ -1040,10 +1040,7 @@ function optionalNumber(value: string | number | null | undefined) {
   if (value == null) {
     return null;
   }
-  const normalized =
-    typeof value === "number"
-      ? String(value)
-      : String(value).replaceAll("$", "").replaceAll(",", "").trim();
+  const normalized = String(value).replace(/[$,]/g, "").trim();
   if (!normalized) {
     return null;
   }
