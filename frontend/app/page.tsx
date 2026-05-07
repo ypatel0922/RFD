@@ -1036,9 +1036,19 @@ function optionalValue(value: string) {
   return trimmed || null;
 }
 
-function optionalNumber(value: string) {
-  const trimmed = value.replaceAll("$", "").replaceAll(",", "").trim();
-  return trimmed ? Number(trimmed) : null;
+function optionalNumber(value: string | number | null | undefined) {
+  if (value == null) {
+    return null;
+  }
+  const normalized =
+    typeof value === "number"
+      ? String(value)
+      : String(value).replaceAll("$", "").replaceAll(",", "").trim();
+  if (!normalized) {
+    return null;
+  }
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
