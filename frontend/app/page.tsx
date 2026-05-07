@@ -5,6 +5,8 @@ import type { Session, User } from "@supabase/supabase-js";
 
 import { receiptsBucket, supabase } from "../lib/supabase";
 import {
+  BankAccount,
+  BankStatementExtraction,
   Department,
   DepartmentMembership,
   ExpenseDraft,
@@ -16,7 +18,7 @@ import {
 import { buildReconciliationReport, reconciliationReportCsv } from "../lib/reports";
 
 type AuthMode = "login" | "signup";
-type AppView = "dashboard" | "reports";
+type AppView = "dashboard" | "reports" | "settings";
 type MessageVariant = "success" | "error";
 
 const EMPTY_EXTRACTION: ExtractedReceiptData = {
@@ -50,6 +52,7 @@ export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
   const [membership, setMembership] = useState<DepartmentMembership | null>(null);
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [receiptUrls, setReceiptUrls] = useState<Record<string, string>>({});
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [view, setView] = useState<AppView>("dashboard");
@@ -110,7 +113,24 @@ export default function Home() {
       );
     }
     setMembership(loadedMembership);
+    await loadBankAccounts(loadedMembership.department_id);
     await loadExpenses(loadedMembership.department_id);
+  }
+
+  async function loadBankAccounts(departmentId: string) {
+    const { data, error } = await supabase
+      .from("bank_accounts")
+      .select("*")
+      .eq("department_id", departmentId)
+      .order("created_at", { ascending: true });
+    if (error) {
+      if (!/bank_accounts|schema cache|does not exist/i.test(error.message)) {
+        showErrorMessage(error.message);
+      }
+      setBankAccounts([]);
+      return;
+    }
+    setBankAccounts((data || []) as BankAccount[]);
   }
 
   async function loadExpenses(departmentId: string) {
@@ -209,6 +229,9 @@ export default function Home() {
             <button type="button" onClick={() => setView("reports")}>
               Reconciliation report
             </button>
+            <button type="button" onClick={() => setView("settings")}>
+              Settings
+            </button>
           </div>
           {message && <div className={`notice ${messageVariant === "error" ? "notice-error" : ""}`}>{message}</div>}
         </section>
@@ -219,17 +242,35 @@ export default function Home() {
             user={session.user}
             expenses={expenses}
             receiptUrls={receiptUrls}
+            bankAccounts={bankAccounts}
             onExpensesChanged={() => loadExpenses(membership.department_id)}
+            onBankAccountsChanged={() => loadBankAccounts(membership.department_id)}
             setMessage={setMessage}
             showSuccessMessage={showSuccessMessage}
             showErrorMessage={showErrorMessage}
           />
         ) : (
+          view === "reports" ? (
           <Reports
+            membership={membership}
+            user={session.user}
             departmentName={membership.departments?.name || "Fire Department"}
             expenses={expenses}
             receiptUrls={receiptUrls}
+            bankAccounts={bankAccounts}
+            onExpensesChanged={() => loadExpenses(membership.department_id)}
+            showErrorMessage={showErrorMessage}
+            showSuccessMessage={showSuccessMessage}
           />
+          ) : (
+            <Settings
+              membership={membership}
+              bankAccounts={bankAccounts}
+              onBankAccountsChanged={() => loadBankAccounts(membership.department_id)}
+              showErrorMessage={showErrorMessage}
+              showSuccessMessage={showSuccessMessage}
+            />
+          )
         )}
       </main>
       <footer className="app-version">App version: {APP_VERSION}</footer>
@@ -454,7 +495,9 @@ function Dashboard({
   user,
   expenses,
   receiptUrls,
+  bankAccounts,
   onExpensesChanged,
+  onBankAccountsChanged,
   setMessage,
   showSuccessMessage,
   showErrorMessage,
@@ -463,7 +506,9 @@ function Dashboard({
   user: User;
   expenses: ExpenseRecord[];
   receiptUrls: Record<string, string>;
+  bankAccounts: BankAccount[];
   onExpensesChanged: () => Promise<void>;
+  onBankAccountsChanged: () => Promise<void>;
   setMessage: (message: string | null) => void;
   showSuccessMessage: (message: string | null) => void;
   showErrorMessage: (message: string) => void;
@@ -472,6 +517,20 @@ function Dashboard({
   const [reviewForm, setReviewForm] = useState<ReviewForm | null>(null);
   const [showCaptureOptions, setShowCaptureOptions] = useState(false);
   const [working, setWorking] = useState(false);
+
+  const defaultBankAccount = bankAccounts.find((account) => account.is_default)?.name || "";
+
+  function guessBankAccount(payee: string) {
+    if (defaultBankAccount) return defaultBankAccount;
+    const normalizedPayee = payee.trim().toLowerCase();
+    if (!normalizedPayee) return "";
+    const prior = expenses.find(
+      (expense) =>
+        (expense.payee || expense.merchant_name || "").trim().toLowerCase() === normalizedPayee &&
+        expense.bank_account_name,
+    );
+    return prior?.bank_account_name || "";
+  }
 
   async function prepareReviewFromFile(file: File) {
     setMessage(null);
@@ -504,7 +563,9 @@ function Dashboard({
       payment_reference: extracted.payment_reference || "",
       payee: extracted.payee || extracted.merchant_name || "",
       description: extracted.description || "",
-      bank_account_name: extracted.bank_account_name || "",
+      bank_account_name:
+        extracted.bank_account_name ||
+        guessBankAccount(extracted.payee || extracted.merchant_name || ""),
       transaction_date: extracted.transaction_date || "",
       total_amount: extracted.total_amount || "",
       tax_amount: extracted.tax_amount || "",
@@ -644,6 +705,7 @@ function Dashboard({
           <ReviewExpenseForm
             draft={draft}
             form={reviewForm}
+            bankAccounts={bankAccounts}
             loggedBy={user.email || user.id}
             setForm={setReviewForm}
             disabled={working}
@@ -655,6 +717,7 @@ function Dashboard({
           />
         )}
       </section>
+      <BankAccountsSummary expenses={expenses} bankAccounts={bankAccounts} onBankAccountsChanged={onBankAccountsChanged} />
       <ExpenseLedger expenses={expenses} receiptUrls={receiptUrls} />
     </>
   );
@@ -708,6 +771,7 @@ function ReceiptCaptureOption({
 function ReviewExpenseForm({
   draft,
   form,
+  bankAccounts,
   loggedBy,
   setForm,
   disabled,
@@ -716,6 +780,7 @@ function ReviewExpenseForm({
 }: {
   draft: ExpenseDraft;
   form: ReviewForm;
+  bankAccounts: BankAccount[];
   loggedBy: string;
   setForm: (form: ReviewForm) => void;
   disabled: boolean;
@@ -744,7 +809,18 @@ function ReviewExpenseForm({
           <TextField label="Payment amount" value={form.total_amount} onChange={(v) => update("total_amount", v)} required />
           <TextField label="Tax" value={form.tax_amount} onChange={(v) => update("tax_amount", v)} />
           <TextField label="Balance after transaction" value={form.balance_after_transaction} onChange={(v) => update("balance_after_transaction", v)} />
-          <TextField label="Bank account" value={form.bank_account_name} onChange={(v) => update("bank_account_name", v)} placeholder="Checking, savings, 2% account..." />
+          <label>
+            Bank account
+            <select value={form.bank_account_name} onChange={(event) => update("bank_account_name", event.target.value)}>
+              <option value="">Choose account</option>
+              {bankAccounts.map((account) => (
+                <option key={account.id} value={account.name}>
+                  {account.name}
+                  {account.is_default ? " (default)" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
           <TextField label="Payment method" value={form.payment_method} onChange={(v) => update("payment_method", v)} placeholder="Check, debit card, ACH..." />
           <TextField label="Fund / budget line" value={form.fund} onChange={(v) => update("fund", v)} placeholder="General, equipment, fuel..." />
           <TextField label="Category / purpose" value={form.category} onChange={(v) => update("category", v)} placeholder="Fuel, supplies, food, training..." />
@@ -871,18 +947,84 @@ function ExpenseLedger({
   );
 }
 
+function BankAccountsSummary({
+  expenses,
+  bankAccounts,
+  onBankAccountsChanged,
+}: {
+  expenses: ExpenseRecord[];
+  bankAccounts: BankAccount[];
+  onBankAccountsChanged: () => Promise<void>;
+}) {
+  return (
+    <section className="card">
+      <div className="section-heading">
+        <p className="eyebrow">Bank accounts</p>
+        <h2>Accounts and recent transactions</h2>
+      </div>
+      {bankAccounts.length ? (
+        <div className="summary-grid">
+          {bankAccounts.map((account) => {
+            const recent = expenses
+              .filter((expense) => expense.bank_account_name?.toLowerCase() === account.name.toLowerCase())
+              .slice(0, 3);
+            return (
+              <div key={account.id}>
+                <span className="summary-label">
+                  {account.name}
+                  {account.is_default ? " (default)" : ""}
+                </span>
+                {recent.length ? (
+                  recent.map((expense) => (
+                    <span key={expense.id} className="filename">
+                      {expense.transaction_date || "No date"} - {expense.payee || expense.merchant_name || "Expense"} - $
+                      {expense.total_amount || "0"}
+                    </span>
+                  ))
+                ) : (
+                  <span className="filename">No recent transactions</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="empty-state">
+          No bank accounts configured yet. Add one in Settings.
+          <button type="button" className="link-button" onClick={() => void onBankAccountsChanged()}>
+            Refresh
+          </button>
+        </p>
+      )}
+    </section>
+  );
+}
+
 function Reports({
+  membership,
+  user,
   departmentName,
   expenses,
   receiptUrls,
+  bankAccounts,
+  onExpensesChanged,
+  showErrorMessage,
+  showSuccessMessage,
 }: {
+  membership: DepartmentMembership;
+  user: User;
   departmentName: string;
   expenses: ExpenseRecord[];
   receiptUrls: Record<string, string>;
+  bankAccounts: BankAccount[];
+  onExpensesChanged: () => Promise<void>;
+  showErrorMessage: (message: string) => void;
+  showSuccessMessage: (message: string | null) => void;
 }) {
   const [startDate, setStartDate] = useState(defaultReportStart);
   const [endDate, setEndDate] = useState(defaultReportEnd);
   const [bankAccountName, setBankAccountName] = useState("");
+  const [reconWorking, setReconWorking] = useState(false);
   const report = useMemo(
     () =>
       buildReconciliationReport({
@@ -905,6 +1047,31 @@ function Reports({
     URL.revokeObjectURL(url);
   }
 
+  async function handleStatementUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setReconWorking(true);
+    try {
+      const form = new FormData();
+      form.append("statement", file);
+      const response = await fetch("/api/extract-bank-statement", { method: "POST", body: form });
+      const extraction = (await response.json()) as BankStatementExtraction;
+      await applyStatementReconciliation({
+        membership,
+        user,
+        extraction,
+        selectedBankAccountName: bankAccountName,
+      });
+      await onExpensesChanged();
+      showSuccessMessage("Statement imported. Matching transactions were reconciled.");
+    } catch (error) {
+      showErrorMessage(error instanceof Error ? error.message : "Could not process statement upload.");
+    } finally {
+      setReconWorking(false);
+      event.target.value = "";
+    }
+  }
+
   return (
     <section className="card report-card report-wide">
       <div className="section-heading">
@@ -914,7 +1081,21 @@ function Reports({
       <div className="report-controls">
         <TextField label="Start date" type="date" value={startDate} onChange={setStartDate} />
         <TextField label="Period ending" type="date" value={endDate} onChange={setEndDate} />
-        <TextField label="Bank account" value={bankAccountName} onChange={setBankAccountName} placeholder="Optional account filter" />
+        <label>
+          Bank account
+          <select value={bankAccountName} onChange={(event) => setBankAccountName(event.target.value)}>
+            <option value="">All accounts</option>
+            {bankAccounts.map((account) => (
+              <option key={account.id} value={account.name}>
+                {account.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Manual statement reconcile
+          <input type="file" accept="image/*,application/pdf" onChange={handleStatementUpload} disabled={reconWorking} />
+        </label>
         <button type="button" onClick={downloadCsv}>
           Download CSV
         </button>
@@ -981,6 +1162,117 @@ function Reports({
                     </a>
                   ) : (
                     ""
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function Settings({
+  membership,
+  bankAccounts,
+  onBankAccountsChanged,
+  showErrorMessage,
+  showSuccessMessage,
+}: {
+  membership: DepartmentMembership;
+  bankAccounts: BankAccount[];
+  onBankAccountsChanged: () => Promise<void>;
+  showErrorMessage: (message: string) => void;
+  showSuccessMessage: (message: string | null) => void;
+}) {
+  async function createAccount(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const name = String(form.get("name") || "").trim();
+    const institution = String(form.get("institution_name") || "").trim();
+    const accountMask = String(form.get("account_mask") || "").trim();
+    const isDefault = String(form.get("is_default") || "") === "on";
+    if (!name) return;
+    if (isDefault) {
+      await supabase
+        .from("bank_accounts")
+        .update({ is_default: false })
+        .eq("department_id", membership.department_id);
+    }
+    const { error } = await supabase.from("bank_accounts").insert({
+      department_id: membership.department_id,
+      name,
+      institution_name: institution || null,
+      account_mask: accountMask || null,
+      is_default: isDefault,
+    });
+    if (error) {
+      showErrorMessage(error.message);
+      return;
+    }
+    (event.currentTarget as HTMLFormElement).reset();
+    await onBankAccountsChanged();
+    showSuccessMessage("Bank account saved.");
+  }
+
+  async function makeDefault(accountId: string) {
+    await supabase.from("bank_accounts").update({ is_default: false }).eq("department_id", membership.department_id);
+    const { error } = await supabase.from("bank_accounts").update({ is_default: true }).eq("id", accountId);
+    if (error) {
+      showErrorMessage(error.message);
+      return;
+    }
+    await onBankAccountsChanged();
+  }
+
+  return (
+    <section className="card">
+      <div className="section-heading">
+        <p className="eyebrow">Configuration</p>
+        <h2>Bank account settings</h2>
+      </div>
+      <form className="upload-form" onSubmit={createAccount}>
+        <label>
+          Account name
+          <input name="name" required />
+        </label>
+        <label>
+          Institution
+          <input name="institution_name" placeholder="Chase, M&T, etc." />
+        </label>
+        <label>
+          Last 4 / mask
+          <input name="account_mask" placeholder="1234" />
+        </label>
+        <label>
+          <input type="checkbox" name="is_default" /> Set as default account
+        </label>
+        <button type="submit">Save account</button>
+      </form>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Institution</th>
+              <th>Mask</th>
+              <th>Default</th>
+            </tr>
+          </thead>
+          <tbody>
+            {bankAccounts.map((account) => (
+              <tr key={account.id}>
+                <td>{account.name}</td>
+                <td>{account.institution_name || ""}</td>
+                <td>{account.account_mask || ""}</td>
+                <td>
+                  {account.is_default ? (
+                    "Yes"
+                  ) : (
+                    <button type="button" className="secondary-action" onClick={() => void makeDefault(account.id)}>
+                      Make default
+                    </button>
                   )}
                 </td>
               </tr>
@@ -1141,4 +1433,66 @@ async function insertExpenseWithSchemaFallback(expensePayload: Record<string, un
 function missingColumnFromSchemaError(message: string) {
   const match = message.match(/Could not find the '([^']+)' column/i);
   return match?.[1] || null;
+}
+
+async function applyStatementReconciliation({
+  membership,
+  user,
+  extraction,
+  selectedBankAccountName,
+}: {
+  membership: DepartmentMembership;
+  user: User;
+  extraction: BankStatementExtraction;
+  selectedBankAccountName: string;
+}) {
+  const accountName = selectedBankAccountName || extraction.account_name || null;
+  const { data: expenses, error } = await supabase
+    .from("expenses")
+    .select("id,transaction_date,total_amount,reconciliation_status,bank_account_name")
+    .eq("department_id", membership.department_id);
+  if (error) throw new Error(error.message);
+  const candidates = ((expenses || []) as Array<{
+    id: string;
+    transaction_date: string | null;
+    total_amount: number | string | null;
+    reconciliation_status: string;
+    bank_account_name: string | null;
+  }>).filter((expense) => expense.reconciliation_status !== "matched");
+
+  for (const tx of extraction.transactions || []) {
+    const txAmount = optionalNumber(tx.amount);
+    if (txAmount == null) continue;
+    const match = candidates.find((expense) => {
+      const amount = optionalNumber(expense.total_amount);
+      if (amount == null || Math.abs(amount - txAmount) > 0.01) return false;
+      if (accountName && expense.bank_account_name && expense.bank_account_name !== accountName) return false;
+      if (!tx.posted_date || !expense.transaction_date) return true;
+      return Math.abs(new Date(tx.posted_date).getTime() - new Date(expense.transaction_date).getTime()) <= 3 * 86400000;
+    });
+    if (!match) continue;
+    await supabase
+      .from("expenses")
+      .update({
+        reconciliation_status: "matched",
+        bank_posted_date: tx.posted_date,
+        bank_description: tx.description,
+        bank_amount: txAmount,
+        bank_account_name: accountName || match.bank_account_name,
+        balance_after_transaction: tx.balance ?? null,
+        reconciled_at: new Date().toISOString(),
+      })
+      .eq("id", match.id);
+  }
+
+  await supabase.from("bank_statement_uploads").insert({
+    department_id: membership.department_id,
+    bank_account_name: accountName,
+    statement_start_date: extraction.statement_start_date,
+    statement_end_date: extraction.statement_end_date,
+    beginning_balance: extraction.beginning_balance,
+    ending_balance: extraction.ending_balance,
+    uploaded_by_user_id: user.id,
+    uploaded_by_email: user.email || "",
+  });
 }

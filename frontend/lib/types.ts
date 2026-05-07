@@ -20,6 +20,35 @@ export type DepartmentMembership = {
   departments: Department | null;
 };
 
+export type BankAccount = {
+  id: string;
+  department_id: string;
+  name: string;
+  institution_name: string | null;
+  account_mask: string | null;
+  is_default: boolean;
+  created_at: string;
+};
+
+export type BankStatementTransaction = {
+  posted_date: string | null;
+  description: string | null;
+  amount: number | null;
+  balance: number | null;
+  reference: string | null;
+};
+
+export type BankStatementExtraction = {
+  account_name: string | null;
+  beginning_balance: number | null;
+  ending_balance: number | null;
+  statement_start_date: string | null;
+  statement_end_date: string | null;
+  transactions: BankStatementTransaction[];
+  confidence: number;
+  notes: string | null;
+};
+
 export type ExpenseRecord = {
   id: string;
   department_id: string;

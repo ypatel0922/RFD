@@ -1,0 +1,63 @@
+import { NextRequest, NextResponse } from "next/server";
+import OpenAI from "openai";
+
+import type { BankStatementExtraction } from "../../../lib/types";
+
+const FALLBACK: BankStatementExtraction = {
+  account_name: null,
+  beginning_balance: null,
+  ending_balance: null,
+  statement_start_date: null,
+  statement_end_date: null,
+  transactions: [],
+  confidence: 0,
+  notes: "Statement uploaded. Configure OPENAI_API_KEY to auto-extract transactions.",
+};
+
+const PROMPT = `Extract bank statement data.
+Return valid JSON only with keys:
+account_name, beginning_balance, ending_balance, statement_start_date, statement_end_date, confidence, notes, transactions.
+transactions must be an array of objects with keys:
+posted_date, description, amount, balance, reference.
+Dates use YYYY-MM-DD when visible. Amounts are numbers without currency symbols.`;
+
+export async function POST(request: NextRequest) {
+  const formData = await request.formData();
+  const statement = formData.get("statement");
+  if (!(statement instanceof File)) {
+    return NextResponse.json({ ...FALLBACK, notes: "Upload a bank statement image or PDF." }, { status: 400 });
+  }
+  if (!process.env.OPENAI_API_KEY) return NextResponse.json(FALLBACK);
+
+  const bytes = Buffer.from(await statement.arrayBuffer());
+  const dataUrl = `data:${statement.type || "application/octet-stream"};base64,${bytes.toString("base64")}`;
+  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  try {
+    const response = await client.chat.completions.create({
+      model: process.env.OPENAI_RECEIPT_MODEL || "gpt-4o-mini",
+      temperature: 0,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: PROMPT },
+        { role: "user", content: [{ type: "text", text: "Extract this bank statement." }, { type: "image_url", image_url: { url: dataUrl, detail: "high" } }] },
+      ],
+    });
+    const raw = response.choices[0]?.message.content || "{}";
+    const payload = JSON.parse(raw) as Partial<BankStatementExtraction>;
+    return NextResponse.json({
+      ...FALLBACK,
+      ...payload,
+      transactions: Array.isArray(payload.transactions) ? payload.transactions : [],
+      confidence: clampConfidence(payload.confidence),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown extraction error";
+    return NextResponse.json({ ...FALLBACK, notes: `Statement extraction failed: ${message}` });
+  }
+}
+
+function clampConfidence(value: unknown) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(1, n));
+}
