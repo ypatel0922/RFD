@@ -25,10 +25,19 @@ Return only valid JSON with these keys:
 merchant_name, payee, transaction_date, total_amount, tax_amount, category,
 payment_method, payment_reference, description, bank_account_name,
 balance_after_transaction, confidence, notes.
+Prioritize these fields as highest importance:
+- merchant_name: read from the top header/store banner first.
+- payment_reference: check/check #/auth code/reference/invoice number.
+Do not invent values. If unsure, use null.
 Use ISO date format YYYY-MM-DD when a date is visible.
 Use plain decimal numbers for money without currency symbols.
 If a field is not visible, return null for that field.
 Set confidence from 0 to 1 based on receipt legibility and certainty.`;
+
+const HEADER_FOCUS_PROMPT = `Return only valid JSON with keys merchant_name and payment_reference.
+Read merchant_name from the topmost header/signage text on the receipt.
+Read payment_reference from labels like check #, check no, ref, auth, approval, transaction, invoice.
+If not visible, return null.`;
 
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
@@ -66,23 +75,31 @@ export async function POST(request: NextRequest) {
         {
           role: "user",
           content: [
-            { type: "text", text: "Extract expense fields from this receipt image." },
-            { type: "image_url", image_url: { url: dataUrl } },
+            {
+              type: "text",
+              text: "Extract expense fields from this receipt image. Merchant name must come from top header text when visible.",
+            },
+            { type: "image_url", image_url: { url: dataUrl, detail: "high" } },
           ],
         },
       ],
     });
     const raw = response.choices[0]?.message.content || "{}";
     const payload = JSON.parse(raw) as Partial<ExtractedReceiptData>;
+    const withHeaderFields = await enrichHeaderFields({
+      client,
+      dataUrl,
+      extracted: payload,
+    });
     const hasRequiredFields = Boolean(
-      payload.merchant_name && payload.transaction_date && payload.total_amount,
+      withHeaderFields.merchant_name && withHeaderFields.transaction_date && withHeaderFields.total_amount,
     );
 
     return NextResponse.json({
       ...FALLBACK_EXTRACTION,
-      ...payload,
+      ...withHeaderFields,
       extraction_status: hasRequiredFields ? "extracted" : "needs_review",
-      confidence: clampConfidence(payload.confidence),
+      confidence: clampConfidence(withHeaderFields.confidence),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown extraction error";
@@ -98,4 +115,45 @@ function clampConfidence(value: unknown) {
   const numberValue = Number(value);
   if (!Number.isFinite(numberValue)) return 0;
   return Math.max(0, Math.min(1, numberValue));
+}
+
+async function enrichHeaderFields({
+  client,
+  dataUrl,
+  extracted,
+}: {
+  client: OpenAI;
+  dataUrl: string;
+  extracted: Partial<ExtractedReceiptData>;
+}) {
+  if (extracted.merchant_name && extracted.payment_reference) {
+    return extracted;
+  }
+
+  try {
+    const response = await client.chat.completions.create({
+      model: process.env.OPENAI_RECEIPT_MODEL || "gpt-4o-mini",
+      temperature: 0,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: HEADER_FOCUS_PROMPT },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Focus on the top of the receipt and reference fields." },
+            { type: "image_url", image_url: { url: dataUrl, detail: "high" } },
+          ],
+        },
+      ],
+    });
+    const headerRaw = response.choices[0]?.message.content || "{}";
+    const headerPayload = JSON.parse(headerRaw) as Partial<ExtractedReceiptData>;
+    return {
+      ...extracted,
+      merchant_name: extracted.merchant_name || headerPayload.merchant_name || null,
+      payment_reference: extracted.payment_reference || headerPayload.payment_reference || null,
+    };
+  } catch {
+    return extracted;
+  }
 }

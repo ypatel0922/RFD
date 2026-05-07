@@ -5,7 +5,6 @@ export const ROLE_OPTIONS = [
   "Secretary",
   "Treasurer",
   "Other",
-  "Member"
 ] as const;
 
 export type RoleOption = (typeof ROLE_OPTIONS)[number];
