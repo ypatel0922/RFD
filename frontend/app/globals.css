@@ -483,6 +483,49 @@ th {
   margin-top: 1rem;
 }
 
+.ledger-quarter-row td {
+  background: #e8ecf4;
+  padding: 10px 14px;
+  border-top: 2px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.ledger-quarter-label {
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+
+.ledger-dashboard-search {
+  margin-bottom: 0;
+}
+
+.ledger-dashboard-search-form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px 16px;
+  align-items: end;
+}
+
+.ledger-dashboard-search-form label {
+  margin: 0;
+}
+
+.ledger-dashboard-search-actions {
+  display: flex;
+  align-items: flex-end;
+}
+
+.ledger-dashboard-search-actions button {
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .ledger-dashboard-search-form {
+    grid-template-columns: 1fr;
+  }
+}
+
 .app-version {
   width: min(1120px, calc(100vw - 32px));
   margin: 0 auto 24px;
