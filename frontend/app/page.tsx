@@ -482,12 +482,16 @@ function Dashboard({
     setWorking(true);
     setMessage(null);
     try {
-      const upload = await supabase.storage
-        .from(receiptsBucket)
-        .upload(draft.receiptPath, draft.receiptFile, {
-          contentType: draft.receiptFile.type || "application/octet-stream",
-          upsert: false,
-        });
+      const upload = await withTimeout(
+        supabase.storage
+          .from(receiptsBucket)
+          .upload(draft.receiptPath, draft.receiptFile, {
+            contentType: draft.receiptFile.type || "application/octet-stream",
+            upsert: false,
+          }),
+        30000,
+        "Uploading the receipt timed out. Check your connection and try again.",
+      );
       if (upload.error) {
         setMessage(upload.error.message);
         return;
@@ -523,7 +527,11 @@ function Dashboard({
         bank_match_confidence: 0,
       };
 
-      const insert = await supabase.from("expenses").insert(expensePayload);
+      const insert = await withTimeout(
+        (async () => supabase.from("expenses").insert(expensePayload))(),
+        30000,
+        "Saving the expense timed out. Please try again.",
+      );
       if (insert.error) {
         setMessage(insert.error.message);
         return;
@@ -1031,4 +1039,18 @@ function optionalValue(value: string) {
 function optionalNumber(value: string) {
   const trimmed = value.replaceAll("$", "").replaceAll(",", "").trim();
   return trimmed ? Number(trimmed) : null;
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+    });
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
 }
