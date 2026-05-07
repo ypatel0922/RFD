@@ -481,61 +481,67 @@ function Dashboard({
     if (!draft || !reviewForm) return;
     setWorking(true);
     setMessage(null);
+    try {
+      const upload = await supabase.storage
+        .from(receiptsBucket)
+        .upload(draft.receiptPath, draft.receiptFile, {
+          contentType: draft.receiptFile.type || "application/octet-stream",
+          upsert: false,
+        });
+      if (upload.error) {
+        setMessage(upload.error.message);
+        return;
+      }
 
-    const upload = await supabase.storage
-      .from(receiptsBucket)
-      .upload(draft.receiptPath, draft.receiptFile, {
-        contentType: draft.receiptFile.type || "application/octet-stream",
-        upsert: false,
+      const expensePayload = {
+        id: draft.id,
+        department_id: membership.department_id,
+        receipt_id: draft.receiptId,
+        receipt_path: draft.receiptPath,
+        original_filename: draft.receiptFile.name || "receipt",
+        content_type: draft.receiptFile.type || "application/octet-stream",
+        created_at: draft.createdAt,
+        created_by_user_id: user.id,
+        created_by_email: user.email || "",
+        uploaded_by: user.email || user.id,
+        fund: optionalValue(reviewForm.fund),
+        payment_reference: optionalValue(reviewForm.payment_reference),
+        payee: optionalValue(reviewForm.payee),
+        description: optionalValue(reviewForm.description),
+        bank_account_name: optionalValue(reviewForm.bank_account_name),
+        merchant_name: optionalValue(reviewForm.payee),
+        transaction_date: optionalValue(reviewForm.transaction_date),
+        total_amount: optionalNumber(reviewForm.total_amount),
+        tax_amount: optionalNumber(reviewForm.tax_amount),
+        balance_after_transaction: optionalNumber(reviewForm.balance_after_transaction),
+        category: optionalValue(reviewForm.category),
+        payment_method: optionalValue(reviewForm.payment_method),
+        extraction_status: draft.extracted.extraction_status,
+        extraction_confidence: draft.extracted.confidence,
+        extraction_notes: draft.extracted.notes,
+        reconciliation_status: "pending_bank_match",
+        bank_match_confidence: 0,
+      };
+
+      const insert = await supabase.from("expenses").insert(expensePayload);
+      if (insert.error) {
+        setMessage(insert.error.message);
+        return;
+      }
+
+      setDraft(null);
+      setReviewForm(null);
+      setMessage("Expense logged. It is waiting for a bank transaction match.");
+      void onExpensesChanged().catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Expense saved, but refresh failed.";
+        setMessage(message);
       });
-    if (upload.error) {
-      setMessage(upload.error.message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not save expense.";
+      setMessage(message);
+    } finally {
       setWorking(false);
-      return;
     }
-
-    const expensePayload = {
-      id: draft.id,
-      department_id: membership.department_id,
-      receipt_id: draft.receiptId,
-      receipt_path: draft.receiptPath,
-      original_filename: draft.receiptFile.name || "receipt",
-      content_type: draft.receiptFile.type || "application/octet-stream",
-      created_at: draft.createdAt,
-      created_by_user_id: user.id,
-      created_by_email: user.email || "",
-      uploaded_by: user.email || user.id,
-      fund: optionalValue(reviewForm.fund),
-      payment_reference: optionalValue(reviewForm.payment_reference),
-      payee: optionalValue(reviewForm.payee),
-      description: optionalValue(reviewForm.description),
-      bank_account_name: optionalValue(reviewForm.bank_account_name),
-      merchant_name: optionalValue(reviewForm.payee),
-      transaction_date: optionalValue(reviewForm.transaction_date),
-      total_amount: optionalNumber(reviewForm.total_amount),
-      tax_amount: optionalNumber(reviewForm.tax_amount),
-      balance_after_transaction: optionalNumber(reviewForm.balance_after_transaction),
-      category: optionalValue(reviewForm.category),
-      payment_method: optionalValue(reviewForm.payment_method),
-      extraction_status: draft.extracted.extraction_status,
-      extraction_confidence: draft.extracted.confidence,
-      extraction_notes: draft.extracted.notes,
-      reconciliation_status: "pending_bank_match",
-      bank_match_confidence: 0,
-    };
-
-    const insert = await supabase.from("expenses").insert(expensePayload);
-    if (insert.error) {
-      setMessage(insert.error.message);
-      setWorking(false);
-      return;
-    }
-
-    setDraft(null);
-    setReviewForm(null);
-    setMessage("Expense logged. It is waiting for a bank transaction match.");
-    await onExpensesChanged();
-    setWorking(false);
   }
 
   return (
