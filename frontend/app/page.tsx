@@ -17,6 +17,7 @@ import { buildReconciliationReport, reconciliationReportCsv } from "../lib/repor
 
 type AuthMode = "login" | "signup";
 type AppView = "dashboard" | "reports";
+type MessageVariant = "success" | "error";
 
 const EMPTY_EXTRACTION: ExtractedReceiptData = {
   merchant_name: null,
@@ -38,6 +39,7 @@ const EMPTY_EXTRACTION: ExtractedReceiptData = {
 const today = new Date();
 const defaultReportEnd = today.toISOString().slice(0, 10);
 const defaultReportStart = `${today.getFullYear()}-01-01`;
+const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION || "dev";
 
 function normalizeRole(role: string) {
   const normalized = role.trim().toLowerCase();
@@ -52,7 +54,18 @@ export default function Home() {
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [view, setView] = useState<AppView>("dashboard");
   const [message, setMessage] = useState<string | null>(null);
+  const [messageVariant, setMessageVariant] = useState<MessageVariant>("success");
   const [loading, setLoading] = useState(true);
+
+  function showSuccessMessage(nextMessage: string | null) {
+    setMessageVariant("success");
+    setMessage(nextMessage);
+  }
+
+  function showErrorMessage(nextMessage: string) {
+    setMessageVariant("error");
+    setMessage(nextMessage);
+  }
 
   useEffect(() => {
     let mounted = true;
@@ -184,7 +197,7 @@ export default function Home() {
               Reconciliation report
             </button>
           </div>
-          {message && <div className="notice">{message}</div>}
+          {message && <div className={`notice ${messageVariant === "error" ? "notice-error" : ""}`}>{message}</div>}
         </section>
 
         {view === "dashboard" ? (
@@ -195,6 +208,8 @@ export default function Home() {
             receiptUrls={receiptUrls}
             onExpensesChanged={() => loadExpenses(membership.department_id)}
             setMessage={setMessage}
+            showSuccessMessage={showSuccessMessage}
+            showErrorMessage={showErrorMessage}
           />
         ) : (
           <Reports
@@ -204,6 +219,7 @@ export default function Home() {
           />
         )}
       </main>
+      <footer className="app-version">App version: {APP_VERSION}</footer>
     </>
   );
 }
@@ -421,6 +437,8 @@ function Dashboard({
   receiptUrls,
   onExpensesChanged,
   setMessage,
+  showSuccessMessage,
+  showErrorMessage,
 }: {
   membership: DepartmentMembership;
   user: User;
@@ -428,6 +446,8 @@ function Dashboard({
   receiptUrls: Record<string, string>;
   onExpensesChanged: () => Promise<void>;
   setMessage: (message: string | null) => void;
+  showSuccessMessage: (message: string | null) => void;
+  showErrorMessage: (message: string) => void;
 }) {
   const [draft, setDraft] = useState<ExpenseDraft | null>(null);
   const [reviewForm, setReviewForm] = useState<ReviewForm | null>(null);
@@ -493,8 +513,10 @@ function Dashboard({
         "Uploading the receipt timed out. Check your connection and try again.",
       );
       if (upload.error) {
-        setMessage(upload.error.message);
-        return;
+        if (!isResourceExistsError(upload.error.message)) {
+          showErrorMessage(upload.error.message);
+          return;
+        }
       }
 
       const expensePayload = {
@@ -533,20 +555,22 @@ function Dashboard({
         "Saving the expense timed out. Please try again.",
       );
       if (insert.error) {
-        setMessage(insert.error.message);
-        return;
+        if (!isDuplicateExpenseError(insert.error.message)) {
+          showErrorMessage(insert.error.message);
+          return;
+        }
       }
 
       setDraft(null);
       setReviewForm(null);
-      setMessage("Expense logged. It is waiting for a bank transaction match.");
+      showSuccessMessage("Expense logged. It is waiting for a bank transaction match.");
       void onExpensesChanged().catch((error: unknown) => {
         const message = error instanceof Error ? error.message : "Expense saved, but refresh failed.";
-        setMessage(message);
+        showErrorMessage(message);
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not save expense.";
-      setMessage(message);
+      showErrorMessage(message);
     } finally {
       setWorking(false);
     }
@@ -1060,4 +1084,12 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMes
       clearTimeout(timer);
     }
   }
+}
+
+function isResourceExistsError(message: string) {
+  return /already exists/i.test(message);
+}
+
+function isDuplicateExpenseError(message: string) {
+  return /duplicate key|already exists/i.test(message);
 }

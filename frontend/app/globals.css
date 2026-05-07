@@ -429,6 +429,13 @@ th {
   padding: 36px 24px 48px;
 }
 
+.app-version {
+  width: min(1120px, calc(100vw - 32px));
+  margin: 0 auto 24px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
 @media (max-width: 860px) {
   .hero,
   .layout,
