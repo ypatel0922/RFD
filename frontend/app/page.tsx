@@ -2,6 +2,7 @@
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { Session, User } from "@supabase/supabase-js";
+import { usePlaidLink } from "react-plaid-link";
 
 import { bankStatementsBucket, receiptsBucket, supabase } from "../lib/supabase";
 import {
@@ -1547,8 +1548,28 @@ function Settings({
   showErrorMessage: (message: string) => void;
   showSuccessMessage: (message: string | null) => void;
 }) {
+  const [plaidLinkToken, setPlaidLinkToken] = useState<string | null>(null);
   const [syncWorking, setSyncWorking] = useState(false);
-  const plaidHandlerRef = useRef<{ open: () => void } | null>(null);
+  const { open: openPlaid, ready: plaidReady } = usePlaidLink({
+    token: plaidLinkToken || "",
+    onSuccess: async (public_token) => {
+      const exchangeResponse = await fetch("/api/plaid/exchange-public-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          publicToken: public_token,
+          departmentId: membership.department_id,
+        }),
+      });
+      const exchangePayload = (await exchangeResponse.json()) as { error?: string; accounts?: number };
+      if (!exchangeResponse.ok) {
+        showErrorMessage(exchangePayload.error || "Could not connect Plaid account.");
+        return;
+      }
+      await onBankAccountsChanged();
+      showSuccessMessage(`Plaid connected. Imported ${exchangePayload.accounts || 0} accounts.`);
+    },
+  });
 
   async function startPlaidLink() {
     const response = await fetch("/api/plaid/create-link-token", {
@@ -1564,34 +1585,14 @@ function Settings({
       showErrorMessage(payload.error || "Could not create Plaid link token.");
       return;
     }
-    await ensurePlaidScript();
-    if (!window.Plaid) {
-      showErrorMessage("Plaid Link SDK failed to load.");
-      return;
-    }
-    plaidHandlerRef.current = window.Plaid.create({
-      token: payload.link_token,
-      onSuccess: async (publicToken: string) => {
-        const exchangeResponse = await fetch("/api/plaid/exchange-public-token", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            publicToken,
-            departmentId: membership.department_id,
-          }),
-        });
-        const exchangePayload = (await exchangeResponse.json()) as { error?: string; accounts?: number };
-        if (!exchangeResponse.ok) {
-          showErrorMessage(exchangePayload.error || "Could not connect Plaid account.");
-          return;
-        }
-        await onBankAccountsChanged();
-        showSuccessMessage(`Plaid connected. Imported ${exchangePayload.accounts || 0} accounts.`);
-      },
-      onExit: () => undefined,
-    });
-    plaidHandlerRef.current.open();
+    setPlaidLinkToken(payload.link_token);
   }
+
+  useEffect(() => {
+    if (plaidLinkToken && plaidReady) {
+      openPlaid();
+    }
+  }, [openPlaid, plaidLinkToken, plaidReady]);
 
   async function syncPlaidTransactions() {
     setSyncWorking(true);
@@ -1737,34 +1738,6 @@ function Settings({
       </div>
     </section>
   );
-}
-
-declare global {
-  interface Window {
-    Plaid?: {
-      create: (config: {
-        token: string;
-        onSuccess: (publicToken: string) => void;
-        onExit: () => void;
-      }) => { open: () => void };
-    };
-  }
-}
-
-let plaidScriptPromise: Promise<void> | null = null;
-function ensurePlaidScript() {
-  if (typeof window === "undefined") return Promise.resolve();
-  if (window.Plaid) return Promise.resolve();
-  if (plaidScriptPromise) return plaidScriptPromise;
-  plaidScriptPromise = new Promise<void>((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = "https://cdn.plaid.com/link/v2/stable/link-initialize.js";
-    script.async = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error("Could not load Plaid Link SDK."));
-    document.head.appendChild(script);
-  });
-  return plaidScriptPromise;
 }
 
 function Statements({
