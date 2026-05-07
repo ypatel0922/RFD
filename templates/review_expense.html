@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Review receipt | {{ app_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
+  </head>
+  <body>
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Confirm expense details</p>
+        <h1>Review before logging</h1>
+        <p class="hero-copy">
+          The receipt is stored. Confirm the register fields below, then log the
+          expense so it can be matched to the bank feed when it posts.
+        </p>
+      </div>
+      <div class="account-panel">
+        <span class="eyebrow">Department</span>
+        <strong>{{ department.name }}</strong>
+        <span>{{ current_user.email }}</span>
+      </div>
+    </header>
+
+    <main class="review-layout">
+      <section class="card review-card">
+        <div class="section-heading">
+          <p class="eyebrow">Receipt source</p>
+          <h2>{{ draft.original_filename }}</h2>
+          <p>
+            <a href="{{ draft.receipt_url }}" target="_blank" rel="noopener">
+              Open stored receipt
+            </a>
+          </p>
+        </div>
+
+        {% if draft.extraction_notes %}
+          <div class="integration-note">{{ draft.extraction_notes }}</div>
+        {% endif %}
+      </section>
+
+      <section class="card review-card">
+        <div class="section-heading">
+          <p class="eyebrow">Check payment & deposit register</p>
+          <h2>Confirm fields</h2>
+        </div>
+
+        <form action="/receipts/confirm" method="post" class="upload-form">
+          <div class="form-grid two-column">
+            <label>
+              Date
+              <input
+                type="date"
+                name="transaction_date"
+                value="{{ draft.transaction_date or '' }}"
+                required
+              >
+            </label>
+            <label>
+              Check / payment ref
+              <input
+                type="text"
+                name="payment_reference"
+                value="{{ draft.payment_reference or '' }}"
+                placeholder="Check #, debit, ACH, card..."
+              >
+            </label>
+            <label>
+              Paid to / vendor
+              <input
+                type="text"
+                name="payee"
+                value="{{ draft.payee or draft.merchant_name or '' }}"
+                required
+              >
+            </label>
+            <label>
+              Payment amount
+              <input
+                type="text"
+                inputmode="decimal"
+                name="total_amount"
+                value="{{ draft.total_amount or '' }}"
+                required
+              >
+            </label>
+            <label>
+              Tax
+              <input
+                type="text"
+                inputmode="decimal"
+                name="tax_amount"
+                value="{{ draft.tax_amount or '' }}"
+              >
+            </label>
+            <label>
+              Balance after transaction
+              <input
+                type="text"
+                inputmode="decimal"
+                name="balance_after_transaction"
+                value="{{ draft.balance_after_transaction or '' }}"
+              >
+            </label>
+            <label>
+              Bank account
+              <input
+                type="text"
+                name="bank_account_name"
+                value="{{ draft.bank_account_name or '' }}"
+                placeholder="Checking, savings, 2% account..."
+              >
+            </label>
+            <label>
+              Payment method
+              <input
+                type="text"
+                name="payment_method"
+                value="{{ draft.payment_method or '' }}"
+                placeholder="Check, debit card, ACH..."
+              >
+            </label>
+            <label>
+              Fund / budget line
+              <input
+                type="text"
+                name="fund"
+                value="{{ draft.fund or '' }}"
+                placeholder="General, equipment, fuel..."
+              >
+            </label>
+            <label>
+              Category / purpose
+              <input
+                type="text"
+                name="category"
+                value="{{ draft.category or '' }}"
+                placeholder="Fuel, supplies, food, training..."
+              >
+            </label>
+          </div>
+
+          <label>
+            Description / memo
+            <textarea
+              name="description"
+              rows="3"
+              placeholder="What was purchased and why?"
+            >{{ draft.description or '' }}</textarea>
+          </label>
+
+          <label>
+            Logged by
+            <input
+              type="text"
+              name="uploaded_by"
+              value="{{ draft.uploaded_by or current_user.email }}"
+            >
+          </label>
+
+          <div class="integration-note">
+            After this is logged, reconciliation starts as
+            <strong>pending bank match</strong>. When the connected bank feed
+            imports the posted transaction, the system can match on amount,
+            date, vendor, and bank account.
+          </div>
+
+          <button type="submit">Confirm and log expense</button>
+        </form>
+      </section>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Create account | {{ app_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
+  </head>
+  <body>
+    <main class="auth-layout">
+      <section class="card auth-card">
+        <p class="eyebrow">Fire department bookkeeping</p>
+        <h1>Create your account</h1>
+        <p class="hero-copy">
+          Start typing your department name, choose it from the list, then enter
+          your email, password, and department role.
+        </p>
+
+        {% if error %}
+          <div class="notice notice-error">{{ error }}</div>
+        {% endif %}
+
+        <form action="/signup" method="post" class="upload-form" id="signup-form">
+          <label>
+            Department
+            <input
+              type="text"
+              id="department-search"
+              list="department-options"
+              autocomplete="organization"
+              placeholder="Start typing your fire department"
+              required
+            >
+            <datalist id="department-options">
+              {% for department in departments %}
+                <option
+                  value="{{ department.name }}"
+                  data-id="{{ department.id }}"
+                ></option>
+              {% endfor %}
+            </datalist>
+          </label>
+          <input type="hidden" name="department_id" id="department-id">
+          <input type="hidden" name="department_name" id="department-name">
+
+          <label>
+            Email ID
+            <input type="email" name="email" autocomplete="email" required>
+          </label>
+
+          <label>
+            Password
+            <input type="password" name="password" autocomplete="new-password" required>
+          </label>
+
+          <label>
+            Role
+            <select name="role" required>
+              <option value="">Choose your role</option>
+              {% for role in role_options %}
+                <option value="{{ role }}">{{ role }}</option>
+              {% endfor %}
+            </select>
+          </label>
+
+          <button type="submit">Create account</button>
+        </form>
+
+        <p class="auth-switch">
+          Already have an account? <a href="/login">Log in</a>.
+        </p>
+
+        <div class="integration-note">
+          {% if supabase_auth_enabled %}
+            Accounts are created in Supabase Auth and linked to the selected
+            department dashboard.
+          {% elif dev_auth_enabled %}
+            Local development signup is enabled because Supabase is not
+            configured.
+          {% else %}
+            Supabase Auth is not configured for this environment.
+          {% endif %}
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const searchInput = document.getElementById("department-search");
+      const departmentIdInput = document.getElementById("department-id");
+      const departmentNameInput = document.getElementById("department-name");
+      const departmentOptions = document.getElementById("department-options");
+      const signupForm = document.getElementById("signup-form");
+      let departments = Array.from(departmentOptions.options).map((option) => ({
+        id: option.dataset.id,
+        name: option.value,
+      }));
+
+      function selectDepartment() {
+        const match = departments.find((department) => department.name === searchInput.value);
+        departmentIdInput.value = match ? match.id : "";
+        departmentNameInput.value = match ? match.name : "";
+        if (match) {
+          searchInput.setCustomValidity("");
+        }
+      }
+
+      async function refreshDepartments() {
+        const query = searchInput.value.trim();
+        if (query.length < 2) {
+          selectDepartment();
+          return;
+        }
+
+        const response = await fetch(`/api/departments?q=${encodeURIComponent(query)}`);
+        if (!response.ok) {
+          return;
+        }
+
+        const payload = await response.json();
+        departments = payload.departments || [];
+        departmentOptions.innerHTML = "";
+        for (const department of departments) {
+          const option = document.createElement("option");
+          option.value = department.name;
+          option.dataset.id = department.id;
+          departmentOptions.appendChild(option);
+        }
+        selectDepartment();
+      }
+
+      searchInput.addEventListener("input", () => {
+        selectDepartment();
+        refreshDepartments();
+      });
+
+      signupForm.addEventListener("submit", (event) => {
+        selectDepartment();
+        if (!departmentIdInput.value) {
+          event.preventDefault();
+          searchInput.setCustomValidity("Choose a department from the list.");
+          searchInput.reportValidity();
+        } else {
+          searchInput.setCustomValidity("");
+        }
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ app_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
+  </head>
+  <body>
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Fire department bookkeeping</p>
+        <h1>Receipt-first expense tracking</h1>
+        <p class="hero-copy">
+          Upload a receipt photo, preserve the source document, and log the
+          expense details needed for reconciliation, audits, and annual reports.
+        </p>
+      </div>
+      <div class="account-panel">
+        <span class="eyebrow">Signed in</span>
+        <strong>{{ department.name }}</strong>
+        <span>{{ current_user.email }}</span>
+        <span class="role">{{ department.role }}</span>
+        <span>{{ persistence_mode }} persistence</span>
+        <a class="hero-link" href="/reports/reconciliation">Reconciliation reports</a>
+        <form action="/logout" method="post">
+          <button class="secondary-button" type="submit">Log out</button>
+        </form>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="card upload-card">
+        <div class="section-heading">
+          <p class="eyebrow">New expense</p>
+          <h2>Capture or upload a receipt</h2>
+        </div>
+
+        {% if uploaded %}
+          <div class="notice">
+            Expense record created. It is now waiting for a bank transaction match.
+          </div>
+        {% endif %}
+
+        <form action="/receipts/review" method="post" enctype="multipart/form-data" class="upload-form">
+          <label>
+            Take a receipt photo
+            <input type="file" name="receipt" accept="image/*" capture="environment" required>
+          </label>
+
+          <div class="form-grid">
+            <label>
+              Uploaded by
+              <input type="text" name="uploaded_by" placeholder="Treasurer or officer">
+            </label>
+            <label>
+              Fund / budget line
+              <input type="text" name="fund" placeholder="General, equipment, fuel...">
+            </label>
+          </div>
+
+          <button type="submit">Extract and review photo</button>
+        </form>
+
+        <div class="divider"><span>or</span></div>
+
+        <form action="/receipts/review" method="post" enctype="multipart/form-data" class="upload-form">
+          <label>
+            Upload receipt image or PDF
+            <input type="file" name="receipt" accept="image/*,application/pdf" required>
+          </label>
+
+          <div class="form-grid">
+            <label>
+              Uploaded by
+              <input type="text" name="uploaded_by" placeholder="Treasurer or officer">
+            </label>
+            <label>
+              Fund / budget line
+              <input type="text" name="fund" placeholder="General, equipment, fuel...">
+            </label>
+          </div>
+
+          <button type="submit">Extract and review upload</button>
+        </form>
+
+        <div class="integration-note">
+          <strong>Extraction:</strong>
+          {% if automatic_extraction_enabled %}
+            OpenAI receipt extraction is enabled for this environment.
+          {% else %}
+            Automatic extraction is ready but needs <code>OPENAI_API_KEY</code>.
+            Uploads are still stored and flagged for manual review.
+          {% endif %}
+          Uploads can be up to {{ max_upload_mb }} MB. You will confirm the
+          register fields before the expense is logged.
+        </div>
+
+        <div class="integration-note">
+          <strong>Reports:</strong>
+          <a href="/reports/reconciliation">Generate reconciliation report</a>
+          with a reconciled-on-report flag for each expense.
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="section-heading">
+          <p class="eyebrow">Expense ledger</p>
+          <h2>{{ department.name }} receipts</h2>
+        </div>
+
+        {% if expenses %}
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Receipt</th>
+                  <th>Payee</th>
+                  <th>Ref</th>
+                  <th>Date</th>
+                  <th>Total</th>
+                  <th>Purpose</th>
+                  <th>Extraction</th>
+                  <th>Reconcile</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for expense in expenses %}
+                  <tr>
+                    <td>
+                      <a href="{{ expense.receipt_url }}" target="_blank" rel="noopener">
+                        View source
+                      </a>
+                      <span class="filename">{{ expense.original_filename }}</span>
+                    </td>
+                    <td>{{ expense.payee or expense.merchant_name or "Needs review" }}</td>
+                    <td>{{ expense.payment_reference or "-" }}</td>
+                    <td>{{ expense.transaction_date or "Needs review" }}</td>
+                    <td>
+                      {% if expense.total_amount is not none %}
+                        ${{ expense.total_amount }}
+                      {% else %}
+                        Needs review
+                      {% endif %}
+                    </td>
+                    <td>
+                      {{ expense.description or expense.category or "Uncategorized" }}
+                      {% if expense.fund %}
+                        <span class="filename">{{ expense.fund }}</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      <span class="status status-{{ expense.extraction_status }}">
+                        {{ expense.extraction_status | replace("_", " ") }}
+                      </span>
+                      {% if expense.extraction_notes %}
+                        <span class="notes">{{ expense.extraction_notes }}</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      <span class="status status-{{ expense.reconciliation_status }}">
+                        {{ expense.reconciliation_status | replace("_", " ") }}
+                      </span>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <p class="empty-state">
+            No expenses logged yet. Upload the first receipt to start the ledger.
+          </p>
+        {% endif %}
+      </section>
+    </main>
+  </body>
+</html>

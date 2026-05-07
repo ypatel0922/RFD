@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Reconciliation report | {{ app_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
+  </head>
+  <body>
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Bank reconciliation</p>
+        <h1>Reconciliation report</h1>
+        <p class="hero-copy">
+          Match the expense ledger against the bank feed and flag which
+          transactions are reconciled on this report.
+        </p>
+      </div>
+      <div class="account-panel">
+        <span class="eyebrow">Department</span>
+        <strong>{{ department.name }}</strong>
+        <span>{{ current_user.email }}</span>
+        <a class="hero-link" href="/">Back to dashboard</a>
+      </div>
+    </header>
+
+    <main class="report-layout">
+      <section class="card report-card">
+        <div class="section-heading">
+          <p class="eyebrow">Generate</p>
+          <h2>Report filters</h2>
+        </div>
+        <form action="/reports/reconciliation" method="get" class="upload-form">
+          <div class="form-grid two-column">
+            <label>
+              Start date
+              <input type="date" name="start_date" value="{{ start_date }}">
+            </label>
+            <label>
+              Period ending
+              <input type="date" name="end_date" value="{{ end_date }}">
+            </label>
+            <label>
+              Bank account
+              <input
+                type="text"
+                name="bank_account_name"
+                value="{{ bank_account_name }}"
+                placeholder="Optional account filter"
+              >
+            </label>
+          </div>
+          <button type="submit">Generate report</button>
+        </form>
+        <p>
+          <a
+            href="/reports/reconciliation.csv?start_date={{ start_date }}&end_date={{ end_date }}&bank_account_name={{ bank_account_name | urlencode }}"
+          >
+            Download CSV
+          </a>
+        </p>
+      </section>
+
+      <section class="card report-card">
+        <div class="section-heading">
+          <p class="eyebrow">Summary</p>
+          <h2>{{ report.department_name }}</h2>
+          <p>
+            Period {{ report.period_start }} through {{ report.period_end }}
+            {% if report.bank_account_name %}
+              for {{ report.bank_account_name }}
+            {% endif %}
+          </p>
+        </div>
+
+        <div class="summary-grid">
+          <div>
+            <span class="summary-label">Cleared transactions</span>
+            <strong>{{ report.cleared_count }}</strong>
+            <span>${{ report.cleared_total }}</span>
+          </div>
+          <div>
+            <span class="summary-label">New / unmatched</span>
+            <strong>{{ report.new_count }}</strong>
+            <span>${{ report.new_total }}</span>
+          </div>
+          <div>
+            <span class="summary-label">Register balance</span>
+            <strong>
+              {% if report.ending_register_balance is not none %}
+                ${{ report.ending_register_balance }}
+              {% else %}
+                Not entered
+              {% endif %}
+            </strong>
+            <span>Latest balance in period</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="card report-card report-wide">
+        <div class="section-heading">
+          <p class="eyebrow">Detail</p>
+          <h2>Reconciliation detail</h2>
+        </div>
+
+        {% if report.rows %}
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Section</th>
+                  <th>Type</th>
+                  <th>Date</th>
+                  <th>Num</th>
+                  <th>Name</th>
+                  <th>Reconciled on report</th>
+                  <th>Amount</th>
+                  <th>Balance</th>
+                  <th>Bank</th>
+                  <th>Receipt</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in report.rows %}
+                  {% set expense = row.expense %}
+                  <tr>
+                    <td>{{ row.section }}</td>
+                    <td>{{ expense.payment_method or "Expense" }}</td>
+                    <td>{{ expense.transaction_date or "" }}</td>
+                    <td>{{ expense.payment_reference or "" }}</td>
+                    <td>
+                      {{ expense.payee or expense.merchant_name or "Needs review" }}
+                      {% if expense.description %}
+                        <span class="filename">{{ expense.description }}</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if row.reconciled_on_report %}
+                        <span class="status status-matched">Yes</span>
+                      {% else %}
+                        <span class="status status-pending_bank_match">No</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if expense.total_amount is not none %}
+                        ${{ expense.total_amount }}
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if expense.balance_after_transaction is not none %}
+                        ${{ expense.balance_after_transaction }}
+                      {% endif %}
+                    </td>
+                    <td>
+                      {{ expense.bank_account_name or "" }}
+                      {% if expense.bank_posted_date %}
+                        <span class="filename">Posted {{ expense.bank_posted_date }}</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      <a href="{{ expense.receipt_url }}" target="_blank" rel="noopener">
+                        Receipt
+                      </a>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <p class="empty-state">No expenses found for this report period.</p>
+        {% endif %}
+      </section>
+    </main>
+  </body>
+</html>
