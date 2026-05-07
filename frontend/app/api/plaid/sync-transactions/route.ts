@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { plaidClient, supabaseAdmin } from "../_lib";
+import { plaidRequest, supabaseAdmin } from "../_lib";
 
 export async function POST(request: NextRequest) {
   try {
     const { departmentId } = (await request.json()) as { departmentId: string };
     if (!departmentId) return NextResponse.json({ error: "Missing departmentId." }, { status: 400 });
-    const client = plaidClient();
     const supabase = supabaseAdmin();
 
     const items = await supabase.from("plaid_items").select("id,access_token").eq("department_id", departmentId);
@@ -21,10 +20,18 @@ export async function POST(request: NextRequest) {
     let inserted = 0;
     let matched = 0;
     for (const item of items.data || []) {
-      const txResponse = await client.transactionsSync({
+      const txResponse = await plaidRequest<{
+        added: Array<{
+          transaction_id: string;
+          date: string;
+          name: string;
+          amount: number;
+          pending: boolean;
+        }>;
+      }>("/transactions/sync", {
         access_token: item.access_token,
       });
-      const rows = txResponse.data.added.map((tx) => ({
+      const rows = txResponse.added.map((tx) => ({
         department_id: departmentId,
         external_account_id: null,
         source: "plaid",
@@ -42,7 +49,7 @@ export async function POST(request: NextRequest) {
         inserted += rows.length;
       }
 
-      for (const tx of txResponse.data.added) {
+      for (const tx of txResponse.added) {
         const amount = Math.abs(Number(tx.amount || 0));
         const match = expenses.find((expense) => {
           const expenseAmount = Number(expense.total_amount || 0);
