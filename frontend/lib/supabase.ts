@@ -17,3 +17,6 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 
 export const receiptsBucket =
   process.env.NEXT_PUBLIC_SUPABASE_RECEIPTS_BUCKET || "receipts";
+
+export const bankStatementsBucket =
+  process.env.NEXT_PUBLIC_SUPABASE_BANK_STATEMENTS_BUCKET || "bank-statements";

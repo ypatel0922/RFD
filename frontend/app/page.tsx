@@ -3,10 +3,11 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 
-import { receiptsBucket, supabase } from "../lib/supabase";
+import { bankStatementsBucket, receiptsBucket, supabase } from "../lib/supabase";
 import {
   BankAccount,
   BankStatementExtraction,
+  BankStatementUpload,
   Department,
   DepartmentMembership,
   ExpenseDraft,
@@ -54,6 +55,7 @@ export default function Home() {
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [receiptUrls, setReceiptUrls] = useState<Record<string, string>>({});
+  const [statementUrls, setStatementUrls] = useState<Record<string, string>>({});
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [view, setView] = useState<AppView>("dashboard");
   const [message, setMessage] = useState<string | null>(null);
@@ -147,6 +149,20 @@ export default function Home() {
     const loadedExpenses = (data || []) as ExpenseRecord[];
     setExpenses(loadedExpenses);
     await loadReceiptUrls(loadedExpenses);
+  }
+
+  async function loadStatementUrls(uploads: BankStatementUpload[]) {
+    const entries = await Promise.all(
+      uploads
+        .filter((upload) => upload.statement_file_path)
+        .map(async (upload) => {
+          const { data } = await supabase.storage
+            .from(bankStatementsBucket)
+            .createSignedUrl(upload.statement_file_path as string, 60 * 60);
+          return [upload.id, data?.signedUrl || ""] as const;
+        }),
+    );
+    setStatementUrls(Object.fromEntries(entries.filter((entry) => entry[1])));
   }
 
   async function loadReceiptUrls(loadedExpenses: ExpenseRecord[]) {
@@ -259,6 +275,8 @@ export default function Home() {
             receiptUrls={receiptUrls}
             bankAccounts={bankAccounts}
             onExpensesChanged={() => loadExpenses(membership.department_id)}
+            onStatementUrlsChanged={loadStatementUrls}
+            statementUrls={statementUrls}
             showErrorMessage={showErrorMessage}
             showSuccessMessage={showSuccessMessage}
           />
@@ -718,7 +736,14 @@ function Dashboard({
         )}
       </section>
       <BankAccountsSummary expenses={expenses} bankAccounts={bankAccounts} onBankAccountsChanged={onBankAccountsChanged} />
-      <ExpenseLedger expenses={expenses} receiptUrls={receiptUrls} />
+      <ExpenseLedger
+        expenses={expenses}
+        receiptUrls={receiptUrls}
+        user={user}
+        onExpensesChanged={onExpensesChanged}
+        showErrorMessage={showErrorMessage}
+        showSuccessMessage={showSuccessMessage}
+      />
     </>
   );
 }
@@ -879,10 +904,65 @@ function TextField({
 function ExpenseLedger({
   expenses,
   receiptUrls,
+  user,
+  onExpensesChanged,
+  showErrorMessage,
+  showSuccessMessage,
 }: {
   expenses: ExpenseRecord[];
   receiptUrls: Record<string, string>;
+  user: User;
+  onExpensesChanged: () => Promise<void>;
+  showErrorMessage: (message: string) => void;
+  showSuccessMessage: (message: string | null) => void;
 }) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editReason, setEditReason] = useState("");
+  const [editValues, setEditValues] = useState<Record<string, string>>({});
+
+  function beginEdit(expense: ExpenseRecord) {
+    setEditingId(expense.id);
+    setEditReason("");
+    setEditValues({
+      payee: expense.payee || expense.merchant_name || "",
+      total_amount: expense.total_amount == null ? "" : String(expense.total_amount),
+      transaction_date: expense.transaction_date || "",
+      category: expense.category || "",
+      bank_account_name: expense.bank_account_name || "",
+      description: expense.description || "",
+    });
+  }
+
+  async function saveEdit(expenseId: string) {
+    if (!editReason.trim()) {
+      showErrorMessage("Enter a reason for manual edits.");
+      return;
+    }
+    const { error } = await supabase
+      .from("expenses")
+      .update({
+        payee: optionalValue(editValues.payee || ""),
+        merchant_name: optionalValue(editValues.payee || ""),
+        total_amount: optionalNumber(editValues.total_amount),
+        transaction_date: optionalValue(editValues.transaction_date || ""),
+        category: optionalValue(editValues.category || ""),
+        bank_account_name: optionalValue(editValues.bank_account_name || ""),
+        description: optionalValue(editValues.description || ""),
+        last_manual_edit_reason: editReason.trim(),
+        last_manual_edit_at: new Date().toISOString(),
+        last_manual_edit_by: user.email || user.id,
+      })
+      .eq("id", expenseId);
+    if (error) {
+      showErrorMessage(error.message);
+      return;
+    }
+    setEditingId(null);
+    setEditReason("");
+    showSuccessMessage("Expense updated.");
+    await onExpensesChanged();
+  }
+
   return (
     <section className="card">
       <div className="section-heading">
@@ -934,6 +1014,59 @@ function ExpenseLedger({
                     <span className={`status status-${expense.reconciliation_status}`}>
                       {expense.reconciliation_status.replaceAll("_", " ")}
                     </span>
+                    {expense.reconciliation_candidate ? (
+                      <span className="filename">
+                        Possible match: {expense.reconciliation_candidate_notes || "Review manually"}
+                      </span>
+                    ) : null}
+                    {expense.last_manual_edit_reason ? (
+                      <span className="filename">
+                        Last edit: {expense.last_manual_edit_reason}
+                      </span>
+                    ) : null}
+                    {editingId === expense.id ? (
+                      <div className="form-stack">
+                        <input
+                          placeholder="Vendor"
+                          value={editValues.payee || ""}
+                          onChange={(event) => setEditValues((prev) => ({ ...prev, payee: event.target.value }))}
+                        />
+                        <input
+                          placeholder="Amount"
+                          value={editValues.total_amount || ""}
+                          onChange={(event) => setEditValues((prev) => ({ ...prev, total_amount: event.target.value }))}
+                        />
+                        <input
+                          type="date"
+                          value={editValues.transaction_date || ""}
+                          onChange={(event) => setEditValues((prev) => ({ ...prev, transaction_date: event.target.value }))}
+                        />
+                        <input
+                          placeholder="Category"
+                          value={editValues.category || ""}
+                          onChange={(event) => setEditValues((prev) => ({ ...prev, category: event.target.value }))}
+                        />
+                        <input
+                          placeholder="Bank account"
+                          value={editValues.bank_account_name || ""}
+                          onChange={(event) => setEditValues((prev) => ({ ...prev, bank_account_name: event.target.value }))}
+                        />
+                        <textarea
+                          rows={2}
+                          placeholder="Reason for edit (required)"
+                          value={editReason}
+                          onChange={(event) => setEditReason(event.target.value)}
+                        />
+                        <div className="button-row">
+                          <button type="button" onClick={() => void saveEdit(expense.id)}>Save edit</button>
+                          <button type="button" className="secondary-action" onClick={() => setEditingId(null)}>Cancel</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button type="button" className="secondary-action" onClick={() => beginEdit(expense)}>
+                        Edit
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -1008,6 +1141,8 @@ function Reports({
   receiptUrls,
   bankAccounts,
   onExpensesChanged,
+  onStatementUrlsChanged,
+  statementUrls,
   showErrorMessage,
   showSuccessMessage,
 }: {
@@ -1018,6 +1153,8 @@ function Reports({
   receiptUrls: Record<string, string>;
   bankAccounts: BankAccount[];
   onExpensesChanged: () => Promise<void>;
+  onStatementUrlsChanged: (uploads: BankStatementUpload[]) => Promise<void>;
+  statementUrls: Record<string, string>;
   showErrorMessage: (message: string) => void;
   showSuccessMessage: (message: string | null) => void;
 }) {
@@ -1025,6 +1162,11 @@ function Reports({
   const [endDate, setEndDate] = useState(defaultReportEnd);
   const [bankAccountName, setBankAccountName] = useState("");
   const [reconWorking, setReconWorking] = useState(false);
+  const [uploads, setUploads] = useState<BankStatementUpload[]>([]);
+
+  useEffect(() => {
+    void loadStatementUploads();
+  }, [membership.department_id]);
   const report = useMemo(
     () =>
       buildReconciliationReport({
@@ -1056,13 +1198,28 @@ function Reports({
       form.append("statement", file);
       const response = await fetch("/api/extract-bank-statement", { method: "POST", body: form });
       const extraction = (await response.json()) as BankStatementExtraction;
+      const statementPath = buildStatementPath({
+        departmentId: membership.department_id,
+        file,
+      });
+      const upload = await supabase.storage.from(bankStatementsBucket).upload(statementPath, file, {
+        contentType: file.type || "application/octet-stream",
+        upsert: false,
+      });
+      if (upload.error) {
+        throw new Error(upload.error.message);
+      }
       await applyStatementReconciliation({
         membership,
         user,
         extraction,
         selectedBankAccountName: bankAccountName,
+        statementFilePath: statementPath,
+        originalFilename: file.name || "statement",
+        contentType: file.type || "application/octet-stream",
       });
       await onExpensesChanged();
+      await loadStatementUploads();
       showSuccessMessage("Statement imported. Matching transactions were reconciled.");
     } catch (error) {
       showErrorMessage(error instanceof Error ? error.message : "Could not process statement upload.");
@@ -1070,6 +1227,19 @@ function Reports({
       setReconWorking(false);
       event.target.value = "";
     }
+  }
+
+  async function loadStatementUploads() {
+    const { data, error } = await supabase
+      .from("bank_statement_uploads")
+      .select("*")
+      .eq("department_id", membership.department_id)
+      .order("created_at", { ascending: false })
+      .limit(10);
+    if (error) return;
+    const rows = (data || []) as BankStatementUpload[];
+    setUploads(rows);
+    await onStatementUrlsChanged(rows);
   }
 
   return (
@@ -1162,6 +1332,43 @@ function Reports({
                     </a>
                   ) : (
                     ""
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="table-wrap">
+        <h3>Uploaded bank statements</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Date uploaded</th>
+              <th>Account</th>
+              <th>Period</th>
+              <th>Beginning</th>
+              <th>Ending</th>
+              <th>File</th>
+            </tr>
+          </thead>
+          <tbody>
+            {uploads.map((upload) => (
+              <tr key={upload.id}>
+                <td>{upload.created_at}</td>
+                <td>{upload.bank_account_name || ""}</td>
+                <td>
+                  {upload.statement_start_date || ""} - {upload.statement_end_date || ""}
+                </td>
+                <td>{upload.beginning_balance ?? ""}</td>
+                <td>{upload.ending_balance ?? ""}</td>
+                <td>
+                  {statementUrls[upload.id] ? (
+                    <a href={statementUrls[upload.id]} target="_blank" rel="noopener noreferrer">
+                      View statement
+                    </a>
+                  ) : (
+                    upload.original_filename || ""
                   )}
                 </td>
               </tr>
@@ -1441,16 +1648,22 @@ async function applyStatementReconciliation({
   user,
   extraction,
   selectedBankAccountName,
+  statementFilePath,
+  originalFilename,
+  contentType,
 }: {
   membership: DepartmentMembership;
   user: User;
   extraction: BankStatementExtraction;
   selectedBankAccountName: string;
+  statementFilePath: string;
+  originalFilename: string;
+  contentType: string;
 }) {
   const accountName = selectedBankAccountName || extraction.account_name || null;
   const { data: expenses, error } = await supabase
     .from("expenses")
-    .select("id,transaction_date,total_amount,reconciliation_status,bank_account_name")
+    .select("id,transaction_date,total_amount,reconciliation_status,bank_account_name,payee,merchant_name,category")
     .eq("department_id", membership.department_id);
   if (error) throw new Error(error.message);
   const candidates = ((expenses || []) as Array<{
@@ -1459,31 +1672,56 @@ async function applyStatementReconciliation({
     total_amount: number | string | null;
     reconciliation_status: string;
     bank_account_name: string | null;
+    payee: string | null;
+    merchant_name: string | null;
+    category: string | null;
   }>).filter((expense) => expense.reconciliation_status !== "matched");
 
   for (const tx of extraction.transactions || []) {
+    const scored = candidates
+      .map((expense) => ({ expense, score: scoreReconciliationMatch(expense, tx) }))
+      .sort((a, b) => b.score - a.score);
+    const top = scored[0];
+    if (!top || top.score < 0.45) continue;
+
     const txAmount = optionalNumber(tx.amount);
-    if (txAmount == null) continue;
-    const match = candidates.find((expense) => {
-      const amount = optionalNumber(expense.total_amount);
-      if (amount == null || Math.abs(amount - txAmount) > 0.01) return false;
-      if (accountName && expense.bank_account_name && expense.bank_account_name !== accountName) return false;
-      if (!tx.posted_date || !expense.transaction_date) return true;
-      return Math.abs(new Date(tx.posted_date).getTime() - new Date(expense.transaction_date).getTime()) <= 3 * 86400000;
-    });
-    if (!match) continue;
+    const expenseAmount = optionalNumber(top.expense.total_amount);
+    const closeAmount = txAmount != null && expenseAmount != null && Math.abs(txAmount - expenseAmount) <= 0.5;
+
+    if (top.score >= 0.8 && closeAmount) {
+      await supabase
+        .from("expenses")
+        .update({
+          reconciliation_status: "matched",
+          reconciliation_candidate: false,
+          reconciliation_candidate_notes: null,
+          reconciliation_similarity: top.score,
+          bank_posted_date: tx.posted_date,
+          bank_description: tx.description,
+          bank_amount: txAmount,
+          bank_account_name: accountName || top.expense.bank_account_name,
+          balance_after_transaction: tx.balance ?? null,
+          reconciled_at: new Date().toISOString(),
+        })
+        .eq("id", top.expense.id);
+      continue;
+    }
+
     await supabase
       .from("expenses")
       .update({
-        reconciliation_status: "matched",
+        reconciliation_status: "needs_attention",
+        reconciliation_candidate: true,
+        reconciliation_similarity: top.score,
+        reconciliation_candidate_notes: `Possible statement match: ${tx.description || "transaction"} ${
+          txAmount == null ? "" : `($${txAmount.toFixed(2)})`
+        }`,
         bank_posted_date: tx.posted_date,
         bank_description: tx.description,
         bank_amount: txAmount,
-        bank_account_name: accountName || match.bank_account_name,
-        balance_after_transaction: tx.balance ?? null,
-        reconciled_at: new Date().toISOString(),
+        bank_account_name: accountName || top.expense.bank_account_name,
       })
-      .eq("id", match.id);
+      .eq("id", top.expense.id);
   }
 
   await supabase.from("bank_statement_uploads").insert({
@@ -1493,7 +1731,71 @@ async function applyStatementReconciliation({
     statement_end_date: extraction.statement_end_date,
     beginning_balance: extraction.beginning_balance,
     ending_balance: extraction.ending_balance,
+    statement_file_path: statementFilePath,
+    original_filename: originalFilename,
+    content_type: contentType,
     uploaded_by_user_id: user.id,
     uploaded_by_email: user.email || "",
   });
+}
+
+function scoreReconciliationMatch(
+  expense: {
+    transaction_date: string | null;
+    total_amount: number | string | null;
+    payee: string | null;
+    merchant_name: string | null;
+    category: string | null;
+  },
+  tx: {
+    posted_date: string | null;
+    description: string | null;
+    amount: number | null;
+  },
+) {
+  let score = 0;
+  const txAmount = optionalNumber(tx.amount);
+  const expenseAmount = optionalNumber(expense.total_amount);
+  if (txAmount != null && expenseAmount != null) {
+    const diff = Math.abs(txAmount - expenseAmount);
+    if (diff <= 0.5) score += 0.3;
+    else if (diff <= 15) score += 0.18;
+  }
+  if (expense.transaction_date && tx.posted_date) {
+    const days = Math.abs(new Date(expense.transaction_date).getTime() - new Date(tx.posted_date).getTime()) / 86400000;
+    if (days <= 1) score += 0.3;
+    else if (days <= 3) score += 0.18;
+  }
+  const description = (tx.description || "").toLowerCase();
+  const vendor = (expense.payee || expense.merchant_name || "").toLowerCase();
+  if (vendor && description.includes(vendor)) score += 0.22;
+  else if (vendor && overlapScore(vendor, description) >= 0.5) score += 0.14;
+  const category = (expense.category || "").toLowerCase();
+  if (category && description.includes(category)) score += 0.12;
+  return Math.max(0, Math.min(1, score));
+}
+
+function overlapScore(left: string, right: string) {
+  const a = new Set(left.split(/[^a-z0-9]+/).filter(Boolean));
+  const b = new Set(right.split(/[^a-z0-9]+/).filter(Boolean));
+  if (!a.size || !b.size) return 0;
+  let inter = 0;
+  for (const token of a) {
+    if (b.has(token)) inter += 1;
+  }
+  return inter / Math.max(a.size, b.size);
+}
+
+function buildStatementPath({
+  departmentId,
+  file,
+}: {
+  departmentId: string;
+  file: File;
+}) {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const safeName = (file.name || "statement").replace(/[^a-zA-Z0-9._-]/g, "_");
+  return `${departmentId}/${year}/${month}/${crypto.randomUUID()}-${safeName}`;
 }

@@ -49,6 +49,22 @@ export type BankStatementExtraction = {
   notes: string | null;
 };
 
+export type BankStatementUpload = {
+  id: string;
+  department_id: string;
+  bank_account_name: string | null;
+  statement_start_date: string | null;
+  statement_end_date: string | null;
+  beginning_balance: string | number | null;
+  ending_balance: string | number | null;
+  statement_file_path: string | null;
+  original_filename: string | null;
+  content_type: string | null;
+  uploaded_by_user_id: string;
+  uploaded_by_email: string;
+  created_at: string;
+};
+
 export type ExpenseRecord = {
   id: string;
   department_id: string;
@@ -86,6 +102,12 @@ export type ExpenseRecord = {
   bank_amount: string | number | null;
   bank_match_confidence: number;
   reconciled_at: string | null;
+  reconciliation_candidate: boolean | null;
+  reconciliation_candidate_notes: string | null;
+  reconciliation_similarity: number | null;
+  last_manual_edit_reason: string | null;
+  last_manual_edit_at: string | null;
+  last_manual_edit_by: string | null;
 };
 
 export type ExtractedReceiptData = {
