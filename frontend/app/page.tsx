@@ -9,6 +9,7 @@ import {
   BankStatementExtraction,
   BankStatementUpload,
   Department,
+  DepartmentSetting,
   DepartmentMembership,
   ExpenseDraft,
   ExpenseRecord,
@@ -54,6 +55,7 @@ export default function Home() {
   const [membership, setMembership] = useState<DepartmentMembership | null>(null);
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [departmentSettings, setDepartmentSettings] = useState<DepartmentSetting | null>(null);
   const [receiptUrls, setReceiptUrls] = useState<Record<string, string>>({});
   const [statementUrls, setStatementUrls] = useState<Record<string, string>>({});
   const [authMode, setAuthMode] = useState<AuthMode>("login");
@@ -115,8 +117,22 @@ export default function Home() {
       );
     }
     setMembership(loadedMembership);
+    await loadDepartmentSettings(loadedMembership.department_id);
     await loadBankAccounts(loadedMembership.department_id);
     await loadExpenses(loadedMembership.department_id);
+  }
+
+  async function loadDepartmentSettings(departmentId: string) {
+    const { data, error } = await supabase
+      .from("department_settings")
+      .select("*")
+      .eq("department_id", departmentId)
+      .maybeSingle();
+    if (error) {
+      setDepartmentSettings(null);
+      return;
+    }
+    setDepartmentSettings((data as DepartmentSetting | null) || null);
   }
 
   async function loadBankAccounts(departmentId: string) {
@@ -252,6 +268,7 @@ export default function Home() {
               Statements
             </button>
           </div>
+          <ReconciliationProgress expenses={expenses} />
           {message && <div className={`notice ${messageVariant === "error" ? "notice-error" : ""}`}>{message}</div>}
         </section>
 
@@ -287,7 +304,9 @@ export default function Home() {
             <Settings
               membership={membership}
               bankAccounts={bankAccounts}
+              departmentSettings={departmentSettings}
               onBankAccountsChanged={() => loadBankAccounts(membership.department_id)}
+              onDepartmentSettingsChanged={() => loadDepartmentSettings(membership.department_id)}
               showErrorMessage={showErrorMessage}
               showSuccessMessage={showSuccessMessage}
             />
@@ -296,6 +315,7 @@ export default function Home() {
               membership={membership}
               user={session.user}
               bankAccounts={bankAccounts}
+              departmentSettings={departmentSettings}
               onExpensesChanged={() => loadExpenses(membership.department_id)}
               onStatementUrlsChanged={loadStatementUrls}
               statementUrls={statementUrls}
@@ -1147,6 +1167,26 @@ function BankAccountsSummary({
   );
 }
 
+function ReconciliationProgress({ expenses }: { expenses: ExpenseRecord[] }) {
+  const total = expenses.length;
+  const reconciled = expenses.filter((expense) => expense.reconciliation_status === "matched").length;
+  const percent = total ? Math.round((reconciled / total) * 100) : 0;
+  return (
+    <div className="integration-note">
+      Reconciled progress: {reconciled}/{total} ({percent}%)
+      <div style={{ marginTop: 8, background: "#fde6e6", borderRadius: 999, overflow: "hidden", height: 10 }}>
+        <div
+          style={{
+            width: `${percent}%`,
+            height: "100%",
+            background: "var(--success)",
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
 function Reports({
   membership,
   user,
@@ -1235,6 +1275,7 @@ function Reports({
             contentType: file.type || "application/octet-stream",
           },
         ],
+        autoLogUnmatched: false,
       });
       await onExpensesChanged();
       await loadStatementUploads();
@@ -1401,13 +1442,17 @@ function Reports({
 function Settings({
   membership,
   bankAccounts,
+  departmentSettings,
   onBankAccountsChanged,
+  onDepartmentSettingsChanged,
   showErrorMessage,
   showSuccessMessage,
 }: {
   membership: DepartmentMembership;
   bankAccounts: BankAccount[];
+  departmentSettings: DepartmentSetting | null;
   onBankAccountsChanged: () => Promise<void>;
+  onDepartmentSettingsChanged: () => Promise<void>;
   showErrorMessage: (message: string) => void;
   showSuccessMessage: (message: string | null) => void;
 }) {
@@ -1452,12 +1497,34 @@ function Settings({
     await onBankAccountsChanged();
   }
 
+  async function toggleAutoLog(autoLog: boolean) {
+    const { error } = await supabase.from("department_settings").upsert({
+      department_id: membership.department_id,
+      auto_log_statement_expenses: autoLog,
+      updated_at: new Date().toISOString(),
+    });
+    if (error) {
+      showErrorMessage(error.message);
+      return;
+    }
+    await onDepartmentSettingsChanged();
+    showSuccessMessage("Statement auto-log setting saved.");
+  }
+
   return (
     <section className="card">
       <div className="section-heading">
         <p className="eyebrow">Configuration</p>
         <h2>Bank account settings</h2>
       </div>
+      <label>
+        <input
+          type="checkbox"
+          checked={Boolean(departmentSettings?.auto_log_statement_expenses)}
+          onChange={(event) => void toggleAutoLog(event.target.checked)}
+        />
+        Automatically create missing expenses from uploaded statements
+      </label>
       <form className="upload-form" onSubmit={createAccount}>
         <label>
           Account name
@@ -1514,6 +1581,7 @@ function Statements({
   membership,
   user,
   bankAccounts,
+  departmentSettings,
   onExpensesChanged,
   onStatementUrlsChanged,
   statementUrls,
@@ -1523,6 +1591,7 @@ function Statements({
   membership: DepartmentMembership;
   user: User;
   bankAccounts: BankAccount[];
+  departmentSettings: DepartmentSetting | null;
   onExpensesChanged: () => Promise<void>;
   onStatementUrlsChanged: (uploads: BankStatementUpload[]) => Promise<void>;
   statementUrls: Record<string, string>;
@@ -1533,6 +1602,7 @@ function Statements({
   const [working, setWorking] = useState(false);
   const [uploads, setUploads] = useState<BankStatementUpload[]>([]);
   const [extraction, setExtraction] = useState<BankStatementExtraction | null>(null);
+  const [runStats, setRunStats] = useState<{ total: number; matched: number; flagged: number; autoLogged: number } | null>(null);
   const [bankAccountName, setBankAccountName] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -1596,7 +1666,7 @@ function Statements({
           contentType: file.type || "application/octet-stream",
         });
       }
-      await applyStatementReconciliation({
+      const stats = await applyStatementReconciliation({
         membership,
         user,
         extraction: {
@@ -1606,7 +1676,9 @@ function Statements({
         },
         selectedBankAccountName: bankAccountName,
         statementFiles: savedFiles,
+        autoLogUnmatched: Boolean(departmentSettings?.auto_log_statement_expenses),
       });
+      setRunStats(stats);
       await onExpensesChanged();
       await loadUploads();
       setSelectedFiles([]);
@@ -1676,6 +1748,12 @@ function Statements({
           <button type="button" disabled={working} onClick={() => void saveAndReconcile()}>
             {working ? "Saving..." : "Save and reconcile"}
           </button>
+        </div>
+      ) : null}
+      {runStats ? (
+        <div className="integration-note">
+          Statement transactions: {runStats.total} | matched: {runStats.matched} | flagged for review: {runStats.flagged}
+          {runStats.autoLogged ? ` | auto-logged: ${runStats.autoLogged}` : ""}
         </div>
       ) : null}
 
@@ -1876,12 +1954,14 @@ async function applyStatementReconciliation({
   extraction,
   selectedBankAccountName,
   statementFiles,
+  autoLogUnmatched,
 }: {
   membership: DepartmentMembership;
   user: User;
   extraction: BankStatementExtraction;
   selectedBankAccountName: string;
   statementFiles: Array<{ path: string; originalFilename: string; contentType: string }>;
+  autoLogUnmatched: boolean;
 }) {
   const accountName = selectedBankAccountName || extraction.account_name || null;
   const { data: expenses, error } = await supabase
@@ -1899,13 +1979,54 @@ async function applyStatementReconciliation({
     merchant_name: string | null;
     category: string | null;
   }>).filter((expense) => expense.reconciliation_status !== "matched");
+  let matched = 0;
+  let flagged = 0;
+  let autoLogged = 0;
 
   for (const tx of extraction.transactions || []) {
     const scored = candidates
       .map((expense) => ({ expense, score: scoreReconciliationMatch(expense, tx) }))
       .sort((a, b) => b.score - a.score);
     const top = scored[0];
-    if (!top || top.score < 0.45) continue;
+    if (!top || top.score < 0.35) {
+      if (autoLogUnmatched) {
+        const txAmount = optionalNumber(tx.amount);
+        if (txAmount != null) {
+          const expenseId = crypto.randomUUID();
+          const receiptId = crypto.randomUUID();
+          await supabase.from("expenses").insert({
+            id: expenseId,
+            department_id: membership.department_id,
+            receipt_id: receiptId,
+            receipt_path: `${membership.department_id}/statement-import/${expenseId}/no-receipt`,
+            original_filename: "statement-import",
+            content_type: "text/plain",
+            created_at: new Date().toISOString(),
+            created_by_user_id: user.id,
+            created_by_email: user.email || "",
+            uploaded_by: user.email || user.id,
+            payment_reference: tx.reference,
+            payee: tx.description,
+            merchant_name: tx.description,
+            bank_account_name: accountName,
+            transaction_date: tx.posted_date,
+            total_amount: Math.abs(txAmount),
+            category: null,
+            extraction_status: "needs_review",
+            extraction_confidence: 0,
+            extraction_notes: "Auto-created from bank statement upload",
+            reconciliation_status: "matched",
+            bank_posted_date: tx.posted_date,
+            bank_description: tx.description,
+            bank_amount: txAmount,
+            bank_match_confidence: 0.75,
+            reconciled_at: new Date().toISOString(),
+          });
+          autoLogged += 1;
+        }
+      }
+      continue;
+    }
 
     const txAmount = optionalNumber(tx.amount);
     const expenseAmount = optionalNumber(top.expense.total_amount);
@@ -1927,6 +2048,7 @@ async function applyStatementReconciliation({
           reconciled_at: new Date().toISOString(),
         })
         .eq("id", top.expense.id);
+      matched += 1;
       continue;
     }
 
@@ -1945,6 +2067,7 @@ async function applyStatementReconciliation({
         bank_account_name: accountName || top.expense.bank_account_name,
       })
       .eq("id", top.expense.id);
+    flagged += 1;
   }
 
   for (const file of statementFiles) {
@@ -1962,6 +2085,13 @@ async function applyStatementReconciliation({
       uploaded_by_email: user.email || "",
     });
   }
+
+  return {
+    total: extraction.transactions.length,
+    matched,
+    flagged,
+    autoLogged,
+  };
 }
 
 function scoreReconciliationMatch(

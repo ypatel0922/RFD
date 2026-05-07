@@ -20,6 +20,13 @@ export type DepartmentMembership = {
   departments: Department | null;
 };
 
+export type DepartmentSetting = {
+  department_id: string;
+  auto_log_statement_expenses: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
 export type BankAccount = {
   id: string;
   department_id: string;
