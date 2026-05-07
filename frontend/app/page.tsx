@@ -1188,7 +1188,8 @@ function Settings({
 }) {
   async function createAccount(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const name = String(form.get("name") || "").trim();
     const institution = String(form.get("institution_name") || "").trim();
     const accountMask = String(form.get("account_mask") || "").trim();
@@ -1211,7 +1212,7 @@ function Settings({
       showErrorMessage(error.message);
       return;
     }
-    (event.currentTarget as HTMLFormElement).reset();
+    formElement.reset();
     await onBankAccountsChanged();
     showSuccessMessage("Bank account saved.");
   }
