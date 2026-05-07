@@ -216,6 +216,19 @@ th {
   gap: 16px;
 }
 
+.capture-options {
+  display: grid;
+  gap: 12px;
+}
+
+.capture-option {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 14px;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: 1fr;

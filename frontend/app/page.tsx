@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 
 import { receiptsBucket, supabase } from "../lib/supabase";
@@ -431,19 +431,12 @@ function Dashboard({
 }) {
   const [draft, setDraft] = useState<ExpenseDraft | null>(null);
   const [reviewForm, setReviewForm] = useState<ReviewForm | null>(null);
+  const [showCaptureOptions, setShowCaptureOptions] = useState(false);
   const [working, setWorking] = useState(false);
 
-  async function prepareReview(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function prepareReviewFromFile(file: File) {
     setMessage(null);
     setWorking(true);
-    const form = new FormData(event.currentTarget);
-    const file = form.get("receipt");
-    if (!(file instanceof File)) {
-      setMessage("Choose a receipt file.");
-      setWorking(false);
-      return;
-    }
 
     const expenseId = crypto.randomUUID();
     const receiptId = crypto.randomUUID();
@@ -462,13 +455,12 @@ function Dashboard({
       receiptPath,
       createdAt: new Date().toISOString(),
       extracted,
-      uploadedBy: String(form.get("uploaded_by") || ""),
-      fund: String(form.get("fund") || ""),
+      fund: "",
     };
 
     setDraft(nextDraft);
+    setShowCaptureOptions(false);
     setReviewForm({
-      uploaded_by: nextDraft.uploadedBy,
       fund: nextDraft.fund,
       payment_reference: extracted.payment_reference || "",
       payee: extracted.payee || extracted.merchant_name || "",
@@ -512,7 +504,7 @@ function Dashboard({
       created_at: draft.createdAt,
       created_by_user_id: user.id,
       created_by_email: user.email || "",
-      uploaded_by: optionalValue(reviewForm.uploaded_by),
+      uploaded_by: user.email || user.id,
       fund: optionalValue(reviewForm.fund),
       payment_reference: optionalValue(reviewForm.payment_reference),
       payee: optionalValue(reviewForm.payee),
@@ -553,26 +545,39 @@ function Dashboard({
           <>
             <div className="section-heading">
               <p className="eyebrow">New expense</p>
-              <h2>Capture or upload a receipt</h2>
+              <h2>Log an expense</h2>
             </div>
-            <ReceiptCaptureForm
-              label="Take a receipt photo"
-              accept="image/*"
-              capture
-              buttonLabel={working ? "Extracting..." : "Extract and review photo"}
-              disabled={working}
-              onSubmit={prepareReview}
-            />
-            <div className="divider">
-              <span>or</span>
-            </div>
-            <ReceiptCaptureForm
-              label="Upload receipt image or PDF"
-              accept="image/*,application/pdf"
-              buttonLabel={working ? "Extracting..." : "Extract and review upload"}
-              disabled={working}
-              onSubmit={prepareReview}
-            />
+            {!showCaptureOptions ? (
+              <button type="button" disabled={working} onClick={() => setShowCaptureOptions(true)}>
+                {working ? "Extracting..." : "Log an expense"}
+              </button>
+            ) : (
+              <div className="capture-options">
+                <ReceiptCaptureOption
+                  title="Take a photo"
+                  description="Open your camera and snap the receipt now."
+                  accept="image/*"
+                  capture
+                  disabled={working}
+                  onFileSelected={prepareReviewFromFile}
+                />
+                <ReceiptCaptureOption
+                  title="Upload image or PDF"
+                  description="Choose from camera roll, files, or desktop."
+                  accept="image/*,application/pdf"
+                  disabled={working}
+                  onFileSelected={prepareReviewFromFile}
+                />
+                <button
+                  type="button"
+                  className="secondary-action"
+                  disabled={working}
+                  onClick={() => setShowCaptureOptions(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
             <div className="integration-note">
               Receipt fields are autofilled when extraction succeeds. You confirm the
               register fields before the expense is logged.
@@ -582,6 +587,7 @@ function Dashboard({
           <ReviewExpenseForm
             draft={draft}
             form={reviewForm}
+            loggedBy={user.email || user.id}
             setForm={setReviewForm}
             disabled={working}
             onSubmit={confirmExpense}
@@ -597,53 +603,55 @@ function Dashboard({
   );
 }
 
-function ReceiptCaptureForm({
-  label,
+function ReceiptCaptureOption({
+  title,
+  description,
   accept,
   capture,
-  buttonLabel,
   disabled,
-  onSubmit,
+  onFileSelected,
 }: {
-  label: string;
+  title: string;
+  description: string;
   accept: string;
   capture?: boolean;
-  buttonLabel: string;
   disabled: boolean;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  onFileSelected: (file: File) => Promise<void>;
 }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    await onFileSelected(file);
+    event.target.value = "";
+  }
+
   return (
-    <form onSubmit={onSubmit} className="upload-form">
-      <label>
-        {label}
-        <input
-          type="file"
-          name="receipt"
-          accept={accept}
-          capture={capture ? "environment" : undefined}
-          required
-        />
-      </label>
-      <div className="form-grid">
-        <label>
-          Uploaded by
-          <input type="text" name="uploaded_by" placeholder="Treasurer or officer" />
-        </label>
-        <label>
-          Fund / budget line
-          <input type="text" name="fund" placeholder="General, equipment, fuel..." />
-        </label>
+    <div className="capture-option">
+      <div>
+        <strong>{title}</strong>
+        <p className="muted">{description}</p>
       </div>
-      <button type="submit" disabled={disabled}>
-        {buttonLabel}
+      <input
+        ref={inputRef}
+        type="file"
+        accept={accept}
+        capture={capture ? "environment" : undefined}
+        onChange={handleFileChange}
+        style={{ display: "none" }}
+      />
+      <button type="button" disabled={disabled} onClick={() => inputRef.current?.click()}>
+        {disabled ? "Extracting..." : title}
       </button>
-    </form>
+    </div>
   );
 }
 
 function ReviewExpenseForm({
   draft,
   form,
+  loggedBy,
   setForm,
   disabled,
   onSubmit,
@@ -651,6 +659,7 @@ function ReviewExpenseForm({
 }: {
   draft: ExpenseDraft;
   form: ReviewForm;
+  loggedBy: string;
   setForm: (form: ReviewForm) => void;
   disabled: boolean;
   onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
@@ -691,7 +700,7 @@ function ReviewExpenseForm({
             onChange={(event) => update("description", event.target.value)}
           />
         </label>
-        <TextField label="Logged by" value={form.uploaded_by} onChange={(v) => update("uploaded_by", v)} />
+        <div className="integration-note">Logged by: {loggedBy}</div>
         <div className="button-row">
           <button type="submit" disabled={disabled}>
             {disabled ? "Saving..." : "Confirm and log expense"}

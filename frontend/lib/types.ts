@@ -84,12 +84,10 @@ export type ExpenseDraft = {
   receiptPath: string;
   createdAt: string;
   extracted: ExtractedReceiptData;
-  uploadedBy: string;
   fund: string;
 };
 
 export type ReviewForm = {
-  uploaded_by: string;
   fund: string;
   payment_reference: string;
   payee: string;
