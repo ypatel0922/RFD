@@ -84,7 +84,11 @@ export default function Home() {
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
       if (nextSession?.user) {
-        loadMembership(nextSession.user);
+        void loadMembership(nextSession.user).catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : "Could not load your department access.";
+          showErrorMessage(message);
+          setMembership(null);
+        });
       } else {
         setMembership(null);
         setExpenses([]);
@@ -100,10 +104,13 @@ export default function Home() {
 
   async function loadMembership(user: User) {
     const loadedMembership = await ensureMembership(user);
-    setMembership(loadedMembership);
-    if (loadedMembership) {
-      await loadExpenses(loadedMembership.department_id);
+    if (!loadedMembership) {
+      throw new Error(
+        "Your account signed in, but it is not linked to a fire department yet. Contact your admin or complete signup again.",
+      );
     }
+    setMembership(loadedMembership);
+    await loadExpenses(loadedMembership.department_id);
   }
 
   async function loadExpenses(departmentId: string) {
@@ -147,8 +154,14 @@ export default function Home() {
         setMode={setAuthMode}
         onSignedIn={async (nextSession) => {
           setSession(nextSession);
-          if (nextSession.user) {
+          if (!nextSession.user) return;
+          try {
             await loadMembership(nextSession.user);
+          } catch (error) {
+            await supabase.auth.signOut();
+            const message =
+              error instanceof Error ? error.message : "Could not load your department access.";
+            showErrorMessage(message);
           }
         }}
         message={message}
@@ -284,12 +297,18 @@ function LoginForm({
     const form = new FormData(event.currentTarget);
     const email = String(form.get("email") || "").trim();
     const password = String(form.get("password") || "");
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error || !data.session) {
-      setMessage(error?.message || "Could not sign in.");
-      return;
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error || !data.session) {
+        setMessage(error?.message || "Could not sign in.");
+        return;
+      }
+      await onSignedIn(data.session);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Could not complete sign-in for this account.";
+      setMessage(message);
     }
-    await onSignedIn(data.session);
   }
 
   return (
@@ -986,13 +1005,20 @@ async function ensureMembership(user: User) {
 
   const metadata = user.user_metadata || {};
   if (!metadata.pending_department_id || !metadata.pending_department_role) {
+    if (error) {
+      throw new Error(error.message);
+    }
     return null;
   }
 
-  return createMembershipFromMetadata(user, metadata.pending_department_role, {
+  const created = await createMembershipFromMetadata(user, metadata.pending_department_role, {
     id: metadata.pending_department_id,
     name: metadata.pending_department_name || "Fire Department",
   });
+  if (!created && error) {
+    throw new Error(error.message);
+  }
+  return created;
 }
 
 async function createMembershipFromMetadata(user: User | null, role: string, department: Department) {
