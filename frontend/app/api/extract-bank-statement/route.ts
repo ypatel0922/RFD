@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import { PDFParse } from "pdf-parse";
 
 import type { BankStatementExtraction } from "../../../lib/types";
 
@@ -19,7 +20,8 @@ Return valid JSON only with keys:
 account_name, beginning_balance, ending_balance, statement_start_date, statement_end_date, confidence, notes, transactions.
 transactions must be an array of objects with keys:
 posted_date, description, amount, balance, reference.
-Dates use YYYY-MM-DD when visible. Amounts are numbers without currency symbols.`;
+Dates use YYYY-MM-DD when visible. Amounts are numbers without currency symbols.
+Read transaction/activity sections from all pages, not just page 1.`;
 
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
@@ -41,22 +43,18 @@ export async function POST(request: NextRequest) {
     for (let index = 0; index < statements.length; index += 1) {
       const statement = statements[index];
       const bytes = Buffer.from(await statement.arrayBuffer());
-      const dataUrl = `data:${statement.type || "application/octet-stream"};base64,${bytes.toString("base64")}`;
-      const response = await client.chat.completions.create({
-        model: process.env.OPENAI_RECEIPT_MODEL || "gpt-4o-mini",
-        temperature: 0,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: PROMPT },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: `Extract transactions and balances from statement page/file ${index + 1} of ${statements.length}.` },
-              { type: "image_url", image_url: { url: dataUrl, detail: "high" } },
-            ],
-          },
-        ],
-      });
+      const isPdf = statement.type === "application/pdf" || statement.name.toLowerCase().endsWith(".pdf");
+      const response = isPdf
+        ? await extractFromPdfText({
+            client,
+            bytes,
+            fileLabel: `statement file ${index + 1} of ${statements.length}`,
+          })
+        : await extractFromImage({
+            client,
+            dataUrl: `data:${statement.type || "application/octet-stream"};base64,${bytes.toString("base64")}`,
+            fileLabel: `statement image ${index + 1} of ${statements.length}`,
+          });
       const raw = response.choices[0]?.message.content || "{}";
       partials.push(JSON.parse(raw) as Partial<BankStatementExtraction>);
     }
@@ -101,4 +99,64 @@ function firstNonNull<T>(values: Array<T | null>) {
     if (value != null) return value;
   }
   return null;
+}
+
+async function extractFromImage({
+  client,
+  dataUrl,
+  fileLabel,
+}: {
+  client: OpenAI;
+  dataUrl: string;
+  fileLabel: string;
+}) {
+  return client.chat.completions.create({
+    model: process.env.OPENAI_RECEIPT_MODEL || "gpt-4o-mini",
+    temperature: 0,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: PROMPT },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: `Extract transactions and balances from ${fileLabel}.` },
+          { type: "image_url", image_url: { url: dataUrl, detail: "high" } },
+        ],
+      },
+    ],
+  });
+}
+
+async function extractFromPdfText({
+  client,
+  bytes,
+  fileLabel,
+}: {
+  client: OpenAI;
+  bytes: Buffer;
+  fileLabel: string;
+}) {
+  const parser = new PDFParse({ data: new Uint8Array(bytes) });
+  const parsed = await parser.getText();
+  await parser.destroy();
+  const text = parsed.text?.trim();
+  if (!text) {
+    return extractFromImage({
+      client,
+      dataUrl: `data:application/pdf;base64,${bytes.toString("base64")}`,
+      fileLabel,
+    });
+  }
+  return client.chat.completions.create({
+    model: process.env.OPENAI_RECEIPT_MODEL || "gpt-4o-mini",
+    temperature: 0,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: PROMPT },
+      {
+        role: "user",
+        content: `Extract transactions and balances from this OCR text (${fileLabel}).\n\n${text.slice(0, 120000)}`,
+      },
+    ],
+  });
 }
