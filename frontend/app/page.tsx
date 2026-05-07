@@ -2,6 +2,7 @@
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { Session, User } from "@supabase/supabase-js";
+import { usePlaidLink } from "react-plaid-link";
 
 import { bankStatementsBucket, receiptsBucket, supabase } from "../lib/supabase";
 import {
@@ -568,6 +569,8 @@ function Dashboard({
   const [draft, setDraft] = useState<ExpenseDraft | null>(null);
   const [reviewForm, setReviewForm] = useState<ReviewForm | null>(null);
   const [showCaptureOptions, setShowCaptureOptions] = useState(false);
+  const [showManualForm, setShowManualForm] = useState(false);
+  const [manualWorking, setManualWorking] = useState(false);
   const [working, setWorking] = useState(false);
 
   const defaultBankAccount = bankAccounts.find((account) => account.is_default)?.name || "";
@@ -708,6 +711,47 @@ function Dashboard({
     }
   }
 
+  async function submitManualExpense(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setManualWorking(true);
+    const form = new FormData(event.currentTarget);
+    const payload: Record<string, unknown> = {
+      id: crypto.randomUUID(),
+      department_id: membership.department_id,
+      receipt_id: crypto.randomUUID(),
+      receipt_path: `${membership.department_id}/manual/${crypto.randomUUID()}/no-receipt`,
+      original_filename: "manual-entry",
+      content_type: "text/plain",
+      created_at: new Date().toISOString(),
+      created_by_user_id: user.id,
+      created_by_email: user.email || "",
+      uploaded_by: user.email || user.id,
+      transaction_date: optionalValue(String(form.get("transaction_date") || "")),
+      payee: optionalValue(String(form.get("payee") || "")),
+      merchant_name: optionalValue(String(form.get("payee") || "")),
+      total_amount: optionalNumber(String(form.get("total_amount") || "")),
+      payment_method: optionalValue(String(form.get("payment_method") || "")),
+      category: optionalValue(String(form.get("category") || "")),
+      description: optionalValue(String(form.get("description") || "")),
+      bank_account_name: optionalValue(String(form.get("bank_account_name") || "")),
+      extraction_status: "needs_review",
+      extraction_confidence: 0,
+      extraction_notes: "Manual entry without receipt",
+      reconciliation_status: "pending_bank_match",
+      bank_match_confidence: 0,
+    };
+    const result = await supabase.from("expenses").insert(payload);
+    if (result.error) {
+      showErrorMessage(result.error.message);
+      setManualWorking(false);
+      return;
+    }
+    showSuccessMessage("Manual expense logged.");
+    setShowManualForm(false);
+    await onExpensesChanged();
+    setManualWorking(false);
+  }
+
   return (
     <>
       <section className="card upload-card">
@@ -718,9 +762,14 @@ function Dashboard({
               <h2>Log an expense</h2>
             </div>
             {!showCaptureOptions ? (
-              <button type="button" disabled={working} onClick={() => setShowCaptureOptions(true)}>
-                {working ? "Extracting..." : "Log an expense"}
-              </button>
+              <div className="tab-buttons">
+                <button type="button" disabled={working} onClick={() => setShowCaptureOptions(true)}>
+                  {working ? "Extracting..." : "Log with receipt"}
+                </button>
+                <button type="button" className="secondary-action" onClick={() => setShowManualForm((value) => !value)}>
+                  {showManualForm ? "Hide manual form" : "Manual expense (no receipt)"}
+                </button>
+              </div>
             ) : (
               <div className="capture-options">
                 <ReceiptCaptureOption
@@ -752,6 +801,49 @@ function Dashboard({
               Receipt fields are autofilled when extraction succeeds. You confirm the
               register fields before the expense is logged.
             </div>
+            {showManualForm ? (
+              <form className="upload-form" onSubmit={submitManualExpense}>
+                <div className="form-grid two-column">
+                  <label>
+                    Date
+                    <input type="date" name="transaction_date" required />
+                  </label>
+                  <label>
+                    Vendor / payee
+                    <input name="payee" required />
+                  </label>
+                  <label>
+                    Amount
+                    <input name="total_amount" required />
+                  </label>
+                  <label>
+                    Payment type
+                    <select name="payment_method" required>
+                      <option value="">Choose</option>
+                      <option value="cash">Cash</option>
+                      <option value="debit_card">Debit card</option>
+                      <option value="credit_card">Credit card</option>
+                      <option value="check">Check</option>
+                    </select>
+                  </label>
+                  <label>
+                    Category
+                    <input name="category" />
+                  </label>
+                  <label>
+                    Bank/Credit account
+                    <input name="bank_account_name" />
+                  </label>
+                </div>
+                <label>
+                  Description
+                  <textarea name="description" rows={2} />
+                </label>
+                <button type="submit" disabled={manualWorking}>
+                  {manualWorking ? "Saving..." : "Save manual expense"}
+                </button>
+              </form>
+            ) : null}
           </>
         ) : (
           <ReviewExpenseForm
@@ -1456,6 +1548,69 @@ function Settings({
   showErrorMessage: (message: string) => void;
   showSuccessMessage: (message: string | null) => void;
 }) {
+  const [plaidLinkToken, setPlaidLinkToken] = useState<string | null>(null);
+  const [syncWorking, setSyncWorking] = useState(false);
+  const { open: openPlaid, ready: plaidReady } = usePlaidLink({
+    token: plaidLinkToken || "",
+    onSuccess: async (public_token) => {
+      const response = await fetch("/api/plaid/exchange-public-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          publicToken: public_token,
+          departmentId: membership.department_id,
+        }),
+      });
+      const payload = (await response.json()) as { error?: string; accounts?: number };
+      if (!response.ok) {
+        showErrorMessage(payload.error || "Could not connect Plaid account.");
+        return;
+      }
+      await onBankAccountsChanged();
+      showSuccessMessage(`Plaid connected. Imported ${payload.accounts || 0} accounts.`);
+    },
+  });
+
+  async function startPlaidLink() {
+    const response = await fetch("/api/plaid/create-link-token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId: membership.department_id,
+        departmentId: membership.department_id,
+      }),
+    });
+    const payload = (await response.json()) as { link_token?: string; error?: string };
+    if (!response.ok || !payload.link_token) {
+      showErrorMessage(payload.error || "Could not create Plaid link token.");
+      return;
+    }
+    setPlaidLinkToken(payload.link_token);
+  }
+
+  useEffect(() => {
+    if (plaidLinkToken && plaidReady) {
+      openPlaid();
+    }
+  }, [openPlaid, plaidLinkToken, plaidReady]);
+
+  async function syncPlaidTransactions() {
+    setSyncWorking(true);
+    const response = await fetch("/api/plaid/sync-transactions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ departmentId: membership.department_id }),
+    });
+    const payload = (await response.json()) as { error?: string; inserted?: number; matched?: number };
+    if (!response.ok) {
+      showErrorMessage(payload.error || "Could not sync Plaid transactions.");
+      setSyncWorking(false);
+      return;
+    }
+    showSuccessMessage(`Synced ${payload.inserted || 0} transactions, matched ${payload.matched || 0}.`);
+    setSyncWorking(false);
+  }
+
   async function createAccount(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formElement = event.currentTarget;
@@ -1525,6 +1680,14 @@ function Settings({
         />
         Automatically create missing expenses from uploaded statements
       </label>
+      <div className="button-row">
+        <button type="button" onClick={() => void startPlaidLink()}>
+          Connect bank/credit card with Plaid
+        </button>
+        <button type="button" className="secondary-action" disabled={syncWorking} onClick={() => void syncPlaidTransactions()}>
+          {syncWorking ? "Syncing..." : "Sync Plaid transactions"}
+        </button>
+      </div>
       <form className="upload-form" onSubmit={createAccount}>
         <label>
           Account name
@@ -1733,6 +1896,9 @@ function Statements({
       <div className="section-heading">
         <p className="eyebrow">Bank statements</p>
         <h2>Upload, review, and reconcile statement pages</h2>
+      </div>
+      <div className="notice notice-error">
+        Known bug: Some PDF statements still parse as 0 transactions. Please use multi-photo upload as a workaround while we fix parser reliability.
       </div>
       <div className="capture-options">
         <label>
