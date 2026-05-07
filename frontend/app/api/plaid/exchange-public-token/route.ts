@@ -50,6 +50,12 @@ export async function POST(request: NextRequest) {
       if (result.error) throw new Error(result.error.message);
     }
 
+    await supabase
+      .from("departments")
+      .update({ setup_completed_at: new Date().toISOString() })
+      .eq("id", departmentId)
+      .is("setup_completed_at", null);
+
     return NextResponse.json({ ok: true, accounts: accountRows.length });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not exchange Plaid token.";

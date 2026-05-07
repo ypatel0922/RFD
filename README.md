@@ -116,10 +116,21 @@ create:
 - `departments`
 - `department_members`
 - `expenses`
+- `department_signup_secrets` (department access codes for self-service signup — readable only with the service role / server APIs)
 - A private `receipts` storage bucket
 - Row Level Security policies that only allow authenticated users to access
   departments, members, expenses, and receipt objects for departments they
   belong to
+
+### Onboarding a new fire department (app owner)
+
+1. Insert the department (or use the SQL editor):
+   `insert into public.departments (name) values ('Your FD Name');`
+2. Set the signup access code users must enter when creating an account (keep it secret):
+   `insert into public.department_signup_secrets (department_id, invite_code) values ('<department-uuid>', 'your-secret-code');`
+3. Ensure `SUPABASE_SERVICE_ROLE_KEY` is set in `frontend/.env.local` so `/api/verify-department-invite` and `/api/complete-department-setup` work.
+
+The signup flow collects **name**, **phone**, **email**, **password**, **department**, **role**, and the **department access code**. The first member to finish **Settings** (bank account or Plaid) marks department setup complete for everyone.
 
 The signup flow searches department names from Supabase, creates a Supabase Auth
 user, and inserts that user's `department_members` row with one of these roles:

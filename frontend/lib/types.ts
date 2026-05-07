@@ -12,6 +12,7 @@ export type RoleOption = (typeof ROLE_OPTIONS)[number];
 export type Department = {
   id: string;
   name: string;
+  setup_completed_at?: string | null;
 };
 
 export type DepartmentMembership = {

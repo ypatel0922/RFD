@@ -51,6 +51,20 @@ function normalizeRole(role: string) {
   return ROLE_OPTIONS.find((option) => option.toLowerCase() === normalized) ?? null;
 }
 
+function loggedByLabel(user: User) {
+  const name =
+    user.user_metadata?.full_name != null ? String(user.user_metadata.full_name).trim() : "";
+  const email = user.email || "";
+  if (name && email) return `${name} (${email})`;
+  return email || user.id;
+}
+
+function formatExpenseLoggedBy(expense: ExpenseRecord) {
+  const raw = expense.uploaded_by?.trim();
+  if (raw) return raw;
+  return expense.created_by_email || "Unknown";
+}
+
 export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
   const [membership, setMembership] = useState<DepartmentMembership | null>(null);
@@ -150,6 +164,18 @@ export default function Home() {
       return;
     }
     setBankAccounts((data || []) as BankAccount[]);
+  }
+
+  async function refreshMembershipRow(user: User) {
+    const { data } = await supabase
+      .from("department_members")
+      .select("department_id,role,departments(id,name,setup_completed_at)")
+      .eq("user_id", user.id)
+      .limit(1)
+      .maybeSingle();
+    if (data) {
+      setMembership(data as unknown as DepartmentMembership);
+    }
   }
 
   async function loadExpenses(departmentId: string) {
@@ -281,7 +307,10 @@ export default function Home() {
             receiptUrls={receiptUrls}
             bankAccounts={bankAccounts}
             onExpensesChanged={() => loadExpenses(membership.department_id)}
-            onBankAccountsChanged={() => loadBankAccounts(membership.department_id)}
+            onBankAccountsChanged={async () => {
+              await loadBankAccounts(membership.department_id);
+              await refreshMembershipRow(session.user);
+            }}
             setMessage={setMessage}
             showSuccessMessage={showSuccessMessage}
             showErrorMessage={showErrorMessage}
@@ -304,9 +333,13 @@ export default function Home() {
           ) : view === "settings" ? (
             <Settings
               membership={membership}
+              session={session}
               bankAccounts={bankAccounts}
               departmentSettings={departmentSettings}
-              onBankAccountsChanged={() => loadBankAccounts(membership.department_id)}
+              onBankAccountsChanged={async () => {
+                await loadBankAccounts(membership.department_id);
+                await refreshMembershipRow(session.user);
+              }}
               onDepartmentSettingsChanged={() => loadDepartmentSettings(membership.department_id)}
               showErrorMessage={showErrorMessage}
               showSuccessMessage={showSuccessMessage}
@@ -352,7 +385,7 @@ function AuthScreen({
         <p>
           {mode === "login"
             ? "Sign in to see your department dashboard, receipts, expenses, and reports."
-            : "Start typing your department, choose it from the list, then enter your email, password, and role."}
+            : "Choose your fire department, enter your contact information and the access code from your administrator, then create your login."}
         </p>
         {message && <div className="notice notice-error">{message}</div>}
         {mode === "login" ? (
@@ -456,18 +489,47 @@ function SignupForm({
     }
 
     const form = new FormData(event.currentTarget);
+    const fullName = String(form.get("full_name") || "").trim();
+    const phone = String(form.get("phone") || "").trim();
     const email = String(form.get("email") || "").trim();
     const password = String(form.get("password") || "");
+    const inviteCode = String(form.get("department_invite_code") || "");
     const role = normalizeRole(String(form.get("role") || ""));
+    if (!fullName) {
+      setMessage("Enter your name.");
+      return;
+    }
+    if (!phone) {
+      setMessage("Enter your phone number so the department can reach you.");
+      return;
+    }
     if (!role) {
       setMessage("Choose a valid role.");
       return;
     }
+    if (!inviteCode.trim()) {
+      setMessage("Enter the department access code your administrator gave you.");
+      return;
+    }
+
+    const verifyResponse = await fetch("/api/verify-department-invite", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ departmentId: selectedDepartment.id, inviteCode: inviteCode.trim() }),
+    });
+    const verifyPayload = (await verifyResponse.json()) as { ok?: boolean; error?: string };
+    if (!verifyResponse.ok || !verifyPayload.ok) {
+      setMessage(verifyPayload.error || "Invalid department access code.");
+      return;
+    }
+
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: {
+          full_name: fullName,
+          phone,
           pending_department_id: selectedDepartment.id,
           pending_department_name: selectedDepartment.name,
           pending_department_role: role,
@@ -498,6 +560,26 @@ function SignupForm({
     <form onSubmit={handleSubmit} className="upload-form">
       <label>
         Department
+        <select
+          value={selectedDepartment?.id || ""}
+          onChange={(event) => {
+            const id = event.target.value;
+            const match = departments.find((d) => d.id === id) || null;
+            setSelectedDepartment(match);
+            setDepartmentText(match?.name || "");
+          }}
+        >
+          <option value="">Choose your fire department</option>
+          {departments.map((department) => (
+            <option key={department.id} value={department.id}>
+              {department.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="muted">Or type to search</p>
+      <label>
+        Search departments
         <input
           type="text"
           list="department-options"
@@ -511,7 +593,6 @@ function SignupForm({
           }}
           autoComplete="organization"
           placeholder="Start typing your fire department"
-          required
         />
         <datalist id="department-options">
           {departments.map((department) => (
@@ -520,12 +601,30 @@ function SignupForm({
         </datalist>
       </label>
       <label>
-        Email ID
+        Full name
+        <input type="text" name="full_name" autoComplete="name" required />
+      </label>
+      <label>
+        Phone number
+        <input type="tel" name="phone" autoComplete="tel" required />
+      </label>
+      <label>
+        Email
         <input type="email" name="email" autoComplete="email" required />
       </label>
       <label>
-        Password
+        Password (your login password)
         <input type="password" name="password" autoComplete="new-password" required />
+      </label>
+      <label>
+        Department access code (from your administrator)
+        <input
+          type="password"
+          name="department_invite_code"
+          autoComplete="off"
+          placeholder="Unique code for your fire department"
+          required
+        />
       </label>
       <label>
         Role
@@ -540,6 +639,73 @@ function SignupForm({
       </label>
       <button type="submit">Create account</button>
     </form>
+  );
+}
+
+function DepartmentSetupBanner({
+  membership,
+  user,
+  bankAccounts,
+}: {
+  membership: DepartmentMembership;
+  user: User;
+  bankAccounts: BankAccount[];
+}) {
+  const [isFirstMember, setIsFirstMember] = useState(false);
+  const [hasPlaid, setHasPlaid] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      const { data: first } = await supabase
+        .from("department_members")
+        .select("user_id")
+        .eq("department_id", membership.department_id)
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      const { data: plaidRows } = await supabase
+        .from("plaid_items")
+        .select("id")
+        .eq("department_id", membership.department_id)
+        .limit(1);
+      if (!cancelled) {
+        setIsFirstMember(Boolean(first?.user_id === user.id));
+        setHasPlaid(Boolean(plaidRows?.length));
+      }
+    }
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [membership.department_id, user.id]);
+
+  const setupComplete = Boolean(membership.departments?.setup_completed_at);
+  const hasFinancialSetup = bankAccounts.length > 0 || hasPlaid;
+
+  if (setupComplete || hasFinancialSetup) {
+    return (
+      <div className="integration-note">
+        All expenses and bank settings are shared across everyone in{" "}
+        <strong>{membership.departments?.name || "your department"}</strong>.
+      </div>
+    );
+  }
+
+  if (isFirstMember) {
+    return (
+      <div className="notice notice-error">
+        You are the first user for this department. Open <strong>Settings</strong> and connect Plaid or add at least one bank
+        account. Later members will use the same configuration and see the same expense ledger.
+      </div>
+    );
+  }
+
+  return (
+    <div className="notice">
+      The first person who registered for this department still needs to finish <strong>Settings</strong> (bank accounts / Plaid).
+      You all share one expense ledger.
+    </div>
   );
 }
 
@@ -664,7 +830,7 @@ function Dashboard({
         created_at: draft.createdAt,
         created_by_user_id: user.id,
         created_by_email: user.email || "",
-        uploaded_by: user.email || user.id,
+        uploaded_by: loggedByLabel(user),
         fund: optionalValue(reviewForm.fund),
         payment_reference: optionalValue(reviewForm.payment_reference),
         payee: optionalValue(reviewForm.payee),
@@ -725,7 +891,7 @@ function Dashboard({
       created_at: new Date().toISOString(),
       created_by_user_id: user.id,
       created_by_email: user.email || "",
-      uploaded_by: user.email || user.id,
+      uploaded_by: loggedByLabel(user),
       transaction_date: optionalValue(String(form.get("transaction_date") || "")),
       payee: optionalValue(String(form.get("payee") || "")),
       merchant_name: optionalValue(String(form.get("payee") || "")),
@@ -754,6 +920,7 @@ function Dashboard({
 
   return (
     <>
+      <DepartmentSetupBanner membership={membership} user={user} bankAccounts={bankAccounts} />
       <section className="card upload-card">
         {!draft || !reviewForm ? (
           <>
@@ -850,7 +1017,7 @@ function Dashboard({
             draft={draft}
             form={reviewForm}
             bankAccounts={bankAccounts}
-            loggedBy={user.email || user.id}
+            loggedBy={loggedByLabel(user)}
             setForm={setReviewForm}
             disabled={working}
             onSubmit={confirmExpense}
@@ -1102,6 +1269,7 @@ function ExpenseLedger({
               <tr>
                 <th>Receipt</th>
                 <th>Payee</th>
+                <th>Logged by</th>
                 <th>Ref</th>
                 <th>Date</th>
                 <th>Total</th>
@@ -1124,6 +1292,9 @@ function ExpenseLedger({
                     <span className="filename">{expense.original_filename}</span>
                   </td>
                   <td>{expense.payee || expense.merchant_name || "Needs review"}</td>
+                  <td>
+                    <span className="filename">{formatExpenseLoggedBy(expense)}</span>
+                  </td>
                   <td>{expense.payment_reference || "-"}</td>
                   <td>{expense.transaction_date || "Needs review"}</td>
                   <td>{expense.total_amount ? `$${expense.total_amount}` : "Needs review"}</td>
@@ -1533,6 +1704,7 @@ function Reports({
 
 function Settings({
   membership,
+  session,
   bankAccounts,
   departmentSettings,
   onBankAccountsChanged,
@@ -1541,6 +1713,7 @@ function Settings({
   showSuccessMessage,
 }: {
   membership: DepartmentMembership;
+  session: Session;
   bankAccounts: BankAccount[];
   departmentSettings: DepartmentSetting | null;
   onBankAccountsChanged: () => Promise<void>;
@@ -1576,7 +1749,7 @@ function Settings({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        userId: membership.department_id,
+        userId: session.user.id,
         departmentId: membership.department_id,
       }),
     });
@@ -1637,8 +1810,23 @@ function Settings({
       showErrorMessage(error.message);
       return;
     }
+    const setupResponse = await fetch("/api/complete-department-setup", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ departmentId: membership.department_id }),
+    });
     formElement.reset();
     await onBankAccountsChanged();
+    if (!setupResponse.ok) {
+      const payload = (await setupResponse.json()) as { error?: string };
+      showErrorMessage(
+        `Bank account saved, but setup status was not updated: ${payload.error || setupResponse.statusText}. Check server env (SUPABASE_SERVICE_ROLE_KEY).`,
+      );
+      return;
+    }
     showSuccessMessage("Bank account saved.");
   }
 
@@ -1990,7 +2178,7 @@ function Statements({
 async function ensureMembership(user: User) {
   const { data, error } = await supabase
     .from("department_members")
-    .select("department_id,role,departments(id,name)")
+    .select("department_id,role,departments(id,name,setup_completed_at)")
     .eq("user_id", user.id)
     .limit(1);
 
@@ -2007,8 +2195,8 @@ async function ensureMembership(user: User) {
   }
 
   const created = await createMembershipFromMetadata(user, metadata.pending_department_role, {
-    id: metadata.pending_department_id,
-    name: metadata.pending_department_name || "Fire Department",
+    id: metadata.pending_department_id as string,
+    name: (metadata.pending_department_name as string) || "Fire Department",
   });
   if (!created && error) {
     throw new Error(error.message);
@@ -2028,11 +2216,20 @@ async function createMembershipFromMetadata(user: User | null, role: string, dep
   if (error) {
     return null;
   }
-  return {
-    department_id: department.id,
-    role: normalizedRole,
-    departments: department,
-  } satisfies DepartmentMembership;
+  const { data: row } = await supabase
+    .from("department_members")
+    .select("department_id,role,departments(id,name,setup_completed_at)")
+    .eq("user_id", user.id)
+    .eq("department_id", department.id)
+    .maybeSingle();
+  if (!row) {
+    return {
+      department_id: department.id,
+      role: normalizedRole,
+      departments: { id: department.id, name: department.name, setup_completed_at: null },
+    } satisfies DepartmentMembership;
+  }
+  return row as unknown as DepartmentMembership;
 }
 
 async function extractReceipt(file: File): Promise<ExtractedReceiptData> {
@@ -2200,7 +2397,7 @@ async function applyStatementReconciliation({
             created_at: new Date().toISOString(),
             created_by_user_id: user.id,
             created_by_email: user.email || "",
-            uploaded_by: user.email || user.id,
+            uploaded_by: loggedByLabel(user),
             payment_reference: tx.reference,
             payee: tx.description,
             merchant_name: tx.description,
