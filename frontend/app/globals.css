@@ -429,6 +429,60 @@ th {
   padding: 36px 24px 48px;
 }
 
+.ledger-toolbar {
+  margin-bottom: 1rem;
+}
+
+.ledger-toolbar .tab-buttons {
+  flex-wrap: wrap;
+}
+
+.ledger-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  align-items: end;
+}
+
+.ledger-filters label {
+  font-size: 0.9rem;
+}
+
+.ledger-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.ledger-presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.35rem;
+  margin-bottom: 1rem;
+}
+
+.ledger-presets .secondary-action,
+.ledger-pagination .secondary-action {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.8rem;
+  border-radius: 10px;
+  font-weight: 700;
+}
+
+.ledger-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  margin-top: 1rem;
+}
+
 .app-version {
   width: min(1120px, calc(100vw - 32px));
   margin: 0 auto 24px;

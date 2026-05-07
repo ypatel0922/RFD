@@ -46,6 +46,27 @@ const defaultReportEnd = today.toISOString().slice(0, 10);
 const defaultReportStart = `${today.getFullYear()}-01-01`;
 const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION || "dev";
 
+const LEDGER_RECENT_LIMIT = 75;
+const LEDGER_ALL_LIMIT = 5000;
+const LEDGER_PAGE_SIZE = 50;
+type LedgerScope = "recent" | "all";
+
+function formatLocalYMD(date: Date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function expenseNumericAmount(total: ExpenseRecord["total_amount"]): number | null {
+  if (total == null) return null;
+  if (typeof total === "number") return Number.isNaN(total) ? null : total;
+  const trimmed = String(total).replace(/[$,]/g, "").trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed);
+  return Number.isNaN(n) ? null : n;
+}
+
 function normalizeRole(role: string) {
   const normalized = role.trim().toLowerCase();
   return ROLE_OPTIONS.find((option) => option.toLowerCase() === normalized) ?? null;
@@ -78,6 +99,7 @@ export default function Home() {
   const [message, setMessage] = useState<string | null>(null);
   const [messageVariant, setMessageVariant] = useState<MessageVariant>("success");
   const [loading, setLoading] = useState(true);
+  const [ledgerScope, setLedgerScope] = useState<LedgerScope>("recent");
 
   function showSuccessMessage(nextMessage: string | null) {
     setMessageVariant("success");
@@ -115,6 +137,7 @@ export default function Home() {
         setMembership(null);
         setExpenses([]);
         setReceiptUrls({});
+        setLedgerScope("recent");
       }
     });
 
@@ -134,7 +157,6 @@ export default function Home() {
     setMembership(loadedMembership);
     await loadDepartmentSettings(loadedMembership.department_id);
     await loadBankAccounts(loadedMembership.department_id);
-    await loadExpenses(loadedMembership.department_id);
   }
 
   async function loadDepartmentSettings(departmentId: string) {
@@ -179,11 +201,14 @@ export default function Home() {
   }
 
   async function loadExpenses(departmentId: string) {
-    const { data, error } = await supabase
+    setMessage(null);
+    let query = supabase
       .from("expenses")
       .select("*")
       .eq("department_id", departmentId)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(LEDGER_ALL_LIMIT);
+    const { data, error } = await query;
 
     if (error) {
       setMessage(error.message);
@@ -193,6 +218,11 @@ export default function Home() {
     setExpenses(loadedExpenses);
     await loadReceiptUrls(loadedExpenses);
   }
+
+  useEffect(() => {
+    if (!membership?.department_id) return;
+    void loadExpenses(membership.department_id);
+  }, [membership?.department_id]);
 
   async function loadStatementUrls(uploads: BankStatementUpload[]) {
     const entries = await Promise.all(
@@ -209,17 +239,27 @@ export default function Home() {
   }
 
   async function loadReceiptUrls(loadedExpenses: ExpenseRecord[]) {
-    const entries = await Promise.all(
-      loadedExpenses.map(async (expense) => {
-        const { data } = await supabase.storage
-          .from(receiptsBucket)
-          .createSignedUrl(expense.receipt_path, 60 * 60);
-        return [expense.id, data?.signedUrl || ""] as const;
-      }),
-    );
-    setReceiptUrls(
-      Object.fromEntries(entries.filter((entry) => entry[1])),
-    );
+    const batchSize = 40;
+    const map: Record<string, string> = {};
+    for (let i = 0; i < loadedExpenses.length; i += batchSize) {
+      const slice = loadedExpenses.slice(i, i + batchSize);
+      const entries = await Promise.all(
+        slice.map(async (expense) => {
+          try {
+            const { data } = await supabase.storage
+              .from(receiptsBucket)
+              .createSignedUrl(expense.receipt_path, 60 * 60);
+            return [expense.id, data?.signedUrl || ""] as const;
+          } catch {
+            return [expense.id, ""] as const;
+          }
+        }),
+      );
+      for (const [id, url] of entries) {
+        if (url) map[id] = url;
+      }
+    }
+    setReceiptUrls(map);
   }
 
   if (loading) {
@@ -306,6 +346,9 @@ export default function Home() {
             expenses={expenses}
             receiptUrls={receiptUrls}
             bankAccounts={bankAccounts}
+            ledgerScope={ledgerScope}
+            onLedgerScopeChange={setLedgerScope}
+            ledgerMayTruncate={expenses.length >= LEDGER_ALL_LIMIT}
             onExpensesChanged={() => loadExpenses(membership.department_id)}
             onBankAccountsChanged={async () => {
               await loadBankAccounts(membership.department_id);
@@ -715,6 +758,9 @@ function Dashboard({
   expenses,
   receiptUrls,
   bankAccounts,
+  ledgerScope,
+  onLedgerScopeChange,
+  ledgerMayTruncate,
   onExpensesChanged,
   onBankAccountsChanged,
   setMessage,
@@ -726,6 +772,9 @@ function Dashboard({
   expenses: ExpenseRecord[];
   receiptUrls: Record<string, string>;
   bankAccounts: BankAccount[];
+  ledgerScope: LedgerScope;
+  onLedgerScopeChange: (scope: LedgerScope) => void;
+  ledgerMayTruncate: boolean;
   onExpensesChanged: () => Promise<void>;
   onBankAccountsChanged: () => Promise<void>;
   setMessage: (message: string | null) => void;
@@ -1033,6 +1082,9 @@ function Dashboard({
         expenses={expenses}
         receiptUrls={receiptUrls}
         user={user}
+        ledgerScope={ledgerScope}
+        onLedgerScopeChange={onLedgerScopeChange}
+        ledgerMayTruncate={ledgerMayTruncate}
         onExpensesChanged={onExpensesChanged}
         showErrorMessage={showErrorMessage}
         showSuccessMessage={showSuccessMessage}
@@ -1201,6 +1253,9 @@ function ExpenseLedger({
   onExpensesChanged,
   showErrorMessage,
   showSuccessMessage,
+  ledgerScope,
+  onLedgerScopeChange,
+  ledgerMayTruncate,
 }: {
   expenses: ExpenseRecord[];
   receiptUrls: Record<string, string>;
@@ -1208,10 +1263,99 @@ function ExpenseLedger({
   onExpensesChanged: () => Promise<void>;
   showErrorMessage: (message: string) => void;
   showSuccessMessage: (message: string | null) => void;
+  ledgerScope: LedgerScope;
+  onLedgerScopeChange: (scope: LedgerScope) => void;
+  ledgerMayTruncate: boolean;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editReason, setEditReason] = useState("");
   const [editValues, setEditValues] = useState<Record<string, string>>({});
+  const [vendorQuery, setVendorQuery] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [amountMin, setAmountMin] = useState("");
+  const [amountMax, setAmountMax] = useState("");
+  const [page, setPage] = useState(1);
+
+  const scopedExpenses = useMemo(
+    () => (ledgerScope === "recent" ? expenses.slice(0, LEDGER_RECENT_LIMIT) : expenses),
+    [expenses, ledgerScope],
+  );
+
+  function applyDatePreset(preset: "ytd" | "last_year" | "last12" | "clear") {
+    const now = new Date();
+    if (preset === "clear") {
+      setDateFrom("");
+      setDateTo("");
+      return;
+    }
+    if (preset === "ytd") {
+      setDateFrom(formatLocalYMD(new Date(now.getFullYear(), 0, 1)));
+      setDateTo(formatLocalYMD(now));
+      return;
+    }
+    if (preset === "last_year") {
+      const y = now.getFullYear() - 1;
+      setDateFrom(formatLocalYMD(new Date(y, 0, 1)));
+      setDateTo(formatLocalYMD(new Date(y, 11, 31)));
+      return;
+    }
+    const start = new Date(now);
+    start.setFullYear(start.getFullYear() - 1);
+    setDateFrom(formatLocalYMD(start));
+    setDateTo(formatLocalYMD(now));
+  }
+
+  const filteredExpenses = useMemo(() => {
+    let list = scopedExpenses;
+    const q = vendorQuery.trim().toLowerCase();
+    if (q) {
+      list = list.filter((expense) => {
+        const payee = (expense.payee || expense.merchant_name || "").toLowerCase();
+        const desc = (expense.description || "").toLowerCase();
+        return payee.includes(q) || desc.includes(q);
+      });
+    }
+    if (categoryFilter.trim()) {
+      const c = categoryFilter.trim().toLowerCase();
+      list = list.filter((expense) => (expense.category || "").toLowerCase().includes(c));
+    }
+    if (dateFrom) {
+      list = list.filter((expense) => (expense.transaction_date || "") >= dateFrom);
+    }
+    if (dateTo) {
+      list = list.filter((expense) => (expense.transaction_date || "") <= dateTo);
+    }
+    const min = optionalNumber(amountMin);
+    const max = optionalNumber(amountMax);
+    if (min != null) {
+      list = list.filter((expense) => (expenseNumericAmount(expense.total_amount) ?? -Infinity) >= min);
+    }
+    if (max != null) {
+      list = list.filter((expense) => (expenseNumericAmount(expense.total_amount) ?? Infinity) <= max);
+    }
+    return list;
+  }, [scopedExpenses, vendorQuery, categoryFilter, dateFrom, dateTo, amountMin, amountMax]);
+
+  const filteredTotal = useMemo(
+    () =>
+      filteredExpenses.reduce((sum, expense) => {
+        const n = expenseNumericAmount(expense.total_amount);
+        return sum + (n != null ? n : 0);
+      }, 0),
+    [filteredExpenses],
+  );
+
+  const pageCount = Math.max(1, Math.ceil(filteredExpenses.length / LEDGER_PAGE_SIZE));
+  const pageItems = useMemo(() => {
+    const start = (page - 1) * LEDGER_PAGE_SIZE;
+    return filteredExpenses.slice(start, start + LEDGER_PAGE_SIZE);
+  }, [filteredExpenses, page]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [vendorQuery, categoryFilter, dateFrom, dateTo, amountMin, amountMax, ledgerScope]);
 
   function beginEdit(expense: ExpenseRecord) {
     setEditingId(expense.id);
@@ -1256,120 +1400,291 @@ function ExpenseLedger({
     await onExpensesChanged();
   }
 
+  function clearFilters() {
+    setVendorQuery("");
+    setCategoryFilter("");
+    setDateFrom("");
+    setDateTo("");
+    setAmountMin("");
+    setAmountMax("");
+  }
+
   return (
     <section className="card">
       <div className="section-heading">
         <p className="eyebrow">Expense ledger</p>
-        <h2>Recent receipts</h2>
+        <h2>{ledgerScope === "recent" ? "Recent receipts" : "All transactions"}</h2>
+        {ledgerScope === "recent" ? (
+          <p className="muted">
+            Showing the {LEDGER_RECENT_LIMIT} most recently logged expenses. Switch to &quot;All&quot; for history,
+            search, and filters.
+          </p>
+        ) : (
+          <p className="muted">
+            Search and filter by vendor, category, date, or amount. Useful for recurring vendors and year-over-year
+            totals.
+          </p>
+        )}
       </div>
-      {expenses.length ? (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Receipt</th>
-                <th>Payee</th>
-                <th>Logged by</th>
-                <th>Ref</th>
-                <th>Date</th>
-                <th>Total</th>
-                <th>Purpose</th>
-                <th>Extraction</th>
-                <th>Reconcile</th>
-              </tr>
-            </thead>
-            <tbody>
-              {expenses.map((expense) => (
-                <tr key={expense.id}>
-                  <td>
-                    {receiptUrls[expense.id] ? (
-                      <a href={receiptUrls[expense.id]} target="_blank" rel="noopener noreferrer">
-                        View source
-                      </a>
-                    ) : (
-                      <span>Receipt stored</span>
-                    )}
-                    <span className="filename">{expense.original_filename}</span>
-                  </td>
-                  <td>{expense.payee || expense.merchant_name || "Needs review"}</td>
-                  <td>
-                    <span className="filename">{formatExpenseLoggedBy(expense)}</span>
-                  </td>
-                  <td>{expense.payment_reference || "-"}</td>
-                  <td>{expense.transaction_date || "Needs review"}</td>
-                  <td>{expense.total_amount ? `$${expense.total_amount}` : "Needs review"}</td>
-                  <td>
-                    {expense.description || expense.category || "Uncategorized"}
-                    {expense.fund && <span className="filename">{expense.fund}</span>}
-                  </td>
-                  <td>
-                    <span className={`status status-${expense.extraction_status}`}>
-                      {expense.extraction_status.replaceAll("_", " ")}
-                    </span>
-                  </td>
-                  <td>
-                    <span className={`status status-${expense.reconciliation_status}`}>
-                      {expense.reconciliation_status.replaceAll("_", " ")}
-                    </span>
-                    {expense.reconciliation_candidate ? (
-                      <span className="filename">
-                        Possible match: {expense.reconciliation_candidate_notes || "Review manually"}
-                      </span>
-                    ) : null}
-                    {expense.last_manual_edit_reason ? (
-                      <span className="filename">
-                        Last edit: {expense.last_manual_edit_reason}
-                      </span>
-                    ) : null}
-                    {editingId === expense.id ? (
-                      <div className="form-stack">
-                        <input
-                          placeholder="Vendor"
-                          value={editValues.payee || ""}
-                          onChange={(event) => setEditValues((prev) => ({ ...prev, payee: event.target.value }))}
-                        />
-                        <input
-                          placeholder="Amount"
-                          value={editValues.total_amount || ""}
-                          onChange={(event) => setEditValues((prev) => ({ ...prev, total_amount: event.target.value }))}
-                        />
-                        <input
-                          type="date"
-                          value={editValues.transaction_date || ""}
-                          onChange={(event) => setEditValues((prev) => ({ ...prev, transaction_date: event.target.value }))}
-                        />
-                        <input
-                          placeholder="Category"
-                          value={editValues.category || ""}
-                          onChange={(event) => setEditValues((prev) => ({ ...prev, category: event.target.value }))}
-                        />
-                        <input
-                          placeholder="Bank account"
-                          value={editValues.bank_account_name || ""}
-                          onChange={(event) => setEditValues((prev) => ({ ...prev, bank_account_name: event.target.value }))}
-                        />
-                        <textarea
-                          rows={2}
-                          placeholder="Reason for edit (required)"
-                          value={editReason}
-                          onChange={(event) => setEditReason(event.target.value)}
-                        />
-                        <div className="button-row">
-                          <button type="button" onClick={() => void saveEdit(expense.id)}>Save edit</button>
-                          <button type="button" className="secondary-action" onClick={() => setEditingId(null)}>Cancel</button>
-                        </div>
-                      </div>
-                    ) : (
-                      <button type="button" className="secondary-action" onClick={() => beginEdit(expense)}>
-                        Edit
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+
+      <div className="ledger-toolbar">
+        <div className="tab-buttons">
+          <button
+            type="button"
+            className={ledgerScope === "recent" ? "" : "secondary-action"}
+            onClick={() => onLedgerScopeChange("recent")}
+          >
+            Recent
+          </button>
+          <button
+            type="button"
+            className={ledgerScope === "all" ? "" : "secondary-action"}
+            onClick={() => onLedgerScopeChange("all")}
+          >
+            View all
+          </button>
         </div>
+      </div>
+      {ledgerMayTruncate ? (
+        <p className="notice">
+          Showing up to {LEDGER_ALL_LIMIT.toLocaleString()} expenses. Contact support if you need a larger export.
+        </p>
+      ) : null}
+
+      {ledgerScope === "all" || vendorQuery || categoryFilter || dateFrom || dateTo || amountMin || amountMax ? (
+        <>
+          <div className="ledger-filters">
+            <label>
+              Vendor / memo
+              <input
+                type="search"
+                placeholder="e.g. Shell, Amazon"
+                value={vendorQuery}
+                onChange={(event) => setVendorQuery(event.target.value)}
+                autoComplete="off"
+              />
+            </label>
+            <label>
+              Category
+              <input
+                type="search"
+                placeholder="Fuel, supplies…"
+                value={categoryFilter}
+                onChange={(event) => setCategoryFilter(event.target.value)}
+                autoComplete="off"
+              />
+            </label>
+            <label>
+              From date
+              <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
+            </label>
+            <label>
+              To date
+              <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
+            </label>
+            <label>
+              Min $
+              <input
+                inputMode="decimal"
+                placeholder="0"
+                value={amountMin}
+                onChange={(event) => setAmountMin(event.target.value)}
+              />
+            </label>
+            <label>
+              Max $
+              <input
+                inputMode="decimal"
+                placeholder="Any"
+                value={amountMax}
+                onChange={(event) => setAmountMax(event.target.value)}
+              />
+            </label>
+          </div>
+          <div className="ledger-presets">
+            <span className="muted">Quick dates:</span>
+            <button type="button" className="secondary-action" onClick={() => applyDatePreset("ytd")}>
+              Year to date
+            </button>
+            <button type="button" className="secondary-action" onClick={() => applyDatePreset("last_year")}>
+              Last calendar year
+            </button>
+            <button type="button" className="secondary-action" onClick={() => applyDatePreset("last12")}>
+              Last 12 months
+            </button>
+            <button type="button" className="secondary-action" onClick={() => applyDatePreset("clear")}>
+              Clear dates
+            </button>
+            <button type="button" className="secondary-action" onClick={clearFilters}>
+              Reset all filters
+            </button>
+          </div>
+        </>
+      ) : null}
+
+      {expenses.length ? (
+        <>
+          <div className="ledger-meta">
+            <span>
+              Showing {filteredExpenses.length === 0 ? 0 : (page - 1) * LEDGER_PAGE_SIZE + 1}–
+              {Math.min(page * LEDGER_PAGE_SIZE, filteredExpenses.length)} of {filteredExpenses.length}{" "}
+              {ledgerScope === "recent"
+                ? `(recent · ${expenses.length} loaded)`
+                : `(${expenses.length} loaded)`}
+            </span>
+            {filteredExpenses.length > 0 ? (
+              <span>
+                Filtered total: <strong>${filteredTotal.toFixed(2)}</strong>
+              </span>
+            ) : null}
+          </div>
+          {filteredExpenses.length ? (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Receipt</th>
+                    <th>Payee</th>
+                    <th>Logged by</th>
+                    <th>Ref</th>
+                    <th>Date</th>
+                    <th>Total</th>
+                    <th>Purpose</th>
+                    <th>Extraction</th>
+                    <th>Reconcile</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pageItems.map((expense) => (
+                    <tr key={expense.id}>
+                      <td>
+                        {receiptUrls[expense.id] ? (
+                          <a href={receiptUrls[expense.id]} target="_blank" rel="noopener noreferrer">
+                            View source
+                          </a>
+                        ) : (
+                          <span>Receipt stored</span>
+                        )}
+                        <span className="filename">{expense.original_filename}</span>
+                      </td>
+                      <td>{expense.payee || expense.merchant_name || "Needs review"}</td>
+                      <td>
+                        <span className="filename">{formatExpenseLoggedBy(expense)}</span>
+                      </td>
+                      <td>{expense.payment_reference || "-"}</td>
+                      <td>{expense.transaction_date || "Needs review"}</td>
+                      <td>{expense.total_amount ? `$${expense.total_amount}` : "Needs review"}</td>
+                      <td>
+                        {expense.description || expense.category || "Uncategorized"}
+                        {expense.fund && <span className="filename">{expense.fund}</span>}
+                      </td>
+                      <td>
+                        <span className={`status status-${expense.extraction_status}`}>
+                          {expense.extraction_status.replaceAll("_", " ")}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`status status-${expense.reconciliation_status}`}>
+                          {expense.reconciliation_status.replaceAll("_", " ")}
+                        </span>
+                        {expense.reconciliation_candidate ? (
+                          <span className="filename">
+                            Possible match: {expense.reconciliation_candidate_notes || "Review manually"}
+                          </span>
+                        ) : null}
+                        {expense.last_manual_edit_reason ? (
+                          <span className="filename">Last edit: {expense.last_manual_edit_reason}</span>
+                        ) : null}
+                        {editingId === expense.id ? (
+                          <div className="form-stack">
+                            <input
+                              placeholder="Vendor"
+                              value={editValues.payee || ""}
+                              onChange={(event) =>
+                                setEditValues((prev) => ({ ...prev, payee: event.target.value }))
+                              }
+                            />
+                            <input
+                              placeholder="Amount"
+                              value={editValues.total_amount || ""}
+                              onChange={(event) =>
+                                setEditValues((prev) => ({ ...prev, total_amount: event.target.value }))
+                              }
+                            />
+                            <input
+                              type="date"
+                              value={editValues.transaction_date || ""}
+                              onChange={(event) =>
+                                setEditValues((prev) => ({ ...prev, transaction_date: event.target.value }))
+                              }
+                            />
+                            <input
+                              placeholder="Category"
+                              value={editValues.category || ""}
+                              onChange={(event) =>
+                                setEditValues((prev) => ({ ...prev, category: event.target.value }))
+                              }
+                            />
+                            <input
+                              placeholder="Bank account"
+                              value={editValues.bank_account_name || ""}
+                              onChange={(event) =>
+                                setEditValues((prev) => ({ ...prev, bank_account_name: event.target.value }))
+                              }
+                            />
+                            <textarea
+                              rows={2}
+                              placeholder="Reason for edit (required)"
+                              value={editReason}
+                              onChange={(event) => setEditReason(event.target.value)}
+                            />
+                            <div className="button-row">
+                              <button type="button" onClick={() => void saveEdit(expense.id)}>
+                                Save edit
+                              </button>
+                              <button type="button" className="secondary-action" onClick={() => setEditingId(null)}>
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button type="button" className="secondary-action" onClick={() => beginEdit(expense)}>
+                            Edit
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="empty-state">No expenses match these filters. Try clearing filters or broadening the date range.</p>
+          )}
+          {filteredExpenses.length > LEDGER_PAGE_SIZE ? (
+            <div className="ledger-pagination">
+              <button
+                type="button"
+                className="secondary-action"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                Previous
+              </button>
+              <span className="muted">
+                Page {page} of {pageCount}
+              </span>
+              <button
+                type="button"
+                className="secondary-action"
+                disabled={page >= pageCount}
+                onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+              >
+                Next
+              </button>
+            </div>
+          ) : null}
+        </>
       ) : (
         <p className="empty-state">No expenses logged yet. Upload a receipt to start.</p>
       )}
