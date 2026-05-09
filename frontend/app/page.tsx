@@ -1,255 +1,400 @@
 "use client";
 
-import { ShieldCheck, ReceiptText, LineChart, Building2, CheckCircle2 } from "lucide-react";
+import {
+  ArrowRight,
+  BarChart3,
+  BookOpenCheck,
+  Check,
+  ClipboardList,
+  FolderSearch,
+  Link2,
+  Search,
+  ShieldCheck,
+  WalletCards,
+} from "lucide-react";
 import Link from "next/link";
 
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 
-const features = [
+const ledgerRows = [
+  { name: "NYS 2% Deposit", type: "Income", amount: "+$8,250.00", status: "Cleared" },
+  { name: "Member Dues", type: "Income", amount: "+$400.00", status: "Matched" },
+  { name: "Uniforms", type: "Expense", amount: "-$620.00", status: "Needs Review" },
+  { name: "Monthly Feed", type: "Expense", amount: "-$280.00", status: "Cleared" },
+  { name: "FASNY Dues", type: "Expense", amount: "-$30.00", status: "Matched" },
+  { name: "Office Supplies", type: "Expense", amount: "-$142.30", status: "Cleared" },
+];
+const heroLedgerRows = ledgerRows.slice(0, 5);
+
+const featureCards = [
   {
-    title: "Receipt Capture + OCR",
-    description: "Automatically extract vendors, amounts, dates, and memo details from every receipt.",
-    icon: ReceiptText,
+    title: "All Accounts in One Place",
+    text: "Bank accounts, credit cards, and funds together on one screen.",
+    icon: WalletCards,
   },
   {
-    title: "Statement Matching",
-    description: "Reconcile expenses against bank statements quickly with intelligent matching hints.",
+    title: "Compliance Made Simple",
+    text: "Generate NYS 2% and IRS 990 filings easily.",
+    icon: BookOpenCheck,
+  },
+  {
+    title: "Audit Ready",
+    text: "Receipts, reports, and records are always easy to find.",
     icon: ShieldCheck,
   },
   {
-    title: "Grant-Ready Reporting",
-    description: "Generate audit-friendly spend reports by fund, quarter, account, or category.",
-    icon: LineChart,
+    title: "Automatic Logs",
+    text: "Bank activity and uploaded receipts are saved as you go.",
+    icon: ClipboardList,
+  },
+  {
+    title: "Transparency and Analysis",
+    text: "See exactly where your money is going.",
+    icon: BarChart3,
+  },
+  {
+    title: "Reports in One Click",
+    text: "Pull spending, vendor, category, and yearly reports instantly.",
+    icon: FolderSearch,
+  },
+  {
+    title: "Automatic Reconciliation",
+    text: "Match bank transactions, receipts, and statements in minutes.",
+    icon: Link2,
+  },
+  {
+    title: "Search Spending History",
+    text: "Find past payments, donations, vendors, and receipts fast.",
+    icon: Search,
   },
 ];
 
+function statusPill(status: string) {
+  if (status === "Cleared") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  if (status === "Matched") return "bg-sky-50 text-sky-700 border-sky-200";
+  return "bg-rose-50 text-rose-700 border-rose-200";
+}
+
+const heroChecklist = ["Easier", "Cheaper", "Smarter", "Safer"];
+
 export default function HomePage() {
   return (
-    <main className="min-h-screen bg-white text-zinc-900">
-      <div className="mx-auto max-w-7xl px-6 lg:px-10">
-        <header className="flex items-center justify-between border-b border-zinc-200 py-6">
-          <Link href="/" className="flex items-center gap-2 text-lg font-semibold tracking-tight">
-            <span className="rounded-md bg-zinc-900 px-2 py-1 text-xs font-bold text-white">RFD</span>
-            Firebook
-          </Link>
-          <nav className="hidden items-center gap-8 text-sm text-zinc-600 md:flex">
-            <a href="#features" className="hover:text-zinc-900">
+    <main className="min-h-screen bg-zinc-50 text-zinc-900">
+      <header className="sticky top-0 z-20 border-b border-zinc-200/80 bg-zinc-50/95 backdrop-blur">
+        <div className="mx-auto max-w-7xl px-5 py-4 lg:px-10">
+          <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-700/90 bg-gradient-to-r from-[#172033] via-[#1e293b] to-[#172033] px-5 py-4 shadow-lg shadow-slate-900/20 md:px-6">
+            <Link href="/" className="shrink-0 flex items-center gap-2 text-lg font-semibold tracking-tight text-white">
+              <span className="rounded-md bg-slate-700/90 px-2 py-1 text-xs font-bold text-white">RFD</span>
+              Firebook
+            </Link>
+            <nav className="hidden flex-1 items-center justify-center gap-4 text-sm font-semibold md:flex md:gap-5">
+              <a href="#features" className="!text-white hover:!text-white">
+                Features
+              </a>
+              <a href="#ocr" className="!text-white hover:!text-white">
+                OCR
+              </a>
+              <a href="#reconciliation" className="!text-white hover:!text-white">
+                Reconciliation
+              </a>
+              <a href="#reporting" className="!text-white hover:!text-white">
+                Reporting
+              </a>
+              <a href="#demo" className="!text-white hover:!text-white">
+                Request Demo
+              </a>
+            </nav>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                asChild
+                variant="outline"
+                size="sm"
+                className="border-slate-500 bg-slate-800/60 text-white hover:bg-slate-700/80"
+              >
+                <Link href="/login">Sign In</Link>
+              </Button>
+            </div>
+          </div>
+          <nav className="mt-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:hidden">
+            <a href="#features" className="!text-white hover:!text-white">
               Features
             </a>
-            <a href="#ocr" className="hover:text-zinc-900">
+            <a href="#ocr" className="!text-white hover:!text-white">
               OCR
             </a>
-            <a href="#reconciliation" className="hover:text-zinc-900">
+            <a href="#reconciliation" className="!text-white hover:!text-white">
               Reconciliation
             </a>
-            <a href="#reporting" className="hover:text-zinc-900">
+            <a href="#reporting" className="!text-white hover:!text-white">
               Reporting
             </a>
+            <a href="#demo" className="!text-white hover:!text-white">
+              Request Demo
+            </a>
           </nav>
-          <Button asChild className="bg-zinc-900 text-white hover:bg-zinc-800">
-            <Link href="/login">Sign In</Link>
-          </Button>
-        </header>
+        </div>
+      </header>
 
-        <section className="grid gap-12 py-20 lg:grid-cols-2 lg:items-center">
-          <div className="space-y-7">
-            <p className="inline-flex rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-medium uppercase tracking-wide text-orange-800">
+      <div className="mx-auto max-w-7xl px-5 lg:px-10">
+        <section className="grid items-center gap-6 border-b border-zinc-200 py-6 lg:grid-cols-[minmax(0,0.47fr)_minmax(0,0.53fr)] lg:gap-8 lg:py-8">
+          <div className="order-1 space-y-4 lg:min-w-0 lg:pr-2">
+            <p className="inline-flex rounded-full border border-[#991B1B]/40 bg-rose-100/90 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#5c0a0f]">
               Built for fire departments
             </p>
-            <h1 className="text-4xl font-semibold tracking-tight text-zinc-900 sm:text-5xl">
-              Bookkeeping that makes every dollar accountable.
+            <h1 className="text-4xl font-bold leading-[1.15] tracking-tight text-zinc-900 sm:text-5xl lg:text-[2.75rem] xl:text-6xl">
+              Stop chasing fires in your finances,{" "}
+              <span className="text-[#8B0E16]">let us keep everything contained.</span>
             </h1>
-            <p className="max-w-xl text-lg leading-relaxed text-zinc-600">
-              Firebook centralizes receipts, statements, reconciliations, and reporting in one secure workflow
-              so chiefs, treasurers, and auditors can trust the numbers.
+            <p className="text-2xl font-semibold leading-snug text-zinc-900 sm:text-[1.65rem]">
+              Stop spending thousands on accountants.
             </p>
-            <div className="flex flex-wrap gap-3">
-              <Button asChild className="bg-zinc-900 text-white hover:bg-zinc-800">
-                <a href="#demo">Request Demo</a>
-              </Button>
-              <Button asChild variant="outline" className="border-zinc-300 text-zinc-900">
-                <Link href="/login">Go to Sign In</Link>
-              </Button>
-            </div>
-          </div>
-
-          <Card className="rounded-2xl border-zinc-200 bg-zinc-50 shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-lg">Live Dashboard Preview</CardTitle>
-              <CardDescription>Department health at a glance</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-xl bg-white p-4">
-                  <p className="text-xs text-zinc-500">This Month</p>
-                  <p className="mt-1 text-xl font-semibold">$84,210</p>
-                </div>
-                <div className="rounded-xl bg-white p-4">
-                  <p className="text-xs text-zinc-500">Unmatched</p>
-                  <p className="mt-1 text-xl font-semibold text-orange-700">12</p>
-                </div>
-              </div>
-              <div className="rounded-xl bg-white p-4">
-                <p className="mb-3 text-xs text-zinc-500">Top categories</p>
-                <div className="space-y-2">
-                  {[
-                    ["Apparatus Maintenance", "39%"],
-                    ["PPE + Uniforms", "27%"],
-                    ["Training + Travel", "16%"],
-                  ].map(([label, value]) => (
-                    <div key={label} className="flex items-center justify-between text-sm">
-                      <span>{label}</span>
-                      <span className="font-medium">{value}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </section>
-
-        <section id="features" className="grid gap-5 py-8 md:grid-cols-3">
-          {features.map((feature) => (
-            <Card key={feature.title} className="rounded-2xl border-zinc-200 shadow-sm">
-              <CardHeader>
-                <feature.icon className="mb-3 h-5 w-5 text-orange-700" />
-                <CardTitle className="text-xl">{feature.title}</CardTitle>
-                <CardDescription>{feature.description}</CardDescription>
-              </CardHeader>
-            </Card>
-          ))}
-        </section>
-
-        <section id="ocr" className="grid gap-8 py-16 lg:grid-cols-2 lg:items-center">
-          <div className="space-y-4">
-            <h2 className="text-3xl font-semibold tracking-tight">OCR that actually understands receipts</h2>
-            <p className="text-zinc-600">
-              Upload or photograph receipts and Firebook extracts line items, taxes, dates, and payment
-              references. Team members review exceptions instead of keying in everything manually.
-            </p>
-            <ul className="space-y-2 text-sm text-zinc-700">
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="mt-0.5 h-4 w-4 text-orange-700" />
-                Auto-tagged categories and vendor normalization
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="mt-0.5 h-4 w-4 text-orange-700" />
-                Confidence scores for quick review queues
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="mt-0.5 h-4 w-4 text-orange-700" />
-                Full source image attachment for audit trails
-              </li>
+            <ul className="space-y-3 pt-1">
+              {heroChecklist.map((item) => (
+                <li key={item} className="flex items-center gap-3 text-lg font-medium text-zinc-800">
+                  <span
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 border-[#991B1B] text-[#8B0E16]"
+                    aria-hidden
+                  >
+                    <Check className="h-4 w-4 stroke-[3]" />
+                  </span>
+                  {item}
+                </li>
+              ))}
             </ul>
-          </div>
-          <Card className="rounded-2xl border-zinc-200 bg-zinc-50">
-            <CardContent className="space-y-3 p-6 text-sm">
-              <div className="flex items-center justify-between rounded-lg bg-white p-3">
-                <span>Vendor</span>
-                <strong>Metro Fire Supply</strong>
-              </div>
-              <div className="flex items-center justify-between rounded-lg bg-white p-3">
-                <span>Amount</span>
-                <strong>$1,249.33</strong>
-              </div>
-              <div className="flex items-center justify-between rounded-lg bg-white p-3">
-                <span>Transaction Date</span>
-                <strong>2026-05-02</strong>
-              </div>
-              <div className="flex items-center justify-between rounded-lg bg-white p-3">
-                <span>Confidence</span>
-                <strong className="text-orange-700">98%</strong>
-              </div>
-            </CardContent>
-          </Card>
-        </section>
-
-        <section id="reconciliation" className="grid gap-8 py-16 lg:grid-cols-2 lg:items-center">
-          <Card className="order-2 rounded-2xl border-zinc-200 bg-zinc-900 text-zinc-100 lg:order-1">
-            <CardContent className="space-y-4 p-6">
-              <p className="text-sm text-zinc-300">Bank Reconciliation Workflow</p>
-              <div className="space-y-3 text-sm">
-                <div className="rounded-lg bg-zinc-800 p-3">1. Import statement from your bank</div>
-                <div className="rounded-lg bg-zinc-800 p-3">2. Match statement lines to captured expenses</div>
-                <div className="rounded-lg bg-zinc-800 p-3">3. Resolve exceptions with flagged suggestions</div>
-                <div className="rounded-lg bg-zinc-800 p-3">4. Lock and export a reconciled period</div>
-              </div>
-            </CardContent>
-          </Card>
-          <div className="order-1 space-y-4 lg:order-2">
-            <h2 className="text-3xl font-semibold tracking-tight">Reconcile in minutes, not days</h2>
-            <p className="text-zinc-600">
-              Firebook compares statement lines with OCR expenses and known vendors so mismatches stand out
-              immediately. Close your month faster while maintaining transparent controls.
-            </p>
-          </div>
-        </section>
-
-        <section id="reporting" className="grid gap-8 py-16 lg:grid-cols-2 lg:items-center">
-          <div className="space-y-4">
-            <h2 className="text-3xl font-semibold tracking-tight">Reporting made for boards and auditors</h2>
-            <p className="text-zinc-600">
-              Build quarterly and annual reports with drill-down detail by account, fund, and category. Every
-              number traces back to source documents and approval history.
-            </p>
-            <div className="flex items-center gap-2 text-sm font-medium text-zinc-700">
-              <Building2 className="h-4 w-4 text-orange-700" />
-              Trusted workflow for volunteer and municipal departments
+            <p className="text-base text-zinc-600">Built by a firefighter, accountant, and lawyer.</p>
+            <div className="flex flex-wrap gap-3 pt-1">
+              <Button
+                asChild
+                size="lg"
+                className="rounded-xl bg-[#8B0E16] px-8 py-6 text-base font-bold text-white shadow-md shadow-slate-900/15 hover:bg-[#991B1B]"
+              >
+                <a
+                  href="#demo"
+                  className="inline-flex items-center justify-center !font-bold !text-white hover:!text-white"
+                >
+                  Request Demo
+                  <ArrowRight className="ml-2 h-5 w-5 !text-white" aria-hidden />
+                </a>
+              </Button>
             </div>
           </div>
-          <Card className="rounded-2xl border-zinc-200">
-            <CardContent className="p-6">
-              <div className="space-y-3 rounded-xl bg-zinc-50 p-4 text-sm">
-                <div className="flex justify-between border-b border-zinc-200 pb-2">
-                  <span>Total Expenses (Q2)</span>
-                  <strong>$241,992.12</strong>
+
+          <Card className="order-2 w-full max-w-xl justify-self-end rounded-xl border border-zinc-200/90 bg-white shadow-md shadow-zinc-900/8 lg:max-w-none">
+            <CardHeader className="space-y-2 border-b border-zinc-200 p-3 pb-2.5 sm:p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <CardTitle className="text-base text-zinc-900">Department Ledger</CardTitle>
+                  <CardDescription className="text-zinc-600">Live Dashboard Preview</CardDescription>
                 </div>
-                <div className="flex justify-between border-b border-zinc-200 pb-2">
-                  <span>Reconciled Rate</span>
-                  <strong>98.7%</strong>
+              </div>
+              <div className="flex flex-wrap gap-1.5 text-xs">
+                <span className="rounded-md border border-zinc-300 bg-zinc-900 px-2 py-1 font-medium text-white">
+                  All
+                </span>
+                <span className="rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 font-medium text-zinc-700">
+                  Needs Review
+                </span>
+                <span className="rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 font-medium text-zinc-700">
+                  Cleared
+                </span>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-2.5 p-3 sm:p-4">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-2">
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">Monthly Expenses</p>
+                  <p className="text-sm font-semibold text-[#8B0E16]">$2,290</p>
                 </div>
-                <div className="flex justify-between">
-                  <span>Open Exceptions</span>
-                  <strong className="text-orange-700">9 items</strong>
+                <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-2">
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">Income</p>
+                  <p className="text-sm font-semibold text-emerald-700">$9,220</p>
                 </div>
+                <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-2">
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">Unmatched</p>
+                  <p className="text-sm font-semibold text-zinc-900">3</p>
+                </div>
+                <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-2">
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">Reconciled Rate</p>
+                  <p className="text-sm font-semibold text-[#8B0E16]">91%</p>
+                </div>
+              </div>
+
+              <div className="rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-xs text-zinc-600">
+                Search: Museum donation March 2025
+              </div>
+
+              <div className="overflow-hidden rounded-md border border-zinc-200">
+                <table className="min-w-full text-xs sm:text-sm">
+                  <thead className="bg-zinc-100 text-left text-zinc-700">
+                    <tr>
+                      <th className="px-2 py-1.5 font-semibold sm:px-3 sm:py-2">Transaction</th>
+                      <th className="px-2 py-1.5 font-semibold sm:px-3 sm:py-2">Type</th>
+                      <th className="px-2 py-1.5 font-semibold sm:px-3 sm:py-2">Amount</th>
+                      <th className="px-2 py-1.5 font-semibold sm:px-3 sm:py-2">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white text-zinc-800">
+                    {heroLedgerRows.map((row) => (
+                      <tr key={`${row.name}-${row.amount}`} className="border-t border-zinc-100">
+                        <td className="px-2 py-1.5 sm:px-3">{row.name}</td>
+                        <td className="px-2 py-1.5 text-zinc-600 sm:px-3">{row.type}</td>
+                        <td
+                          className={`px-2 py-1.5 font-semibold sm:px-3 ${row.type === "Income" ? "text-emerald-700" : "text-[#8B0E16]"}`}
+                        >
+                          {row.amount}
+                        </td>
+                        <td className="px-2 py-1.5 sm:px-3">
+                          <span className={`inline-flex rounded-full border px-1.5 py-0.5 text-[10px] ${statusPill(row.status)}`}>
+                            {row.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </CardContent>
           </Card>
         </section>
 
-        <section id="demo" className="py-16">
-          <Card className="rounded-2xl border-zinc-200 bg-zinc-50">
-            <CardHeader>
-              <CardTitle className="text-2xl">Request a Demo</CardTitle>
-              <CardDescription>See Firebook tailored to your department workflow.</CardDescription>
+        <section id="features" className="py-8">
+          <div className="rounded-3xl border border-slate-700 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6 shadow-lg shadow-slate-900/20 md:p-8">
+            <div className="mb-5 space-y-2">
+              <h2 className="text-3xl font-semibold tracking-tight text-white">Replace</h2>
+              <p className="max-w-3xl text-base text-slate-200">
+                Manual logs, scattered receipts, and your accountant.
+              </p>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              {featureCards.map((feature) => (
+                <div
+                  key={feature.title}
+                  className="rounded-2xl border border-slate-600 bg-slate-800/80 p-4 shadow-sm shadow-slate-950/20"
+                >
+                  <div className="flex items-start gap-2">
+                    <feature.icon className="mt-0.5 h-5 w-5 shrink-0 text-rose-700" aria-hidden />
+                    <h3 className="text-base font-semibold leading-snug text-white">{feature.title}</h3>
+                  </div>
+                  <p className="mt-2 text-sm leading-relaxed text-slate-200">{feature.text}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section id="ocr" className="py-8">
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6 md:p-8">
+            <h2 className="text-3xl font-semibold tracking-tight">Organize receipts, track expenses, and generate reports automatically</h2>
+            <p className="mt-3 max-w-3xl text-base leading-relaxed text-zinc-700">
+              Capture receipts as you go. Firebook keeps each receipt with the matching transaction so records are easy
+              to review. No more searching through papers and emails to find last years donation amounts.
+            </p>
+          </div>
+        </section>
+
+        <section id="reconciliation" className="py-8">
+          <div className="grid gap-6 rounded-3xl border border-slate-700 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6 shadow-lg shadow-slate-900/20 md:p-8 lg:grid-cols-[1fr_0.9fr]">
+            <div className="space-y-3">
+              <h2 className="text-3xl font-semibold tracking-tight text-white">Reconcile in minutes, not days</h2>
+              <p className="text-base leading-relaxed text-slate-200">
+                Connect your bank through Plaid or upload a statement. Firebook matches bank activity with receipts
+                and flags anything that needs review. No more lapses in funds or missing receipts.
+              </p>
+            </div>
+            <Card className="rounded-2xl border-slate-600 bg-slate-800/85 shadow-md shadow-slate-950/25">
+              <CardContent className="space-y-3 p-5 text-sm">
+                <div className="flex items-center justify-between border-b border-slate-600 pb-2">
+                  <span className="text-slate-300">Total Expenses (Q2)</span>
+                  <strong className="text-white">$41,992.12</strong>
+                </div>
+                <div className="flex items-center justify-between border-b border-slate-600 pb-2">
+                  <span className="text-slate-300">Reconciled Rate</span>
+                  <strong className="text-sky-300">98.7%</strong>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-300">Needs Review</span>
+                  <strong className="text-rose-300">9 items</strong>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </section>
+
+        <section id="reporting" className="py-8">
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6 md:p-8">
+            <h2 className="text-3xl font-semibold tracking-tight">Reporting you can trust</h2>
+            <p className="mt-3 max-w-3xl text-base leading-relaxed text-zinc-700">
+              View spending by category, remaining funds, yearly comparisons, recurring costs, and track
+              your funds. Pull reports, documents, and reciepts that are state audit ready in one click.
+            </p>
+          </div>
+        </section>
+
+        <section id="demo" className="py-8">
+          <Card className="rounded-3xl border-zinc-300 bg-slate-800 text-slate-100 shadow-md">
+            <CardHeader className="border-b border-slate-700">
+              <CardTitle className="text-3xl text-white">Request a Demo</CardTitle>
+              <CardDescription className="text-slate-200">
+                Stop paying for what your already do.
+              </CardDescription>
             </CardHeader>
-            <CardContent>
-              <form className="grid gap-4 md:grid-cols-2">
-                <Input placeholder="Full Name" aria-label="Full Name" />
-                <Input placeholder="Work Email" type="email" aria-label="Work Email" />
-                <Input placeholder="Department Name" aria-label="Department Name" />
-                <Input placeholder="Department Size" aria-label="Department Size" />
-                <div className="md:col-span-2">
-                  <Button className="w-full bg-zinc-900 text-white hover:bg-zinc-800 md:w-auto">
+            <CardContent className="grid gap-6 p-6 md:grid-cols-[1.1fr_0.9fr] md:p-8">
+              <form className="grid gap-3 sm:grid-cols-2">
+                <Input
+                  placeholder="Full Name"
+                  aria-label="Full Name"
+                  className="border-slate-500 bg-slate-700 text-white placeholder:text-slate-300"
+                />
+                <Input
+                  placeholder="Department Name"
+                  aria-label="Department Name"
+                  className="border-slate-500 bg-slate-700 text-white placeholder:text-slate-300"
+                />
+                <Input
+                  placeholder="Phone Number"
+                  aria-label="Phone Number"
+                  className="border-slate-500 bg-slate-700 text-white placeholder:text-slate-300"
+                />
+                <Input
+                  placeholder="Email"
+                  type="email"
+                  aria-label="Email"
+                  className="border-slate-500 bg-slate-700 text-white placeholder:text-slate-300"
+                />
+                <div className="sm:col-span-2">
+                  <Button
+                    className="w-full bg-rose-700 text-white shadow-sm ring-2 ring-rose-200 hover:bg-rose-600 sm:w-auto"
+                  >
                     Request Demo
                   </Button>
                 </div>
               </form>
+              <div className="space-y-3 text-sm text-slate-100">
+                <div className="rounded-lg border border-slate-600 bg-slate-700/70 p-3">
+                  No more last minute fire drills. Your data is safely stored and protected.
+                </div>
+                <div className="rounded-lg border border-slate-600 bg-slate-700/70 p-3">
+                  No accounting knowledge required.
+                </div>
+                <div className="rounded-lg border border-slate-600 bg-slate-700/70 p-3">
+                  Let us help you so you can help others.
+                </div>
+              </div>
             </CardContent>
           </Card>
         </section>
       </div>
 
-      <footer className="border-t border-zinc-200 py-10">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-6 text-sm text-zinc-500 md:flex-row md:items-center md:justify-between lg:px-10">
+      <footer className="border-t border-zinc-200 bg-white py-8">
+        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-6 text-sm text-zinc-600 md:flex-row md:items-center md:justify-between lg:px-10">
           <p>© {new Date().getFullYear()} Firebook for Fire Departments</p>
           <div className="flex items-center gap-5">
-            <Link href="/login" className="hover:text-zinc-800">
+            <Link href="/login" className="hover:text-zinc-900">
               Sign In
             </Link>
-            <a href="#demo" className="hover:text-zinc-800">
+            <a href="#demo" className="hover:text-zinc-900">
               Request Demo
             </a>
           </div>
