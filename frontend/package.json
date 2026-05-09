@@ -9,13 +9,21 @@
     "lint": "next typegen && tsc --noEmit"
   },
   "dependencies": {
+    "@radix-ui/react-slot": "^1.2.4",
     "@supabase/supabase-js": "^2.105.3",
+    "@tailwindcss/postcss": "^4.2.4",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.14.0",
     "next": "^16.2.5",
     "openai": "^6.36.0",
     "plaid": "^42.2.0",
+    "postcss": "^8.5.14",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
-    "react-plaid-link": "^4.1.1"
+    "react-plaid-link": "^4.1.1",
+    "tailwind-merge": "^3.5.0",
+    "tailwindcss": "^4.2.4"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
