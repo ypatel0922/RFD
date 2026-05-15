@@ -2426,13 +2426,67 @@ button.fb-receipt-opt-btn:hover {
   display: none;
 }
 
-@media (max-width: 900px) {
+@media (min-width: 769px) {
+  .transactions-page {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "txn-header txn-header"
+      "txn-metrics txn-metrics"
+      "txn-search txn-filters"
+      "txn-quick txn-quick"
+      "txn-notice txn-notice"
+      "txn-meta txn-meta"
+      "txn-body txn-body";
+  }
+
+  .transactions-page-header {
+    grid-area: txn-header;
+  }
+
   .transactions-metrics {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-area: txn-metrics;
   }
 
   .transactions-toolbar {
-    grid-template-columns: 1fr;
+    display: contents;
+    margin-bottom: 0;
+  }
+
+  .transactions-search {
+    grid-area: txn-search;
+    margin-bottom: 14px;
+  }
+
+  .transactions-meta-row {
+    display: contents;
+  }
+
+  .transactions-meta {
+    grid-area: txn-meta;
+  }
+
+  .transactions-toolbar-actions {
+    grid-area: txn-filters;
+  }
+
+  .transactions-quick-filters {
+    grid-area: txn-quick;
+  }
+
+  .transactions-page > .notice {
+    grid-area: txn-notice;
+  }
+
+  .transactions-table-wrap,
+  .transactions-page > .empty-state {
+    grid-area: txn-body;
+  }
+}
+
+@media (max-width: 900px) {
+  .transactions-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .transactions-filters-panel {
@@ -2456,13 +2510,174 @@ button.fb-receipt-opt-btn:hover {
     max-width: 100vw;
   }
 
+  .transactions-page {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "txn-header txn-header"
+      "txn-metrics txn-metrics"
+      "txn-quick txn-quick"
+      "txn-notice txn-notice"
+      "txn-meta txn-filters"
+      "txn-body txn-body";
+    column-gap: 10px;
+  }
+
+  .transactions-page-header {
+    grid-area: txn-header;
+  }
+
   .transactions-metrics {
-    grid-template-columns: 1fr 1fr;
+    grid-area: txn-metrics;
+  }
+
+  .transactions-toolbar {
+    display: none;
+  }
+
+  .transactions-quick-filters {
+    grid-area: txn-quick;
+    margin-bottom: 10px;
+  }
+
+  .transactions-page > .notice {
+    grid-area: txn-notice;
+    margin-bottom: 8px;
+  }
+
+  .transactions-meta-row {
+    display: contents;
+  }
+
+  .transactions-meta {
+    grid-area: txn-meta;
+    margin-bottom: 10px;
+    align-self: center;
+    min-width: 0;
+    font-size: 0.82rem;
+  }
+
+  .transactions-toolbar-actions {
+    grid-area: txn-filters;
+    margin-bottom: 10px;
+    align-self: center;
+    justify-self: end;
+  }
+
+  .transactions-filters-btn {
+    min-height: 36px;
+    padding: 8px 14px;
+    font-size: 0.82rem;
+    white-space: nowrap;
+  }
+
+  .transactions-filters-panel {
+    top: calc(100% + 6px);
+    right: 0;
+    left: auto;
+    width: min(100vw - 24px, 400px);
+  }
+
+  .transactions-page > .empty-state,
+  .transactions-mobile-list {
+    grid-area: txn-body;
+  }
+
+  .transactions-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin: 12px 0 14px;
+  }
+
+  .transactions-metric-card {
+    padding: 10px 12px;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgb(23 32 51 / 5%);
+  }
+
+  .transactions-metric-card strong {
+    font-size: 1.05rem;
+    line-height: 1.15;
+  }
+
+  .transactions-metric-card span {
+    margin-top: 3px;
+    font-size: 0.68rem;
+    line-height: 1.2;
+  }
+
+  .transactions-mobile-list {
+    gap: 6px;
+  }
+
+  .transactions-mobile-card {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "top actions"
+      "vendor actions"
+      "meta meta";
+    gap: 2px 8px;
+    padding: 8px 10px;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgb(23 32 51 / 5%);
+  }
+
+  .transactions-mobile-card-top {
+    grid-area: top;
+    margin-bottom: 0;
+    font-size: 0.78rem;
+    gap: 8px;
+  }
+
+  .transactions-mobile-card > strong {
+    grid-area: vendor;
+    font-size: 0.88rem;
+    line-height: 1.2;
+  }
+
+  .transactions-mobile-card-meta {
+    grid-area: meta;
+    margin-top: 0;
+    gap: 4px;
+  }
+
+  .transactions-mobile-card-actions {
+    grid-area: actions;
+    margin-top: 0;
+    align-self: start;
+  }
+
+  .transactions-mobile-card .transactions-status-pill,
+  .transactions-mobile-card .transactions-cat-pill {
+    padding: 2px 7px;
+    font-size: 0.68rem;
+  }
+
+  .transactions-mobile-card .transactions-menu-trigger {
+    width: 32px;
+    height: 32px;
+    font-size: 1rem;
   }
 }
 
 @media (max-width: 480px) {
   .transactions-metrics {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    margin: 10px 0 12px;
+  }
+
+  .transactions-metric-card {
+    padding: 8px 10px;
+    border-radius: 10px;
+  }
+
+  .transactions-metric-card strong {
+    font-size: 0.95rem;
+  }
+
+  .transactions-metric-card span {
+    font-size: 0.62rem;
   }
 }
