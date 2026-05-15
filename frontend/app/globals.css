@@ -1167,6 +1167,62 @@ button.fb-sidebar-link-active {
   background: rgb(255 255 255 / 10%);
 }
 
+.fb-sidebar-settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fb-sidebar-subnav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 4px 12px;
+  padding-left: 10px;
+  border-left: 1px solid rgb(255 255 255 / 14%);
+}
+
+.fb-sidebar-sublink {
+  width: 100%;
+  text-align: left;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: rgb(226 232 240 / 78%);
+  padding: 7px 10px;
+  min-height: 34px;
+  font-weight: 650;
+  font-size: 0.8rem;
+  line-height: 1.25;
+  cursor: pointer;
+}
+
+button.fb-sidebar-sublink {
+  background: transparent;
+  color: rgb(226 232 240 / 78%);
+}
+
+.fb-sidebar-sublink:hover {
+  background: rgb(255 255 255 / 6%);
+  color: rgb(248 250 252 / 95%);
+}
+
+.fb-sidebar-sublink-active {
+  background: rgb(127 29 29 / 22%);
+  border-color: rgb(127 29 29 / 35%);
+  color: #ffffff;
+}
+
+button.fb-sidebar-sublink-active {
+  background: rgb(127 29 29 / 22%);
+  color: #ffffff;
+}
+
+.fb-sidebar-sublink-active:hover {
+  background: rgb(127 29 29 / 30%);
+  color: #ffffff;
+}
+
 .fb-sidebar-meta {
   margin-top: auto;
 }
@@ -1462,8 +1518,588 @@ button.fb-sidebar-link-active {
   color: #fff;
 }
 
-.fb-settings-placeholder {
-  opacity: 0.98;
+.fb-settings-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.fb-settings-header {
+  margin: 0;
+}
+
+.fb-settings-layout {
+  display: grid;
+  grid-template-columns: minmax(168px, 220px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  min-width: 0;
+}
+
+.fb-settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  box-shadow: var(--shadow-card);
+  position: sticky;
+  top: 12px;
+}
+
+.fb-settings-nav-item {
+  width: 100%;
+  text-align: left;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-soft);
+  padding: 10px 12px;
+  min-height: 42px;
+  font-weight: 700;
+  font-size: 0.88rem;
+}
+
+button.fb-settings-nav-item {
+  background: transparent;
+  color: var(--ink-soft);
+}
+
+button.fb-settings-nav-item:hover {
+  background: var(--surface-muted);
+  color: var(--ink);
+}
+
+.fb-settings-nav-item--active {
+  background: rgb(127 29 29 / 8%);
+  border-color: rgb(127 29 29 / 22%);
+  color: var(--primary-dark);
+}
+
+button.fb-settings-nav-item--active {
+  background: rgb(127 29 29 / 8%);
+  color: var(--primary-dark);
+}
+
+.fb-settings-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.fb-settings-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.fb-settings-summary-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  text-align: left;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  padding: 14px 16px;
+  box-shadow: var(--shadow-card);
+  cursor: pointer;
+  min-width: 0;
+}
+
+button.fb-settings-summary-card {
+  background: var(--card);
+  color: var(--ink);
+  font-weight: inherit;
+}
+
+button.fb-settings-summary-card:hover {
+  border-color: rgb(127 29 29 / 28%);
+  background: var(--card);
+  color: var(--ink);
+}
+
+.fb-settings-summary-label {
+  margin: 0;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.fb-settings-summary-value {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.fb-settings-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.fb-settings-overview-table {
+  margin-bottom: 0;
+}
+
+.fb-settings-overview-cards {
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fb-settings-preview-account-card {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px;
+  background: var(--surface-muted);
+}
+
+.fb-settings-preview-details {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 0;
+}
+
+.fb-settings-overview-table-grid {
+  min-width: 860px;
+}
+
+.fb-settings-account-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.fb-settings-account-primary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.fb-settings-account-primary strong,
+.fb-settings-account-primary .fb-settings-account-name {
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.fb-settings-account-subline {
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.fb-settings-pill-btn {
+  cursor: pointer;
+  font: inherit;
+  min-height: auto;
+  padding: 4px 10px;
+}
+
+button.fb-settings-pill-btn {
+  border-radius: 999px;
+}
+
+button.fb-settings-pill-btn:hover {
+  filter: brightness(0.97);
+}
+
+.fb-settings-overview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.fb-settings-overview-sync {
+  min-height: 36px;
+  padding: 6px 12px;
+  font-size: 0.82rem;
+}
+
+.fb-settings-overview-manage {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #ffffff;
+  color: var(--primary);
+  padding: 6px 12px;
+  min-height: 36px;
+  font-weight: 800;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+button.fb-settings-overview-manage {
+  background: #ffffff;
+  color: var(--primary);
+}
+
+button.fb-settings-overview-manage:hover {
+  background: var(--surface-muted);
+  color: var(--primary-dark);
+}
+
+.fb-settings-preview-account-card .fb-settings-overview-actions {
+  margin-top: 10px;
+  justify-content: stretch;
+}
+
+.fb-settings-preview-account-card .fb-settings-overview-actions .fb-secondary-btn,
+.fb-settings-preview-account-card .fb-settings-overview-manage {
+  flex: 1 1 auto;
+}
+
+.fb-settings-overview-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.fb-settings-overview-more {
+  margin: 0;
+  flex: 1 1 auto;
+}
+
+.fb-settings-overview-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.fb-settings-view-all {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.fb-settings-mgmt-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.fb-settings-mgmt-card {
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  padding: 16px 18px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fb-settings-mgmt-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.fb-settings-mgmt-desc {
+  margin: 0;
+  flex: 1;
+  font-size: 0.88rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.fb-settings-mgmt-cta {
+  align-self: flex-start;
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  padding: 0;
+  min-height: auto;
+  font-weight: 800;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+button.fb-settings-mgmt-cta {
+  background: transparent;
+  color: var(--primary);
+}
+
+button.fb-settings-mgmt-cta:hover {
+  background: transparent;
+  color: var(--primary-dark);
+  text-decoration: underline;
+}
+
+.fb-settings-panel-card {
+  padding: clamp(16px, 2.5vw, 22px);
+  min-width: 0;
+}
+
+.fb-settings-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.fb-settings-panel-title {
+  margin: 0 0 4px;
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.fb-settings-panel-subtitle {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.45;
+  max-width: 560px;
+}
+
+.fb-settings-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.fb-settings-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.fb-settings-pill--success {
+  background: rgb(6 118 71 / 12%);
+  color: var(--success);
+}
+
+.fb-settings-pill--neutral {
+  background: rgb(15 23 42 / 6%);
+  color: var(--muted);
+}
+
+.fb-settings-pill--warning {
+  background: rgb(181 71 8 / 12%);
+  color: var(--warning);
+}
+
+.fb-settings-pill--primary {
+  background: rgb(127 29 29 / 10%);
+  color: var(--primary-dark);
+}
+
+.fb-settings-inline-pill {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--primary);
+}
+
+.fb-settings-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+  margin-bottom: 16px;
+  max-width: 640px;
+}
+
+.fb-settings-toggle input {
+  width: auto;
+  margin-top: 3px;
+}
+
+.fb-settings-add-form {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  margin-bottom: 16px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+}
+
+.fb-settings-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.fb-settings-checkbox input {
+  width: auto;
+}
+
+.fb-settings-table {
+  min-width: 720px;
+}
+
+.fb-settings-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.fb-settings-accounts-cards {
+  display: none;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fb-settings-account-card {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px;
+  background: var(--surface-muted);
+}
+
+.fb-settings-account-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.fb-settings-account-name {
+  margin: 0 0 2px;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.fb-settings-account-meta {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.fb-settings-account-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.fb-settings-account-details {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0 0 12px;
+}
+
+.fb-settings-account-details dt {
+  margin: 0;
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.fb-settings-account-details dd {
+  margin: 2px 0 0;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.fb-settings-account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.fb-settings-account-actions .fb-primary-btn,
+.fb-settings-account-actions .fb-secondary-btn {
+  flex: 1 1 auto;
+  min-width: 120px;
+  max-width: none;
+}
+
+.fb-settings-dept-info {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+}
+
+.fb-settings-dept-name {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+
+.fb-settings-member-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fb-settings-member-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #fff;
+}
+
+.fb-settings-member-role {
+  font-weight: 800;
+}
+
+.fb-settings-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.fb-settings-tag {
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.fb-settings-checklist {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 8px;
+}
+
+.fb-settings-panel-head .fb-primary-btn {
+  flex-shrink: 0;
 }
 
 .fb-new-expense-hero {
@@ -1778,18 +2414,240 @@ button.fb-receipt-opt-btn:hover {
     box-shadow: 12px 0 40px rgb(15 23 42 / 35%);
     min-height: 100vh;
     z-index: 50;
+    overflow: hidden;
   }
 
   .fb-sidebar--open {
     transform: translateX(0);
   }
 
+  .fb-sidebar-inner {
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+
+  .fb-sidebar-nav {
+    flex: 0 0 auto;
+    min-height: auto;
+  }
+
+  .fb-sidebar-meta {
+    margin-top: 12px;
+    flex-shrink: 0;
+  }
+
+  .fb-sidebar-footer {
+    flex-shrink: 0;
+  }
+
   .fb-sidebar-mobile-head {
     display: flex;
+    flex-shrink: 0;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: #0f172a;
+    padding-bottom: 8px;
+    margin-bottom: 0;
   }
 
   .fb-metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .fb-settings-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .fb-settings-nav {
+    flex-direction: row;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    position: static;
+    flex-wrap: nowrap;
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .fb-settings-nav-item {
+    flex: 0 0 auto;
+    width: auto;
+    white-space: nowrap;
+    padding: 8px 12px;
+    min-height: 38px;
+  }
+
+  .fb-settings-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .fb-settings-overview {
+    gap: 12px;
+  }
+
+  .fb-settings-overview .fb-settings-summary-grid {
+    gap: 8px;
+  }
+
+  .fb-settings-overview .fb-settings-summary-card {
+    padding: 8px 10px;
+    border-radius: 12px;
+    gap: 2px;
+    box-shadow: 0 1px 2px rgb(15 23 42 / 5%);
+  }
+
+  .fb-settings-overview .fb-settings-summary-label {
+    font-size: 0.62rem;
+    letter-spacing: 0.06em;
+    line-height: 1.2;
+  }
+
+  .fb-settings-overview .fb-settings-summary-value {
+    font-size: 1.05rem;
+    line-height: 1.15;
+  }
+
+  .fb-settings-overview .fb-settings-summary-card .fb-settings-pill {
+    font-size: 0.62rem;
+    padding: 2px 7px;
+  }
+
+  .fb-settings-overview .fb-settings-overview-accounts.fb-settings-panel-card {
+    padding: 12px 14px;
+  }
+
+  .fb-settings-overview .fb-settings-overview-accounts .fb-settings-panel-head {
+    margin-bottom: 10px;
+    gap: 8px;
+  }
+
+  .fb-settings-overview .fb-settings-overview-accounts .fb-settings-panel-title {
+    font-size: 1rem;
+    margin-bottom: 2px;
+  }
+
+  .fb-settings-overview .fb-settings-overview-accounts .fb-settings-panel-subtitle {
+    font-size: 0.82rem;
+  }
+
+  .fb-settings-overview-table {
+    display: none;
+  }
+
+  .fb-settings-overview-cards {
+    display: flex;
+    gap: 6px;
+  }
+
+  .fb-settings-overview .fb-settings-preview-account-card {
+    padding: 10px 12px;
+    border-radius: 12px;
+  }
+
+  .fb-settings-overview .fb-settings-account-card-head {
+    margin-bottom: 0;
+    gap: 8px;
+  }
+
+  .fb-settings-overview .fb-settings-account-name {
+    font-size: 0.88rem;
+    margin: 0;
+  }
+
+  .fb-settings-overview .fb-settings-account-subline {
+    font-size: 0.74rem;
+  }
+
+  .fb-settings-overview .fb-settings-pill,
+  .fb-settings-overview .fb-settings-pill-btn {
+    font-size: 0.65rem;
+    padding: 2px 7px;
+  }
+
+  .fb-settings-overview .fb-settings-preview-details {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px 8px;
+    margin-bottom: 0;
+  }
+
+  .fb-settings-overview .fb-settings-preview-details dt {
+    font-size: 0.62rem;
+    letter-spacing: 0.05em;
+  }
+
+  .fb-settings-overview .fb-settings-preview-details dd {
+    margin-top: 1px;
+    font-size: 0.78rem;
+    font-weight: 700;
+  }
+
+  .fb-settings-overview .fb-settings-overview-actions {
+    margin-top: 6px;
+    gap: 6px;
+  }
+
+  .fb-settings-overview .fb-settings-overview-sync,
+  .fb-settings-overview .fb-settings-overview-manage,
+  .fb-settings-overview .fb-settings-overview-actions .fb-secondary-btn {
+    min-height: 32px;
+    padding: 4px 10px;
+    font-size: 0.76rem;
+  }
+
+  .fb-settings-overview .fb-settings-preview-account-card .fb-settings-overview-actions {
+    flex-direction: row;
+  }
+
+  .fb-settings-overview .fb-settings-preview-account-card .fb-settings-overview-actions .fb-secondary-btn,
+  .fb-settings-overview .fb-settings-preview-account-card .fb-settings-overview-actions .fb-settings-overview-manage {
+    width: auto;
+    max-width: none;
+    flex: 1 1 0;
+  }
+
+  .fb-settings-overview .fb-settings-overview-footer {
+    margin-top: 10px;
+    padding-top: 10px;
+    gap: 8px;
+  }
+
+  .fb-settings-overview .fb-settings-overview-footer .fb-secondary-btn {
+    min-height: 38px;
+    padding: 8px 12px;
+    font-size: 0.84rem;
+  }
+
+  .fb-settings-mgmt-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .fb-settings-overview-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .fb-settings-overview-footer .fb-secondary-btn {
+    width: 100%;
+    max-width: none;
+  }
+
+  .fb-settings-accounts-table {
+    display: none;
+  }
+
+  .fb-settings-accounts-cards {
+    display: flex;
+  }
+
+  .fb-settings-panel-head .fb-primary-btn {
+    width: 100%;
+    max-width: none;
+  }
+
+  .fb-settings-account-details {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -1802,5 +2660,51 @@ button.fb-receipt-opt-btn:hover {
 @media (max-width: 520px) {
   .fb-metric-grid {
     grid-template-columns: 1fr;
+  }
+
+  .fb-settings-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .fb-settings-overview .fb-settings-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .fb-settings-overview .fb-settings-summary-card {
+    padding: 7px 8px;
+  }
+
+  .fb-settings-overview .fb-settings-summary-value {
+    font-size: 0.98rem;
+  }
+
+  .fb-settings-preview-details {
+    grid-template-columns: 1fr;
+  }
+
+  .fb-settings-overview .fb-settings-preview-details {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .fb-settings-preview-account-card .fb-settings-overview-actions {
+    flex-direction: column;
+  }
+
+  .fb-settings-preview-account-card .fb-settings-overview-actions .fb-secondary-btn,
+  .fb-settings-preview-account-card .fb-settings-overview-manage {
+    width: 100%;
+    max-width: none;
+  }
+
+  .fb-settings-overview .fb-settings-preview-account-card .fb-settings-overview-actions {
+    flex-direction: row;
+  }
+
+  .fb-settings-overview .fb-settings-preview-account-card .fb-settings-overview-actions .fb-secondary-btn,
+  .fb-settings-overview .fb-settings-preview-account-card .fb-settings-overview-actions .fb-settings-overview-manage {
+    width: auto;
+    max-width: none;
+    flex: 1 1 0;
   }
 }
