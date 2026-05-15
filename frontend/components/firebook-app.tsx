@@ -29,6 +29,7 @@ import {
   ReviewForm,
 } from "../lib/types";
 import { buildReconciliationReport, reconciliationReportCsv } from "../lib/reports";
+import { ReconciliationInboxSection } from "./reconciliation-inbox";
 import { TransactionsLedger } from "./TransactionsLedger";
 
 type AuthMode = "login" | "signup";
@@ -923,14 +924,30 @@ export default function Home() {
             <ReconciliationInboxSection
               expenses={expenses}
               receiptUrls={receiptUrls}
+              bankAccounts={bankAccounts}
+              membership={membership}
+              user={session.user}
+              onExpensesChanged={() => loadExpenses(membership.department_id)}
+              showErrorMessage={showErrorMessage}
+              showSuccessMessage={showSuccessMessage}
               onOpenFullReport={() => {
                 setView("reports_documents");
                 setReportsDocumentsMode("reconciliation");
                 setMobileNavOpen(false);
               }}
+              onOpenUploadStatement={() => {
+                setView("reports_documents");
+                setReportsDocumentsMode("statements");
+                setMobileNavOpen(false);
+              }}
               onOpenTransactions={() => {
                 setView("transactions");
                 setLedgerBankAccountFilter("");
+                setMobileNavOpen(false);
+              }}
+              onOpenNewExpense={() => {
+                setExpenseEntryLaunch({ tab: "receipt" });
+                setView("new_expense");
                 setMobileNavOpen(false);
               }}
             />
@@ -1512,95 +1529,6 @@ function AccountsTabSection({
         </section>
       )}
       <BankAccountsSummary expenses={expenses} bankAccounts={bankAccounts} onBankAccountsChanged={onBankAccountsChanged} />
-    </div>
-  );
-}
-
-function ReconciliationInboxSection({
-  expenses,
-  receiptUrls,
-  onOpenFullReport,
-  onOpenTransactions,
-}: {
-  expenses: ExpenseRecord[];
-  receiptUrls: Record<string, string>;
-  onOpenFullReport: () => void;
-  onOpenTransactions: () => void;
-}) {
-  const actionItems = useMemo(() => expenses.filter((e) => expenseNeedsReconciliationAttention(e)), [expenses]);
-  return (
-    <div className="fb-tab-stack">
-      <section className="card fb-dash-welcome">
-        <p className="eyebrow">Action required</p>
-        <h1 className="fb-dash-title">Reconciliation</h1>
-        <p className="fb-dash-subtitle">
-          Items below still need review or a bank match. Matched expenses are hidden here but remain in{" "}
-          <strong>Transactions</strong> and in the full reconciliation report.
-        </p>
-      </section>
-      <section className="card">
-        <ReconciliationProgress expenses={expenses} />
-        <div className="fb-recon-actions">
-          <button type="button" className="fb-primary-btn" onClick={onOpenFullReport}>
-            Open full reconciliation report
-          </button>
-          <button type="button" className="fb-secondary-btn" onClick={onOpenTransactions}>
-            Search all transactions
-          </button>
-        </div>
-      </section>
-      <section className="card">
-        <div className="section-heading">
-          <p className="eyebrow">Queue</p>
-          <h2>Needs attention ({actionItems.length})</h2>
-        </div>
-        {actionItems.length ? (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Payee</th>
-                  <th>Date</th>
-                  <th>Amount</th>
-                  <th>Extraction</th>
-                  <th>Reconcile</th>
-                  <th>Receipt</th>
-                </tr>
-              </thead>
-              <tbody>
-                {actionItems.slice(0, 200).map((expense) => (
-                  <tr key={expense.id}>
-                    <td>{expense.payee || expense.merchant_name || "Needs review"}</td>
-                    <td>{expense.transaction_date || "—"}</td>
-                    <td>{expense.total_amount != null ? `$${expense.total_amount}` : "—"}</td>
-                    <td>
-                      <span className={`status status-${expense.extraction_status}`}>
-                        {expense.extraction_status.replaceAll("_", " ")}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`status status-${expense.reconciliation_status}`}>
-                        {expense.reconciliation_status.replaceAll("_", " ")}
-                      </span>
-                    </td>
-                    <td>
-                      {receiptUrls[expense.id] ? (
-                        <a href={receiptUrls[expense.id]} target="_blank" rel="noopener noreferrer">
-                          View
-                        </a>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p className="empty-state">Nothing needs attention right now. Great work.</p>
-        )}
-      </section>
     </div>
   );
 }
