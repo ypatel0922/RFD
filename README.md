@@ -57,6 +57,27 @@ npm run build
 npm run start
 ```
 
+## Deploy to Vercel
+
+The Next.js app lives in **`frontend/`**. If Vercel’s **Root Directory** is left
+at the repository root, installs/builds can succeed from the wrong context or
+lag behind what you run locally, so **production may show an older UI**.
+
+1. In Vercel: **Project → Settings → General** → **Root Directory** → set to
+   `frontend` → **Save** (this is required).
+2. **Settings → Git** → **Production Branch** → choose **`main`** (or whichever
+   branch you consider production).
+3. **Settings → Environment Variables** → copy everything you use locally
+   from `frontend/.env.local.example` (including server keys like
+   `OPENAI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and Plaid vars if you use
+   them). Use **Production** (and Preview if you want).
+4. Open **Deployments** → confirm the latest **Production** deployment shows the
+   same **commit** as `main` on GitHub. If not, click **Redeploy**.
+5. On your phone, open the site in a **private/incognito** tab or clear site
+   data—mobile browsers cache aggressively.
+6. Optional: set `NEXT_PUBLIC_APP_VERSION` in Vercel (e.g. `2026-05-08`) and
+   compare the **App version** line in the footer on laptop vs phone.
+
 ### Legacy FastAPI prototype
 
 The original FastAPI prototype remains in `app/` while the product is migrated
