@@ -1,6 +1,15 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ChangeEvent,
+  FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { usePlaidLink } from "react-plaid-link";
 
@@ -21,8 +30,21 @@ import {
 import { buildReconciliationReport, reconciliationReportCsv } from "../lib/reports";
 
 type AuthMode = "login" | "signup";
-type AppView = "dashboard" | "reports" | "settings" | "statements";
+type AppView =
+  | "dashboard"
+  | "transactions"
+  | "reconciliation"
+  | "accounts"
+  | "reports_documents"
+  | "tax_forms"
+  | "vendors"
+  | "settings"
+  | "new_expense";
+
+type ReportsDocumentsMode = "hub" | "reconciliation" | "statements";
 type MessageVariant = "success" | "error";
+
+type ExpenseEntryLaunch = { tab: "receipt" | "manual" } | null;
 
 const EMPTY_EXTRACTION: ExtractedReceiptData = {
   merchant_name: null,
@@ -113,6 +135,140 @@ function formatExpenseLoggedBy(expense: ExpenseRecord) {
   return expense.created_by_email || "Unknown";
 }
 
+function formatUsd(amount: number) {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(
+    amount,
+  );
+}
+
+function isExpenseInCurrentMonth(expense: ExpenseRecord) {
+  const d = parseExpenseSortDate(expense);
+  if (!d) return false;
+  const now = new Date();
+  const [yStr, mStr] = d.split("-");
+  const y = Number(yStr);
+  const m = Number(mStr);
+  return y === now.getFullYear() && m === now.getMonth() + 1;
+}
+
+function buildDashboardMetrics(expenses: ExpenseRecord[]) {
+  let totalRecorded = 0;
+  let monthSpend = 0;
+  let monthBankIn = 0;
+  let monthBankOut = 0;
+  let needsReview = 0;
+  let openItems = 0;
+  for (const expense of expenses) {
+    const amt = expenseNumericAmount(expense.total_amount);
+    if (amt != null) totalRecorded += Math.abs(amt);
+    if (isExpenseInCurrentMonth(expense) && amt != null) monthSpend += Math.abs(amt);
+    if (expense.extraction_status === "needs_review" || expense.extraction_status === "failed") needsReview += 1;
+    if (
+      expense.reconciliation_status === "pending_bank_match" ||
+      expense.reconciliation_status === "unreconciled" ||
+      expense.reconciliation_status === "needs_attention"
+    ) {
+      openItems += 1;
+    }
+    if (isExpenseInCurrentMonth(expense)) {
+      const bankAmt = expenseNumericAmount(expense.bank_amount);
+      if (bankAmt != null) {
+        if (bankAmt >= 0) monthBankIn += bankAmt;
+        else monthBankOut += Math.abs(bankAmt);
+      }
+    }
+  }
+  return { totalRecorded, monthSpend, monthBankIn, monthBankOut, needsReview, openItems };
+}
+
+type AccountSnapshot = {
+  account: BankAccount;
+  lastBalance: number | null;
+  lastActivityDate: string | null;
+};
+
+function buildAccountSnapshots(bankAccounts: BankAccount[], expenses: ExpenseRecord[]): AccountSnapshot[] {
+  return bankAccounts.map((account) => {
+    const matches = expenses
+      .filter((expense) => (expense.bank_account_name || "").trim().toLowerCase() === account.name.trim().toLowerCase())
+      .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+    const latest = matches[0];
+    const lastBalance =
+      latest && latest.balance_after_transaction != null && latest.balance_after_transaction !== ""
+        ? expenseNumericAmount(latest.balance_after_transaction)
+        : null;
+    const lastActivityDate = latest?.transaction_date || latest?.created_at?.slice(0, 10) || null;
+    return { account, lastBalance, lastActivityDate };
+  });
+}
+
+function expenseNeedsReconciliationAttention(expense: ExpenseRecord) {
+  if (expense.reconciliation_status !== "matched") return true;
+  if (expense.extraction_status === "needs_review" || expense.extraction_status === "failed") return true;
+  if (expense.reconciliation_candidate) return true;
+  return false;
+}
+
+type VendorAggregate = {
+  key: string;
+  label: string;
+  count: number;
+  totalSpend: number;
+  lastUsed: string;
+  topCategory: string | null;
+};
+
+function buildVendorAggregates(expenses: ExpenseRecord[]): VendorAggregate[] {
+  const map = new Map<
+    string,
+    { label: string; count: number; total: number; lastIso: string; categories: Map<string, number> }
+  >();
+  for (const expense of expenses) {
+    const label = (expense.payee || expense.merchant_name || "").trim();
+    if (!label) continue;
+    const key = label.toLowerCase();
+    const amt = expenseNumericAmount(expense.total_amount);
+    const iso = parseExpenseSortDate(expense) || expense.created_at?.slice(0, 10) || "";
+    const cat = (expense.category || "").trim();
+    if (!map.has(key)) {
+      map.set(key, { label, count: 0, total: 0, lastIso: "", categories: new Map() });
+    }
+    const row = map.get(key)!;
+    row.count += 1;
+    if (amt != null) row.total += Math.abs(amt);
+    if (iso && iso > row.lastIso) row.lastIso = iso;
+    if (cat) {
+      row.categories.set(cat, (row.categories.get(cat) || 0) + 1);
+    }
+  }
+  return [...map.values()].map((row) => {
+    let topCategory: string | null = null;
+    let topN = 0;
+    for (const [c, n] of row.categories) {
+      if (n > topN) {
+        topN = n;
+        topCategory = c;
+      }
+    }
+    return {
+      key: row.label.toLowerCase(),
+      label: row.label,
+      count: row.count,
+      totalSpend: row.total,
+      lastUsed: row.lastIso,
+      topCategory,
+    };
+  });
+}
+
+function NavGlyph({ children }: { children: ReactNode }) {
+  return (
+    <span className="fb-nav-glyph" aria-hidden>
+      {children}
+    </span>
+  );
+}
+
 export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
   const [membership, setMembership] = useState<DepartmentMembership | null>(null);
@@ -128,6 +284,14 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [ledgerScope, setLedgerScope] = useState<LedgerScope>("recent");
   const [ledgerVendorQuery, setLedgerVendorQuery] = useState("");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [expenseEntryLaunch, setExpenseEntryLaunch] = useState<ExpenseEntryLaunch>(null);
+  const [reportsDocumentsMode, setReportsDocumentsMode] = useState<ReportsDocumentsMode>("hub");
+  const [ledgerBankAccountFilter, setLedgerBankAccountFilter] = useState("");
+  const transactionsPanelRef = useRef<HTMLDivElement | null>(null);
+  const [useCompactAppHeader, setUseCompactAppHeader] = useState(false);
+
+  const clearExpenseEntryLaunch = useCallback(() => setExpenseEntryLaunch(null), []);
 
   function showSuccessMessage(nextMessage: string | null) {
     setMessageVariant("success");
@@ -138,6 +302,17 @@ export default function Home() {
     setMessageVariant("error");
     setMessage(nextMessage);
   }
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(max-width: 900px)");
+    function sync() {
+      setUseCompactAppHeader(mq.matches);
+    }
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -291,8 +466,80 @@ export default function Home() {
     setReceiptUrls(map);
   }
 
+  async function handleBankAccountsChanged() {
+    if (!membership || !session?.user) return;
+    await loadBankAccounts(membership.department_id);
+    await refreshMembershipRow(session.user);
+  }
+
+  function submitHeaderSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setView("transactions");
+    setLedgerScope("all");
+    setLedgerBankAccountFilter("");
+    setMobileNavOpen(false);
+    window.setTimeout(() => {
+      transactionsPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 120);
+  }
+
+  function handleHeaderSearchInputChange(value: string) {
+    setLedgerVendorQuery(value);
+    if (!useCompactAppHeader) return;
+    if (value.trim().length > 0) {
+      setMobileNavOpen(false);
+      setLedgerBankAccountFilter("");
+      setLedgerScope("all");
+      setView("transactions");
+    }
+  }
+
+  function handleHeaderSearchFormSubmit(event: FormEvent<HTMLFormElement>) {
+    if (useCompactAppHeader) {
+      event.preventDefault();
+      return;
+    }
+    submitHeaderSearch(event);
+  }
+
+  useEffect(() => {
+    if (view === "transactions") {
+      setLedgerScope("all");
+    }
+  }, [view]);
+
+  useEffect(() => {
+    if (view !== "reports_documents") {
+      setReportsDocumentsMode("hub");
+    }
+  }, [view]);
+
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setMobileNavOpen(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mobileNavOpen]);
+
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [mobileNavOpen]);
+
   if (loading) {
-    return <main className="auth-layout">Loading RFD Expense Tracker...</main>;
+    return (
+      <div className="auth-page">
+        <main className="auth-layout auth-layout--loading">
+          <p className="auth-loading">Loading Firebook…</p>
+        </main>
+      </div>
+    );
   }
 
   if (!session || !membership) {
@@ -319,122 +566,394 @@ export default function Home() {
   }
 
   return (
-    <>
-      <header className="hero">
-        <div>
-          <p className="eyebrow">Fire department bookkeeping</p>
-          <h1>Receipt-first expense tracking</h1>
-          <p className="hero-copy">
-            Capture receipts, confirm register fields, track expenses, and generate
-            reconciliation reports directly from Supabase.
-          </p>
-        </div>
-        <div className="account-panel">
-          <span className="eyebrow">Signed in</span>
-          <strong>{membership.departments?.name || "Fire Department"}</strong>
-          <span>{session.user.email}</span>
-          <span className="role">{membership.role}</span>
+    <div className="fb-app">
+      <header className="fb-topbar">
+        <div className="fb-topbar-left">
           <button
-            className="secondary-button"
             type="button"
-            onClick={() => supabase.auth.signOut()}
+            className="fb-icon-button"
+            aria-label="Open navigation menu"
+            onClick={() => setMobileNavOpen(true)}
           >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+          <div className="fb-brand" aria-label="Firebook">
+            <span className="fb-brand-mark">Fire</span>
+            <span className="fb-brand-accent">book</span>
+          </div>
+        </div>
+
+        <div className="fb-topbar-center">
+          <form className="fb-topbar-search" onSubmit={handleHeaderSearchFormSubmit}>
+            <label className="fb-visually-hidden" htmlFor="fb-global-search">
+              Search transactions, vendors, accounts
+            </label>
+            <input
+              id="fb-global-search"
+              type="search"
+              placeholder="Search transactions, vendors, accounts..."
+              value={ledgerVendorQuery}
+              onChange={(event) => handleHeaderSearchInputChange(event.target.value)}
+              autoComplete="off"
+            />
+            <button type="submit" className="fb-topbar-search-submit">
+              Search
+            </button>
+          </form>
+          <button
+            type="button"
+            className="fb-topbar-new-expense"
+            onClick={() => {
+              setExpenseEntryLaunch({ tab: "receipt" });
+              setView("new_expense");
+              setMobileNavOpen(false);
+            }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" aria-hidden>
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            New Expense
+          </button>
+        </div>
+
+        <div className="fb-topbar-user">
+          <div className="fb-user-chip">
+            <div className="fb-user-chip-text">
+              <strong>{membership.departments?.name || "Fire Department"}</strong>
+              <span className="fb-user-chip-email">{session.user.email}</span>
+              <span className="fb-user-chip-role">{membership.role}</span>
+            </div>
+          </div>
+          <button type="button" className="fb-topbar-logout" onClick={() => void supabase.auth.signOut()}>
             Log out
           </button>
         </div>
       </header>
 
-      <main className="layout">
-        <section className="card upload-card">
-          <div className="section-heading">
-            <p className="eyebrow">Navigation</p>
-            <h2>{view === "dashboard" ? "New expense" : "Reports"}</h2>
-          </div>
-          <div className="tab-buttons">
-            <button type="button" onClick={() => setView("dashboard")}>
-              Dashboard
-            </button>
-            <button type="button" onClick={() => setView("reports")}>
-              Reconciliation report
-            </button>
-            <button type="button" onClick={() => setView("settings")}>
-              Settings
-            </button>
-            <button type="button" onClick={() => setView("statements")}>
-              Statements
-            </button>
-          </div>
-          <ReconciliationProgress expenses={expenses} />
-          {message && <div className={`notice ${messageVariant === "error" ? "notice-error" : ""}`}>{message}</div>}
-        </section>
+      <div className="fb-app-body">
+        {mobileNavOpen ? (
+          <button
+            type="button"
+            className="fb-nav-overlay"
+            aria-label="Close navigation menu"
+            onClick={() => setMobileNavOpen(false)}
+          />
+        ) : null}
 
-        {view === "dashboard" ? (
-          <Dashboard
-            membership={membership}
-            user={session.user}
-            expenses={expenses}
-            receiptUrls={receiptUrls}
-            bankAccounts={bankAccounts}
-            ledgerScope={ledgerScope}
-            onLedgerScopeChange={setLedgerScope}
-            ledgerVendorQuery={ledgerVendorQuery}
-            setLedgerVendorQuery={setLedgerVendorQuery}
-            ledgerMayTruncate={expenses.length >= LEDGER_ALL_LIMIT}
-            onExpensesChanged={() => loadExpenses(membership.department_id)}
-            onBankAccountsChanged={async () => {
-              await loadBankAccounts(membership.department_id);
-              await refreshMembershipRow(session.user);
-            }}
-            setMessage={setMessage}
-            showSuccessMessage={showSuccessMessage}
-            showErrorMessage={showErrorMessage}
-          />
-        ) : (
-          view === "reports" ? (
-          <Reports
-            membership={membership}
-            user={session.user}
-            departmentName={membership.departments?.name || "Fire Department"}
-            expenses={expenses}
-            receiptUrls={receiptUrls}
-            bankAccounts={bankAccounts}
-            onExpensesChanged={() => loadExpenses(membership.department_id)}
-            onStatementUrlsChanged={loadStatementUrls}
-            statementUrls={statementUrls}
-            showErrorMessage={showErrorMessage}
-            showSuccessMessage={showSuccessMessage}
-          />
-          ) : view === "settings" ? (
-            <Settings
-              membership={membership}
-              session={session}
-              bankAccounts={bankAccounts}
-              departmentSettings={departmentSettings}
-              onBankAccountsChanged={async () => {
-                await loadBankAccounts(membership.department_id);
-                await refreshMembershipRow(session.user);
-              }}
-              onDepartmentSettingsChanged={() => loadDepartmentSettings(membership.department_id)}
-              showErrorMessage={showErrorMessage}
-              showSuccessMessage={showSuccessMessage}
-            />
-          ) : (
-            <Statements
+        <aside className={`fb-sidebar ${mobileNavOpen ? "fb-sidebar--open" : ""}`} aria-label="Sidebar">
+          <div className="fb-sidebar-inner">
+            <div className="fb-sidebar-mobile-head">
+              <span className="fb-sidebar-mobile-title">Menu</span>
+              <button
+                type="button"
+                className="fb-icon-button"
+                aria-label="Close navigation menu"
+                onClick={() => setMobileNavOpen(false)}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M6 6l12 12M18 6L6 18" />
+                </svg>
+              </button>
+            </div>
+            <nav className="fb-sidebar-nav" aria-label="Primary">
+              <button
+                type="button"
+                className={`fb-sidebar-link ${view === "dashboard" ? "fb-sidebar-link-active" : ""}`}
+                onClick={() => {
+                  setView("dashboard");
+                  setMobileNavOpen(false);
+                }}
+              >
+                <NavGlyph>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5Z" />
+                  </svg>
+                </NavGlyph>
+                <span className="fb-sidebar-link-label">Dashboard</span>
+              </button>
+              <button
+                type="button"
+                className={`fb-sidebar-link ${view === "transactions" ? "fb-sidebar-link-active" : ""}`}
+                onClick={() => {
+                  setView("transactions");
+                  setLedgerBankAccountFilter("");
+                  setMobileNavOpen(false);
+                }}
+              >
+                <NavGlyph>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M4 6h16M4 12h16M4 18h10" />
+                  </svg>
+                </NavGlyph>
+                <span className="fb-sidebar-link-label">Transactions</span>
+              </button>
+              <button
+                type="button"
+                className={`fb-sidebar-link ${view === "reconciliation" ? "fb-sidebar-link-active" : ""}`}
+                onClick={() => {
+                  setView("reconciliation");
+                  setMobileNavOpen(false);
+                }}
+              >
+                <NavGlyph>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+                  </svg>
+                </NavGlyph>
+                <span className="fb-sidebar-link-label">Reconciliation</span>
+              </button>
+              <button
+                type="button"
+                className={`fb-sidebar-link ${view === "accounts" ? "fb-sidebar-link-active" : ""}`}
+                onClick={() => {
+                  setView("accounts");
+                  setMobileNavOpen(false);
+                }}
+              >
+                <NavGlyph>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M3 10h18v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V10Z" />
+                    <path d="M7 10V7a5 5 0 0 1 10 0v3" />
+                  </svg>
+                </NavGlyph>
+                <span className="fb-sidebar-link-label">Accounts</span>
+              </button>
+              <button
+                type="button"
+                className={`fb-sidebar-link ${view === "reports_documents" ? "fb-sidebar-link-active" : ""}`}
+                onClick={() => {
+                  setView("reports_documents");
+                  setReportsDocumentsMode("hub");
+                  setMobileNavOpen(false);
+                }}
+              >
+                <NavGlyph>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M7 3h8l3 3v15H7V3Z" />
+                    <path d="M14 3v4h4M9 13h6M9 17h6" />
+                  </svg>
+                </NavGlyph>
+                <span className="fb-sidebar-link-label">Reports &amp; Documents</span>
+              </button>
+              <button
+                type="button"
+                className={`fb-sidebar-link ${view === "tax_forms" ? "fb-sidebar-link-active" : ""}`}
+                onClick={() => {
+                  setView("tax_forms");
+                  setMobileNavOpen(false);
+                }}
+              >
+                <NavGlyph>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Z" />
+                    <path d="M14 2v6h6M8 13h8M8 17h8" />
+                  </svg>
+                </NavGlyph>
+                <span className="fb-sidebar-link-label">Tax Forms</span>
+              </button>
+              <button
+                type="button"
+                className={`fb-sidebar-link ${view === "vendors" ? "fb-sidebar-link-active" : ""}`}
+                onClick={() => {
+                  setView("vendors");
+                  setMobileNavOpen(false);
+                }}
+              >
+                <NavGlyph>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+                  </svg>
+                </NavGlyph>
+                <span className="fb-sidebar-link-label">Vendors</span>
+              </button>
+
+              <div className="fb-sidebar-divider" />
+
+              <button
+                type="button"
+                className={`fb-sidebar-link ${view === "settings" ? "fb-sidebar-link-active" : ""}`}
+                onClick={() => {
+                  setView("settings");
+                  setMobileNavOpen(false);
+                }}
+              >
+                <NavGlyph>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c0 .66.39 1.26 1 1.51H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
+                  </svg>
+                </NavGlyph>
+                <span className="fb-sidebar-link-label">Settings</span>
+              </button>
+
+             
+
+             
+            </nav>
+
+            <div className="fb-sidebar-meta">
+              <div className="fb-sidebar-progress">
+                <ReconciliationProgress expenses={expenses} />
+              </div>
+            </div>
+
+            <div className="fb-sidebar-footer">
+              <p className="fb-sidebar-dept">{membership.departments?.name || "Fire Department"}</p>
+              <p className="fb-sidebar-email">{session.user.email}</p>
+              <p className="fb-sidebar-role">{membership.role}</p>
+              <button type="button" className="fb-sidebar-signout" onClick={() => void supabase.auth.signOut()}>
+                Sign out
+              </button>
+            </div>
+          </div>
+        </aside>
+
+        <div className="fb-main">
+          {message ? (
+            <div className={`fb-banner notice ${messageVariant === "error" ? "notice-error" : ""}`}>{message}</div>
+          ) : null}
+
+          {view === "dashboard" ? (
+            <Dashboard
               membership={membership}
               user={session.user}
+              expenses={expenses}
+              bankAccounts={bankAccounts}
+              onNavigateView={(next) => {
+                setView(next);
+                setMobileNavOpen(false);
+              }}
+              onOpenReportsPanel={(panel) => {
+                setView("reports_documents");
+                setReportsDocumentsMode(panel === "reconciliation" ? "reconciliation" : "statements");
+                setMobileNavOpen(false);
+              }}
+              onOpenNewExpense={(tab) => {
+                setExpenseEntryLaunch({ tab });
+                setView("new_expense");
+                setMobileNavOpen(false);
+              }}
+            />
+          ) : view === "new_expense" ? (
+            <NewExpensePage
+              membership={membership}
+              user={session.user}
+              expenses={expenses}
+              bankAccounts={bankAccounts}
+              launchTab={expenseEntryLaunch}
+              onLaunchConsumed={clearExpenseEntryLaunch}
+              onExpensesChanged={() => loadExpenses(membership.department_id)}
+              setMessage={setMessage}
+              showSuccessMessage={showSuccessMessage}
+              showErrorMessage={showErrorMessage}
+            />
+          ) : view === "transactions" ? (
+            <div ref={transactionsPanelRef} className="fb-tab-stack">
+              <ExpenseLedger
+                expenses={expenses}
+                receiptUrls={receiptUrls}
+                user={session.user}
+                onExpensesChanged={() => loadExpenses(membership.department_id)}
+                showErrorMessage={showErrorMessage}
+                showSuccessMessage={showSuccessMessage}
+                ledgerScope={ledgerScope}
+                onLedgerScopeChange={setLedgerScope}
+                vendorQuery={ledgerVendorQuery}
+                onVendorQueryChange={setLedgerVendorQuery}
+                ledgerMayTruncate={expenses.length >= LEDGER_ALL_LIMIT}
+                forceAllScope
+                bankAccountFilter={ledgerBankAccountFilter}
+                onClearBankAccountFilter={() => setLedgerBankAccountFilter("")}
+              />
+            </div>
+          ) : view === "reconciliation" ? (
+            <ReconciliationInboxSection
+              expenses={expenses}
+              receiptUrls={receiptUrls}
+              onOpenFullReport={() => {
+                setView("reports_documents");
+                setReportsDocumentsMode("reconciliation");
+                setMobileNavOpen(false);
+              }}
+              onOpenTransactions={() => {
+                setView("transactions");
+                setLedgerBankAccountFilter("");
+                setMobileNavOpen(false);
+              }}
+            />
+          ) : view === "accounts" ? (
+            <AccountsTabSection
+              bankAccounts={bankAccounts}
+              expenses={expenses}
+              onViewAccountTransactions={(accountName) => {
+                setLedgerBankAccountFilter(accountName);
+                setView("transactions");
+                setMobileNavOpen(false);
+              }}
+              onBankAccountsChanged={handleBankAccountsChanged}
+            />
+          ) : view === "reports_documents" ? (
+            <ReportsDocumentsSection
+              mode={reportsDocumentsMode}
+              setMode={setReportsDocumentsMode}
+              membership={membership}
+              user={session.user}
+              departmentName={membership.departments?.name || "Fire Department"}
+              expenses={expenses}
+              receiptUrls={receiptUrls}
               bankAccounts={bankAccounts}
               departmentSettings={departmentSettings}
+              statementUrls={statementUrls}
               onExpensesChanged={() => loadExpenses(membership.department_id)}
               onStatementUrlsChanged={loadStatementUrls}
-              statementUrls={statementUrls}
               showErrorMessage={showErrorMessage}
               showSuccessMessage={showSuccessMessage}
             />
-          )
-        )}
-      </main>
-      <footer className="app-version">App version: {APP_VERSION}</footer>
-    </>
+          ) : view === "tax_forms" ? (
+            <TaxFormsSection />
+          ) : view === "vendors" ? (
+            <VendorsSection expenses={expenses} />
+          ) : view === "settings" ? (
+            <div className="fb-tab-stack">
+              <Settings
+                membership={membership}
+                session={session}
+                bankAccounts={bankAccounts}
+                departmentSettings={departmentSettings}
+                onBankAccountsChanged={handleBankAccountsChanged}
+                onDepartmentSettingsChanged={() => loadDepartmentSettings(membership.department_id)}
+                showErrorMessage={showErrorMessage}
+                showSuccessMessage={showSuccessMessage}
+              />
+              <section className="card fb-settings-placeholder">
+                <div className="section-heading">
+                  <p className="eyebrow">Department roster</p>
+                  <h2>People in your department</h2>
+                </div>
+                <p className="muted">
+                  A shared roster of treasurers and officers will appear here. For now, coordinate access with your
+                  department admin outside Firebook if you need to add teammates.
+                </p>
+              </section>
+              <section className="card fb-settings-placeholder">
+                <div className="section-heading">
+                  <p className="eyebrow">Profile &amp; security</p>
+                  <h2>Your login and role</h2>
+                </div>
+                <p className="muted">
+                  Editing display name, email, password, and department title will be available here. Your current role
+                  is shown in the header ({membership.role}).
+                </p>
+              </section>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      <footer className="app-version fb-app-version">App version: {APP_VERSION}</footer>
+    </div>
   );
 }
 
@@ -452,36 +971,41 @@ function AuthScreen({
   setMessage: (message: string | null) => void;
 }) {
   return (
-    <main className="auth-layout">
-      <section className="card auth-card">
-        <p className="eyebrow">Fire department bookkeeping</p>
-        <h1>{mode === "login" ? "Log in to your department" : "Create your account"}</h1>
-        <p>
-          {mode === "login"
-            ? "Sign in to see your department dashboard, receipts, expenses, and reports."
-            : "Choose your fire department, enter your contact information and the access code from your administrator, then create your login."}
-        </p>
-        {message && <div className="notice notice-error">{message}</div>}
-        {mode === "login" ? (
-          <LoginForm onSignedIn={onSignedIn} setMessage={setMessage} />
-        ) : (
-          <SignupForm onSignedIn={onSignedIn} setMessage={setMessage} />
-        )}
-        <p className="auth-switch">
-          {mode === "login" ? "Need an account? " : "Already have an account? "}
-          <button
-            className="link-button"
-            type="button"
-            onClick={() => {
-              setMessage(null);
-              setMode(mode === "login" ? "signup" : "login");
-            }}
-          >
-            {mode === "login" ? "Create one for your department" : "Log in"}
-          </button>
-        </p>
-      </section>
-    </main>
+    <div className="auth-page">
+      <main className="auth-layout">
+        <section className="card auth-card">
+          <div className="firebook-brand" aria-label="Firebook">
+            <span className="firebook-brand__wordmark">Firebook</span>
+            <span className="firebook-brand__tagline">Fire department bookkeeping</span>
+          </div>
+          <h1 className="auth-title">{mode === "login" ? "Log in to your department" : "Create your account"}</h1>
+          <p className="auth-lede">
+            {mode === "login"
+              ? "Sign in to see your department dashboard, receipts, expenses, and reports."
+              : "Choose your fire department, enter your contact information and the access code from your administrator, then create your login."}
+          </p>
+          {message && <div className="notice notice-error">{message}</div>}
+          {mode === "login" ? (
+            <LoginForm onSignedIn={onSignedIn} setMessage={setMessage} />
+          ) : (
+            <SignupForm onSignedIn={onSignedIn} setMessage={setMessage} />
+          )}
+          <p className="auth-switch">
+            {mode === "login" ? "Need an account? " : "Already have an account? "}
+            <button
+              className="link-button auth-switch-button"
+              type="button"
+              onClick={() => {
+                setMessage(null);
+                setMode(mode === "login" ? "signup" : "login");
+              }}
+            >
+              {mode === "login" ? "Create one for your department" : "Log in"}
+            </button>
+          </p>
+        </section>
+      </main>
+    </div>
   );
 }
 
@@ -783,19 +1307,279 @@ function DepartmentSetupBanner({
   );
 }
 
-function Dashboard({
+function TaxFormsSection() {
+  const placeholders = [
+    { title: "NYS 2% Report", desc: "Sales tax and NYS filing summaries will be generated here." },
+    { title: "IRS Form 990", desc: "Nonprofit disclosure package preparation (coming soon)." },
+    { title: "Year-end tax package", desc: "Exportable binder for your accountant (coming soon)." },
+  ];
+  return (
+    <div className="fb-tab-stack">
+      <section className="card fb-dash-welcome">
+        <p className="eyebrow">Compliance</p>
+        <h1 className="fb-dash-title">Tax Forms</h1>
+        <p className="fb-dash-subtitle">
+          Central place for New York and federal filings. Report generation is being prepared; nothing here changes your
+          data yet.
+        </p>
+      </section>
+      <div className="fb-doc-hub-grid">
+        {placeholders.map((item) => (
+          <div key={item.title} className="fb-doc-hub-card">
+            <h2>{item.title}</h2>
+            <p className="muted">{item.desc}</p>
+            <button type="button" className="fb-secondary-btn" disabled>
+              Prepare (soon)
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+type VendorSort = "recent" | "count" | "spend" | "category";
+
+function VendorsSection({ expenses }: { expenses: ExpenseRecord[] }) {
+  const [sort, setSort] = useState<VendorSort>("spend");
+  const rows = useMemo(() => {
+    const list = buildVendorAggregates(expenses);
+    const sorted = [...list];
+    if (sort === "count") sorted.sort((a, b) => b.count - a.count);
+    else if (sort === "spend") sorted.sort((a, b) => b.totalSpend - a.totalSpend);
+    else if (sort === "recent") sorted.sort((a, b) => b.lastUsed.localeCompare(a.lastUsed));
+    else sorted.sort((a, b) => (a.topCategory || "").localeCompare(b.topCategory || ""));
+    return sorted;
+  }, [expenses, sort]);
+
+  return (
+    <div className="fb-tab-stack">
+      <section className="card fb-dash-welcome">
+        <p className="eyebrow">Directory</p>
+        <h1 className="fb-dash-title">Vendors</h1>
+        <p className="fb-dash-subtitle">
+          Vendors are derived from payee and merchant fields on logged expenses. Sorting helps treasurers see who you pay
+          most often.
+        </p>
+      </section>
+      <section className="card">
+        <div className="fb-vendor-toolbar">
+          <span className="muted">Sort by</span>
+          <div className="fb-chip-row">
+            {(
+              [
+                ["spend", "Total spend"],
+                ["count", "Most used"],
+                ["recent", "Most recent"],
+                ["category", "Category A–Z"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                className={`fb-chip ${sort === key ? "fb-chip-active" : ""}`}
+                onClick={() => setSort(key)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {rows.length ? (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Vendor</th>
+                  <th>Transactions</th>
+                  <th>Total spend</th>
+                  <th>Top category</th>
+                  <th>Last activity</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.key}>
+                    <td>{row.label}</td>
+                    <td>{row.count}</td>
+                    <td>{formatUsd(row.totalSpend)}</td>
+                    <td>{row.topCategory || "—"}</td>
+                    <td>{row.lastUsed || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="empty-state">
+            No vendors yet. Vendors will appear automatically as you log expenses with payee or merchant names.
+          </p>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function AccountsTabSection({
+  bankAccounts,
+  expenses,
+  onViewAccountTransactions,
+  onBankAccountsChanged,
+}: {
+  bankAccounts: BankAccount[];
+  expenses: ExpenseRecord[];
+  onViewAccountTransactions: (accountName: string) => void;
+  onBankAccountsChanged: () => Promise<void>;
+}) {
+  const snapshots = useMemo(() => buildAccountSnapshots(bankAccounts, expenses), [bankAccounts, expenses]);
+  return (
+    <div className="fb-tab-stack">
+      <section className="card fb-dash-welcome">
+        <p className="eyebrow">Cash & credit</p>
+        <h1 className="fb-dash-title">Accounts</h1>
+        <p className="fb-dash-subtitle">
+          Department bank and card accounts. Balances reflect the latest register total captured on an expense when
+          available.
+        </p>
+      </section>
+      {snapshots.length ? (
+        <div className="fb-account-scroll">
+          {snapshots.map((snapshot) => (
+            <div key={snapshot.account.id} className="fb-account-pill">
+              <div className="fb-account-pill-top">
+                <strong>{snapshot.account.name}</strong>
+                {snapshot.account.is_default ? <span className="fb-pill">Default</span> : null}
+              </div>
+              <p className="fb-account-meta">
+                {[snapshot.account.institution_name, snapshot.account.account_mask].filter(Boolean).join(" · ") ||
+                  "Account"}
+              </p>
+              <p className="fb-account-balance">
+                {snapshot.lastBalance != null ? formatUsd(snapshot.lastBalance) : "No balance recorded"}
+              </p>
+              <p className="fb-account-date">
+                {snapshot.lastActivityDate ? `As of ${snapshot.lastActivityDate}` : "No activity yet"}
+              </p>
+              <button
+                type="button"
+                className="fb-secondary-btn"
+                style={{ marginTop: 10, width: "100%" }}
+                onClick={() => onViewAccountTransactions(snapshot.account.name)}
+              >
+                View transactions
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <section className="card">
+          <p className="empty-state">
+            No bank accounts configured yet. Add accounts under <strong>Settings</strong>.
+          </p>
+        </section>
+      )}
+      <BankAccountsSummary expenses={expenses} bankAccounts={bankAccounts} onBankAccountsChanged={onBankAccountsChanged} />
+    </div>
+  );
+}
+
+function ReconciliationInboxSection({
+  expenses,
+  receiptUrls,
+  onOpenFullReport,
+  onOpenTransactions,
+}: {
+  expenses: ExpenseRecord[];
+  receiptUrls: Record<string, string>;
+  onOpenFullReport: () => void;
+  onOpenTransactions: () => void;
+}) {
+  const actionItems = useMemo(() => expenses.filter((e) => expenseNeedsReconciliationAttention(e)), [expenses]);
+  return (
+    <div className="fb-tab-stack">
+      <section className="card fb-dash-welcome">
+        <p className="eyebrow">Action required</p>
+        <h1 className="fb-dash-title">Reconciliation</h1>
+        <p className="fb-dash-subtitle">
+          Items below still need review or a bank match. Matched expenses are hidden here but remain in{" "}
+          <strong>Transactions</strong> and in the full reconciliation report.
+        </p>
+      </section>
+      <section className="card">
+        <ReconciliationProgress expenses={expenses} />
+        <div className="fb-recon-actions">
+          <button type="button" className="fb-primary-btn" onClick={onOpenFullReport}>
+            Open full reconciliation report
+          </button>
+          <button type="button" className="fb-secondary-btn" onClick={onOpenTransactions}>
+            Search all transactions
+          </button>
+        </div>
+      </section>
+      <section className="card">
+        <div className="section-heading">
+          <p className="eyebrow">Queue</p>
+          <h2>Needs attention ({actionItems.length})</h2>
+        </div>
+        {actionItems.length ? (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Payee</th>
+                  <th>Date</th>
+                  <th>Amount</th>
+                  <th>Extraction</th>
+                  <th>Reconcile</th>
+                  <th>Receipt</th>
+                </tr>
+              </thead>
+              <tbody>
+                {actionItems.slice(0, 200).map((expense) => (
+                  <tr key={expense.id}>
+                    <td>{expense.payee || expense.merchant_name || "Needs review"}</td>
+                    <td>{expense.transaction_date || "—"}</td>
+                    <td>{expense.total_amount != null ? `$${expense.total_amount}` : "—"}</td>
+                    <td>
+                      <span className={`status status-${expense.extraction_status}`}>
+                        {expense.extraction_status.replaceAll("_", " ")}
+                      </span>
+                    </td>
+                    <td>
+                      <span className={`status status-${expense.reconciliation_status}`}>
+                        {expense.reconciliation_status.replaceAll("_", " ")}
+                      </span>
+                    </td>
+                    <td>
+                      {receiptUrls[expense.id] ? (
+                        <a href={receiptUrls[expense.id]} target="_blank" rel="noopener noreferrer">
+                          View
+                        </a>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="empty-state">Nothing needs attention right now. Great work.</p>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function NewExpensePage({
   membership,
   user,
   expenses,
-  receiptUrls,
   bankAccounts,
-  ledgerScope,
-  onLedgerScopeChange,
-  ledgerVendorQuery,
-  setLedgerVendorQuery,
-  ledgerMayTruncate,
+  launchTab,
+  onLaunchConsumed,
   onExpensesChanged,
-  onBankAccountsChanged,
   setMessage,
   showSuccessMessage,
   showErrorMessage,
@@ -803,26 +1587,36 @@ function Dashboard({
   membership: DepartmentMembership;
   user: User;
   expenses: ExpenseRecord[];
-  receiptUrls: Record<string, string>;
   bankAccounts: BankAccount[];
-  ledgerScope: LedgerScope;
-  onLedgerScopeChange: (scope: LedgerScope) => void;
-  ledgerVendorQuery: string;
-  setLedgerVendorQuery: (value: string) => void;
-  ledgerMayTruncate: boolean;
+  launchTab: ExpenseEntryLaunch;
+  onLaunchConsumed: () => void;
   onExpensesChanged: () => Promise<void>;
-  onBankAccountsChanged: () => Promise<void>;
   setMessage: (message: string | null) => void;
   showSuccessMessage: (message: string | null) => void;
   showErrorMessage: (message: string) => void;
 }) {
-  const ledgerAnchorRef = useRef<HTMLDivElement | null>(null);
+  const [entryTab, setEntryTab] = useState<"receipt" | "manual">("receipt");
   const [draft, setDraft] = useState<ExpenseDraft | null>(null);
   const [reviewForm, setReviewForm] = useState<ReviewForm | null>(null);
-  const [showCaptureOptions, setShowCaptureOptions] = useState(false);
-  const [showManualForm, setShowManualForm] = useState(false);
   const [manualWorking, setManualWorking] = useState(false);
   const [working, setWorking] = useState(false);
+  const [manualFormKey, setManualFormKey] = useState(0);
+
+  useEffect(() => {
+    if (!launchTab) return;
+    setEntryTab(launchTab.tab);
+    setDraft(null);
+    setReviewForm(null);
+    onLaunchConsumed();
+  }, [launchTab, onLaunchConsumed]);
+
+  function selectEntryTab(next: "receipt" | "manual") {
+    if (next === entryTab) return;
+    setEntryTab(next);
+    setDraft(null);
+    setReviewForm(null);
+    setMessage(null);
+  }
 
   const defaultBankAccount = bankAccounts.find((account) => account.is_default)?.name || "";
 
@@ -863,15 +1657,13 @@ function Dashboard({
     };
 
     setDraft(nextDraft);
-    setShowCaptureOptions(false);
     setReviewForm({
       fund: nextDraft.fund,
       payment_reference: extracted.payment_reference || "",
       payee: extracted.payee || extracted.merchant_name || "",
       description: extracted.description || "",
       bank_account_name:
-        extracted.bank_account_name ||
-        guessBankAccount(extracted.payee || extracted.merchant_name || ""),
+        extracted.bank_account_name || guessBankAccount(extracted.payee || extracted.merchant_name || ""),
       transaction_date: extracted.transaction_date || "",
       total_amount: extracted.total_amount || "",
       tax_amount: extracted.tax_amount || "",
@@ -998,137 +1790,43 @@ function Dashboard({
       return;
     }
     showSuccessMessage("Manual expense logged.");
-    setShowManualForm(false);
+    setManualFormKey((k) => k + 1);
     await onExpensesChanged();
     setManualWorking(false);
   }
 
   return (
-    <>
+    <div className="fb-tab-stack fb-new-expense-page">
       <DepartmentSetupBanner membership={membership} user={user} bankAccounts={bankAccounts} />
-      <section className="card ledger-dashboard-search">
-        <div className="section-heading">
-          <p className="eyebrow">Past expenses</p>
-          <h2>Search transactions</h2>
+
+      <section className="card fb-new-expense-hero">
+        <p className="eyebrow">Entry</p>
+        <h1 className="fb-dash-title">New Expense</h1>
+        <p className="fb-dash-subtitle">Upload a receipt or manually enter an expense.</p>
+        <div className="fb-segmented" role="tablist" aria-label="Expense entry type">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={entryTab === "receipt"}
+            className={`fb-segment ${entryTab === "receipt" ? "fb-segment--active" : ""}`}
+            onClick={() => selectEntryTab("receipt")}
+          >
+            Log with Receipt
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={entryTab === "manual"}
+            className={`fb-segment ${entryTab === "manual" ? "fb-segment--active" : ""}`}
+            onClick={() => selectEntryTab("manual")}
+          >
+            Manual Entry
+          </button>
         </div>
-        <form
-          className="ledger-dashboard-search-form"
-          onSubmit={(event: FormEvent<HTMLFormElement>) => {
-            event.preventDefault();
-            onLedgerScopeChange("all");
-            window.setTimeout(() => {
-              ledgerAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-            }, 0);
-          }}
-        >
-          <label>
-            Vendor or memo
-            <input
-              type="search"
-              placeholder="e.g. fuel vendor name, store…"
-              value={ledgerVendorQuery}
-              onChange={(event) => setLedgerVendorQuery(event.target.value)}
-              autoComplete="off"
-            />
-          </label>
-          <div className="ledger-dashboard-search-actions">
-            <button type="submit">Search</button>
-          </div>
-        </form>
-        <p className="muted">Opens the full expense list below with quarterly sections and filters.</p>
       </section>
-      <section className="card upload-card">
-        {!draft || !reviewForm ? (
-          <>
-            <div className="section-heading">
-              <p className="eyebrow">New expense</p>
-              <h2>Log an expense</h2>
-            </div>
-            {!showCaptureOptions ? (
-              <div className="tab-buttons">
-                <button type="button" disabled={working} onClick={() => setShowCaptureOptions(true)}>
-                  {working ? "Extracting..." : "Log with receipt"}
-                </button>
-                <button type="button" className="secondary-action" onClick={() => setShowManualForm((value) => !value)}>
-                  {showManualForm ? "Hide manual form" : "Manual expense (no receipt)"}
-                </button>
-              </div>
-            ) : (
-              <div className="capture-options">
-                <ReceiptCaptureOption
-                  title="Take a photo"
-                  description="Open your camera and snap the receipt now."
-                  accept="image/*"
-                  capture
-                  disabled={working}
-                  onFileSelected={prepareReviewFromFile}
-                />
-                <ReceiptCaptureOption
-                  title="Upload image or PDF"
-                  description="Choose from camera roll, files, or desktop."
-                  accept="image/*,application/pdf"
-                  disabled={working}
-                  onFileSelected={prepareReviewFromFile}
-                />
-                <button
-                  type="button"
-                  className="secondary-action"
-                  disabled={working}
-                  onClick={() => setShowCaptureOptions(false)}
-                >
-                  Cancel
-                </button>
-              </div>
-            )}
-            <div className="integration-note">
-              Receipt fields are autofilled when extraction succeeds. You confirm the
-              register fields before the expense is logged.
-            </div>
-            {showManualForm ? (
-              <form className="upload-form" onSubmit={submitManualExpense}>
-                <div className="form-grid two-column">
-                  <label>
-                    Date
-                    <input type="date" name="transaction_date" required />
-                  </label>
-                  <label>
-                    Vendor / payee
-                    <input name="payee" required />
-                  </label>
-                  <label>
-                    Amount
-                    <input name="total_amount" required />
-                  </label>
-                  <label>
-                    Payment type
-                    <select name="payment_method" required>
-                      <option value="">Choose</option>
-                      <option value="cash">Cash</option>
-                      <option value="debit_card">Debit card</option>
-                      <option value="credit_card">Credit card</option>
-                      <option value="check">Check</option>
-                    </select>
-                  </label>
-                  <label>
-                    Category
-                    <input name="category" />
-                  </label>
-                  <label>
-                    Bank/Credit account
-                    <input name="bank_account_name" />
-                  </label>
-                </div>
-                <label>
-                  Description
-                  <textarea name="description" rows={2} />
-                </label>
-                <button type="submit" disabled={manualWorking}>
-                  {manualWorking ? "Saving..." : "Save manual expense"}
-                </button>
-              </form>
-            ) : null}
-          </>
-        ) : (
+
+      <section className="card upload-card fb-expense-card">
+        {draft && reviewForm ? (
           <ReviewExpenseForm
             draft={draft}
             form={reviewForm}
@@ -1142,24 +1840,306 @@ function Dashboard({
               setReviewForm(null);
             }}
           />
+        ) : entryTab === "receipt" ? (
+          <>
+            <div className="section-heading">
+              <p className="eyebrow">Receipt</p>
+              <h2>Add a receipt</h2>
+            </div>
+            <div className="capture-options">
+              <ReceiptCaptureOption
+                title="Take a photo"
+                description="Open your camera and snap the receipt now."
+                accept="image/*"
+                capture
+                disabled={working}
+                onFileSelected={prepareReviewFromFile}
+              />
+              <ReceiptCaptureOption
+                title="Upload image or PDF"
+                description="Choose from camera roll, files, or desktop."
+                accept="image/*,application/pdf"
+                disabled={working}
+                onFileSelected={prepareReviewFromFile}
+              />
+            </div>
+            <div className="integration-note">
+              Receipt fields are autofilled when extraction succeeds. You confirm the register fields before the expense is
+              logged.
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="section-heading">
+              <p className="eyebrow">Manual</p>
+              <h2>Enter expense details</h2>
+            </div>
+            <form key={manualFormKey} className="upload-form fb-new-expense-manual-form" onSubmit={submitManualExpense}>
+              <div className="form-grid two-column">
+                <label>
+                  Date
+                  <input type="date" name="transaction_date" required />
+                </label>
+                <label>
+                  Vendor / payee
+                  <input name="payee" required />
+                </label>
+                <label>
+                  Amount
+                  <input name="total_amount" required />
+                </label>
+                <label>
+                  Payment type
+                  <select name="payment_method" required>
+                    <option value="">Choose</option>
+                    <option value="cash">Cash</option>
+                    <option value="debit_card">Debit card</option>
+                    <option value="credit_card">Credit card</option>
+                    <option value="check">Check</option>
+                  </select>
+                </label>
+                <label>
+                  Category
+                  <input name="category" />
+                </label>
+                <label>
+                  Bank/Credit account
+                  <input name="bank_account_name" />
+                </label>
+              </div>
+              <label>
+                Description
+                <textarea name="description" rows={2} />
+              </label>
+              <button type="submit" className="fb-primary-btn fb-new-expense-submit" disabled={manualWorking}>
+                {manualWorking ? "Saving..." : "Save manual expense"}
+              </button>
+            </form>
+          </>
         )}
       </section>
-      <BankAccountsSummary expenses={expenses} bankAccounts={bankAccounts} onBankAccountsChanged={onBankAccountsChanged} />
-      <div ref={ledgerAnchorRef}>
-        <ExpenseLedger
+    </div>
+  );
+}
+
+function ReportsDocumentsSection({
+  mode,
+  setMode,
+  membership,
+  user,
+  departmentName,
+  expenses,
+  receiptUrls,
+  bankAccounts,
+  departmentSettings,
+  statementUrls,
+  onExpensesChanged,
+  onStatementUrlsChanged,
+  showErrorMessage,
+  showSuccessMessage,
+}: {
+  mode: ReportsDocumentsMode;
+  setMode: (next: ReportsDocumentsMode) => void;
+  membership: DepartmentMembership;
+  user: User;
+  departmentName: string;
+  expenses: ExpenseRecord[];
+  receiptUrls: Record<string, string>;
+  bankAccounts: BankAccount[];
+  departmentSettings: DepartmentSetting | null;
+  statementUrls: Record<string, string>;
+  onExpensesChanged: () => Promise<void>;
+  onStatementUrlsChanged: (uploads: BankStatementUpload[]) => Promise<void>;
+  showErrorMessage: (message: string) => void;
+  showSuccessMessage: (message: string | null) => void;
+}) {
+  if (mode === "reconciliation") {
+    return (
+      <div className="fb-tab-stack">
+        <button type="button" className="fb-back-link link-button" onClick={() => setMode("hub")}>
+          ← Back to reports & documents
+        </button>
+        <Reports
+          membership={membership}
+          user={user}
+          departmentName={departmentName}
           expenses={expenses}
           receiptUrls={receiptUrls}
-          user={user}
-          ledgerScope={ledgerScope}
-          onLedgerScopeChange={onLedgerScopeChange}
-          vendorQuery={ledgerVendorQuery}
-          onVendorQueryChange={setLedgerVendorQuery}
-          ledgerMayTruncate={ledgerMayTruncate}
+          bankAccounts={bankAccounts}
           onExpensesChanged={onExpensesChanged}
+          onStatementUrlsChanged={onStatementUrlsChanged}
+          statementUrls={statementUrls}
           showErrorMessage={showErrorMessage}
           showSuccessMessage={showSuccessMessage}
         />
       </div>
+    );
+  }
+  if (mode === "statements") {
+    return (
+      <div className="fb-tab-stack">
+        <button type="button" className="fb-back-link link-button" onClick={() => setMode("hub")}>
+          ← Back to reports & documents
+        </button>
+        <Statements
+          membership={membership}
+          user={user}
+          bankAccounts={bankAccounts}
+          departmentSettings={departmentSettings}
+          onExpensesChanged={onExpensesChanged}
+          onStatementUrlsChanged={onStatementUrlsChanged}
+          statementUrls={statementUrls}
+          showErrorMessage={showErrorMessage}
+          showSuccessMessage={showSuccessMessage}
+        />
+      </div>
+    );
+  }
+
+  const placeholders = [
+    { title: "Expense report", desc: "Roll-up of expenses by period (coming soon)." },
+    { title: "Vendor report", desc: "Spend concentration by vendor (coming soon)." },
+    { title: "Category report", desc: "Budget lines vs actuals (coming soon)." },
+    { title: "Year-end report", desc: "Annual close package (coming soon)." },
+  ];
+
+  return (
+    <div className="fb-tab-stack">
+      <section className="card fb-dash-welcome">
+        <p className="eyebrow">Library</p>
+        <h1 className="fb-dash-title">Reports &amp; Documents</h1>
+        <p className="fb-dash-subtitle">Run reconciliation work and browse other reports as they become available.</p>
+      </section>
+      <div className="fb-doc-hub-grid">
+        <div className="fb-doc-hub-card fb-doc-hub-card--primary">
+          <h2>Reconciliation report</h2>
+          <p className="muted">Existing reconciliation workflow, CSV export, and statement tie-ins.</p>
+          <button type="button" className="fb-primary-btn" onClick={() => setMode("reconciliation")}>
+            Open reconciliation report
+          </button>
+        </div>
+        <div className="fb-doc-hub-card fb-doc-hub-card--primary">
+          <h2>Bank statements</h2>
+          <p className="muted">Upload pages, extract transactions, and reconcile against the ledger.</p>
+          <button type="button" className="fb-primary-btn" onClick={() => setMode("statements")}>
+            Open statements
+          </button>
+        </div>
+        {placeholders.map((p) => (
+          <div key={p.title} className="fb-doc-hub-card">
+            <h2>{p.title}</h2>
+            <p className="muted">{p.desc}</p>
+            <button type="button" className="fb-secondary-btn" disabled>
+              Generate (soon)
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Dashboard({
+  membership,
+  user,
+  expenses,
+  bankAccounts,
+  onNavigateView,
+  onOpenReportsPanel,
+  onOpenNewExpense,
+}: {
+  membership: DepartmentMembership;
+  user: User;
+  expenses: ExpenseRecord[];
+  bankAccounts: BankAccount[];
+  onNavigateView: (next: AppView) => void;
+  onOpenReportsPanel: (panel: "reconciliation" | "statements") => void;
+  onOpenNewExpense: (tab: "receipt" | "manual") => void;
+}) {
+  const welcomeName = membership.role?.trim() || "member";
+  const metrics = useMemo(() => buildDashboardMetrics(expenses), [expenses]);
+
+  return (
+    <>
+      <DepartmentSetupBanner membership={membership} user={user} bankAccounts={bankAccounts} />
+
+      <section className="card fb-dash-welcome">
+        <h1 className="fb-dash-title">Welcome back, {welcomeName}</h1>
+        <p className="fb-dash-subtitle">Here&apos;s what&apos;s happening with your department finances today.</p>
+      </section>
+
+      <div className="fb-metric-grid">
+        <div className="fb-metric-card">
+          <p className="fb-metric-label">Total recorded</p>
+          <p className="fb-metric-value">{formatUsd(metrics.totalRecorded)}</p>
+          <p className="fb-metric-hint">Sum of logged expense amounts</p>
+        </div>
+        <div className="fb-metric-card">
+          <p className="fb-metric-label">This month (expenses)</p>
+          <p className="fb-metric-value fb-metric-value--out">{formatUsd(metrics.monthSpend)}</p>
+          <p className="fb-metric-hint">Based on transaction dates in the current month</p>
+        </div>
+        <div className="fb-metric-card">
+          <p className="fb-metric-label">This month (bank)</p>
+          <p className="fb-metric-split">
+            <span className="fb-metric-in">In {formatUsd(metrics.monthBankIn)}</span>
+            <span className="fb-metric-out">Out {formatUsd(metrics.monthBankOut)}</span>
+          </p>
+          <p className="fb-metric-hint">From imported bank amounts on matched activity</p>
+        </div>
+        <div className="fb-metric-card">
+          <p className="fb-metric-label">Needs attention</p>
+          <p className="fb-metric-value">
+            {metrics.needsReview} review · {metrics.openItems} open
+          </p>
+          <p className="fb-metric-hint">Extraction issues plus unreconciled items</p>
+        </div>
+      </div>
+
+      <section className="card fb-quick-actions">
+        <div className="fb-section-head">
+          <div>
+            <p className="eyebrow">Shortcuts</p>
+            <h2>Quick actions</h2>
+          </div>
+        </div>
+        <div className="fb-quick-grid">
+          <button type="button" className="fb-quick-tile" onClick={() => onOpenNewExpense("receipt")}>
+            <span className="fb-quick-title">Log with receipt</span>
+            <span className="fb-quick-desc">Capture or upload a receipt to extract details.</span>
+          </button>
+          <button type="button" className="fb-quick-tile" onClick={() => onOpenNewExpense("manual")}>
+            <span className="fb-quick-title">Manual expense</span>
+            <span className="fb-quick-desc">Record a purchase without a receipt file.</span>
+          </button>
+          <button type="button" className="fb-quick-tile" onClick={() => onOpenReportsPanel("reconciliation")}>
+            <span className="fb-quick-title">Reconciliation report</span>
+            <span className="fb-quick-desc">Review matches and export a CSV report.</span>
+          </button>
+          <button type="button" className="fb-quick-tile" onClick={() => onOpenReportsPanel("statements")}>
+            <span className="fb-quick-title">Statements</span>
+            <span className="fb-quick-desc">Upload statement pages for reconciliation.</span>
+          </button>
+          <button type="button" className="fb-quick-tile" onClick={() => onNavigateView("settings")}>
+            <span className="fb-quick-title">Settings</span>
+            <span className="fb-quick-desc">Bank accounts, Plaid, and department preferences.</span>
+          </button>
+        </div>
+      </section>
+
+      <section className="card fb-search-hint">
+        <div className="fb-section-head">
+          <div>
+            <p className="eyebrow">Search</p>
+            <h2>Find transactions</h2>
+          </div>
+        </div>
+        <p className="muted">
+          Use <strong>New Expense</strong> in the header to log receipts or manual entries. Use the search field to filter
+          vendors and memos, then press <strong>Search</strong> to open the <strong>Transactions</strong> tab with the full
+          ledger, quarterly sections, and filters.
+        </p>
+      </section>
     </>
   );
 }
@@ -1202,7 +2182,7 @@ function ReceiptCaptureOption({
         onChange={handleFileChange}
         style={{ display: "none" }}
       />
-      <button type="button" disabled={disabled} onClick={() => inputRef.current?.click()}>
+      <button type="button" className="fb-receipt-opt-btn" disabled={disabled} onClick={() => inputRef.current?.click()}>
         {disabled ? "Extracting..." : title}
       </button>
     </div>
@@ -1329,6 +2309,9 @@ function ExpenseLedger({
   vendorQuery,
   onVendorQueryChange,
   ledgerMayTruncate,
+  forceAllScope = false,
+  bankAccountFilter = "",
+  onClearBankAccountFilter,
 }: {
   expenses: ExpenseRecord[];
   receiptUrls: Record<string, string>;
@@ -1341,6 +2324,9 @@ function ExpenseLedger({
   vendorQuery: string;
   onVendorQueryChange: (value: string) => void;
   ledgerMayTruncate: boolean;
+  forceAllScope?: boolean;
+  bankAccountFilter?: string;
+  onClearBankAccountFilter?: () => void;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editReason, setEditReason] = useState("");
@@ -1351,10 +2337,10 @@ function ExpenseLedger({
   const [amountMin, setAmountMin] = useState("");
   const [amountMax, setAmountMax] = useState("");
 
-  const scopedExpenses = useMemo(
-    () => (ledgerScope === "recent" ? expenses.slice(0, LEDGER_RECENT_LIMIT) : expenses),
-    [expenses, ledgerScope],
-  );
+  const scopedExpenses = useMemo(() => {
+    if (forceAllScope) return expenses;
+    return ledgerScope === "recent" ? expenses.slice(0, LEDGER_RECENT_LIMIT) : expenses;
+  }, [expenses, ledgerScope, forceAllScope]);
 
   function applyDatePreset(preset: "ytd" | "last_year" | "last12" | "clear") {
     const now = new Date();
@@ -1390,6 +2376,10 @@ function ExpenseLedger({
         return payee.includes(q) || desc.includes(q);
       });
     }
+    if (bankAccountFilter.trim()) {
+      const b = bankAccountFilter.trim().toLowerCase();
+      list = list.filter((expense) => (expense.bank_account_name || "").trim().toLowerCase() === b);
+    }
     if (categoryFilter.trim()) {
       const c = categoryFilter.trim().toLowerCase();
       list = list.filter((expense) => (expense.category || "").toLowerCase().includes(c));
@@ -1409,7 +2399,7 @@ function ExpenseLedger({
       list = list.filter((expense) => (expenseNumericAmount(expense.total_amount) ?? Infinity) <= max);
     }
     return list;
-  }, [scopedExpenses, vendorQuery, categoryFilter, dateFrom, dateTo, amountMin, amountMax]);
+  }, [scopedExpenses, vendorQuery, bankAccountFilter, categoryFilter, dateFrom, dateTo, amountMin, amountMax]);
 
   const filteredTotal = useMemo(
     () =>
@@ -1421,7 +2411,7 @@ function ExpenseLedger({
   );
 
   const displayExpenses = useMemo(() => {
-    if (ledgerScope === "recent") return filteredExpenses;
+    if (ledgerScope === "recent" && !forceAllScope) return filteredExpenses;
     const copy = [...filteredExpenses];
     copy.sort((a, b) => {
       const da = parseExpenseSortDate(a);
@@ -1430,11 +2420,11 @@ function ExpenseLedger({
       return (b.created_at || "").localeCompare(a.created_at || "");
     });
     return copy;
-  }, [filteredExpenses, ledgerScope]);
+  }, [filteredExpenses, ledgerScope, forceAllScope]);
 
   const ledgerRows = useMemo(() => {
     type Row = { kind: "quarter"; key: string; label: string } | { kind: "expense"; expense: ExpenseRecord };
-    if (ledgerScope === "recent") {
+    if (ledgerScope === "recent" && !forceAllScope) {
       return displayExpenses.map((expense) => ({ kind: "expense" as const, expense }));
     }
     const rows: Row[] = [];
@@ -1462,7 +2452,7 @@ function ExpenseLedger({
       }
     }
     return rows;
-  }, [ledgerScope, displayExpenses]);
+  }, [ledgerScope, forceAllScope, displayExpenses]);
 
   function beginEdit(expense: ExpenseRecord) {
     setEditingId(expense.id);
@@ -1509,6 +2499,7 @@ function ExpenseLedger({
 
   function clearFilters() {
     onVendorQueryChange("");
+    onClearBankAccountFilter?.();
     setCategoryFilter("");
     setDateFrom("");
     setDateTo("");
@@ -1517,14 +2508,26 @@ function ExpenseLedger({
   }
 
   return (
-    <section className="card">
+    <section className="card fb-ledger-card">
       <div className="section-heading">
         <p className="eyebrow">Expense ledger</p>
-        <h2>{ledgerScope === "recent" ? "Recent receipts" : "All transactions"}</h2>
-        {ledgerScope === "recent" ? (
+        <h2>{forceAllScope ? "All transactions" : ledgerScope === "recent" ? "Recent receipts" : "All transactions"}</h2>
+        {forceAllScope ? (
+          <p className="muted">
+            Full department history with quarterly grouping. Use filters to refine by vendor, category, dates, or amounts.
+            {bankAccountFilter.trim() ? (
+              <>
+                {" "}
+                <button type="button" className="link-button" onClick={() => onClearBankAccountFilter?.()}>
+                  Clear account filter
+                </button>
+              </>
+            ) : null}
+          </p>
+        ) : ledgerScope === "recent" ? (
           <p className="muted">
             Showing the {LEDGER_RECENT_LIMIT} most recently logged expenses. Use <strong>View all</strong> for the full
-            list by quarter, or <strong>Search transactions</strong> above to jump there with filters.
+            list by quarter, or search in the <strong>header</strong> to jump there with filters.
           </p>
         ) : (
           <p className="muted">
@@ -1533,31 +2536,33 @@ function ExpenseLedger({
         )}
       </div>
 
-      <div className="ledger-toolbar">
-        <div className="tab-buttons">
-          <button
-            type="button"
-            className={ledgerScope === "recent" ? "" : "secondary-action"}
-            onClick={() => onLedgerScopeChange("recent")}
-          >
-            Recent
-          </button>
-          <button
-            type="button"
-            className={ledgerScope === "all" ? "" : "secondary-action"}
-            onClick={() => onLedgerScopeChange("all")}
-          >
-            View all
-          </button>
+      {!forceAllScope ? (
+        <div className="ledger-toolbar">
+          <div className="tab-buttons">
+            <button
+              type="button"
+              className={ledgerScope === "recent" ? "" : "secondary-action"}
+              onClick={() => onLedgerScopeChange("recent")}
+            >
+              Recent
+            </button>
+            <button
+              type="button"
+              className={ledgerScope === "all" ? "" : "secondary-action"}
+              onClick={() => onLedgerScopeChange("all")}
+            >
+              View all
+            </button>
+          </div>
         </div>
-      </div>
+      ) : null}
       {ledgerMayTruncate ? (
         <p className="notice">
           Showing up to {LEDGER_ALL_LIMIT.toLocaleString()} expenses. Contact support if you need a larger export.
         </p>
       ) : null}
 
-      {ledgerScope === "all" || vendorQuery || categoryFilter || dateFrom || dateTo || amountMin || amountMax ? (
+      {ledgerScope === "all" || forceAllScope || vendorQuery || bankAccountFilter || categoryFilter || dateFrom || dateTo || amountMin || amountMax ? (
         <>
           <div className="ledger-filters">
             <label>
@@ -1632,7 +2637,7 @@ function ExpenseLedger({
         <>
           <div className="ledger-meta">
             <span>
-              {ledgerScope === "recent" ? (
+              {ledgerScope === "recent" && !forceAllScope ? (
                 <>
                   Showing {filteredExpenses.length} of {scopedExpenses.length} in recent view ({expenses.length} loaded
                   total)
@@ -1803,7 +2808,7 @@ function BankAccountsSummary({
   onBankAccountsChanged: () => Promise<void>;
 }) {
   return (
-    <section className="card">
+    <section className="card fb-bank-summary">
       <div className="section-heading">
         <p className="eyebrow">Bank accounts</p>
         <h2>Accounts and recent transactions</h2>
@@ -1851,16 +2856,12 @@ function ReconciliationProgress({ expenses }: { expenses: ExpenseRecord[] }) {
   const reconciled = expenses.filter((expense) => expense.reconciliation_status === "matched").length;
   const percent = total ? Math.round((reconciled / total) * 100) : 0;
   return (
-    <div className="integration-note">
-      Reconciled progress: {reconciled}/{total} ({percent}%)
-      <div style={{ marginTop: 8, background: "#fde6e6", borderRadius: 999, overflow: "hidden", height: 10 }}>
-        <div
-          style={{
-            width: `${percent}%`,
-            height: "100%",
-            background: "var(--success)",
-          }}
-        />
+    <div className="reconciliation-progress">
+      <span className="reconciliation-progress__label">
+        Reconciled progress: {reconciled}/{total} ({percent}%)
+      </span>
+      <div className="reconciliation-progress__track" role="progressbar" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
+        <div className="reconciliation-progress__fill" style={{ width: `${percent}%` }} />
       </div>
     </div>
   );
