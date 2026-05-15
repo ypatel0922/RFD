@@ -225,7 +225,6 @@ export function TransactionsLedger({
   const [amountMax, setAmountMax] = useState("");
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const filtersRef = useRef<HTMLDivElement>(null);
@@ -780,6 +779,37 @@ export function TransactionsLedger({
           />
         </label>
 
+      </div>
+
+      <div className="transactions-quick-filters" role="tablist" aria-label="Quick filters">
+        {QUICK_FILTERS.map((filter) => (
+          <button
+            key={filter.id}
+            type="button"
+            role="tab"
+            aria-selected={quickFilter === filter.id}
+            className={`transactions-quick-pill${quickFilter === filter.id ? " is-active" : ""}`}
+            onClick={() => setQuickFilter(filter.id)}
+          >
+            {filter.label}
+          </button>
+        ))}
+      </div>
+
+
+      {ledgerMayTruncate ? (
+        <p className="notice">
+          Showing up to {LEDGER_ALL_LIMIT.toLocaleString()} expenses. Contact support if you need a larger export.
+        </p>
+      ) : null}
+
+      <div className="transactions-meta-row">
+        <div className="transactions-meta">
+          <span>
+            Showing {filteredExpenses.length} of {expenses.length} transaction
+            {expenses.length === 1 ? "" : "s"}
+          </span>
+        </div>
         <div className="transactions-toolbar-actions" ref={filtersRef}>
           <button
             type="button"
@@ -858,95 +888,6 @@ export function TransactionsLedger({
             </div>
           ) : null}
         </div>
-      </div>
-
-      <div className="transactions-quick-filters" role="tablist" aria-label="Quick filters">
-        {QUICK_FILTERS.map((filter) => (
-          <button
-            key={filter.id}
-            type="button"
-            role="tab"
-            aria-selected={quickFilter === filter.id}
-            className={`transactions-quick-pill${quickFilter === filter.id ? " is-active" : ""}`}
-            onClick={() => setQuickFilter(filter.id)}
-          >
-            {filter.label}
-          </button>
-        ))}
-      </div>
-
-      <button
-        type="button"
-        className="transactions-advanced-toggle secondary-action"
-        onClick={() => setAdvancedOpen((open) => !open)}
-      >
-        {advancedOpen ? "Hide" : "Show"} advanced filters
-      </button>
-
-      {advancedOpen ? (
-        <div className="transactions-advanced">
-          <div className="transactions-filters-grid">
-            <label>
-              Vendor / memo
-              <input
-                type="search"
-                value={vendorQuery}
-                onChange={(event) => onVendorQueryChange(event.target.value)}
-              />
-            </label>
-            <label>
-              Category
-              <input
-                type="search"
-                value={categoryFilter}
-                onChange={(event) => setCategoryFilter(event.target.value)}
-              />
-            </label>
-            <label>
-              From date
-              <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
-            </label>
-            <label>
-              To date
-              <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
-            </label>
-            <label>
-              Min $
-              <input value={amountMin} onChange={(event) => setAmountMin(event.target.value)} />
-            </label>
-            <label>
-              Max $
-              <input value={amountMax} onChange={(event) => setAmountMax(event.target.value)} />
-            </label>
-          </div>
-          <div className="transactions-presets">
-            <button type="button" className="secondary-action" onClick={() => applyDatePreset("ytd")}>
-              Year to date
-            </button>
-            <button type="button" className="secondary-action" onClick={() => applyDatePreset("last_year")}>
-              Last calendar year
-            </button>
-            <button type="button" className="secondary-action" onClick={() => applyDatePreset("last12")}>
-              Last 12 months
-            </button>
-            <button type="button" className="secondary-action" onClick={() => applyDatePreset("clear")}>
-              Clear dates
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {ledgerMayTruncate ? (
-        <p className="notice">
-          Showing up to {LEDGER_ALL_LIMIT.toLocaleString()} expenses. Contact support if you need a larger export.
-        </p>
-      ) : null}
-
-      <div className="transactions-meta">
-        <span>
-          Showing {filteredExpenses.length} of {expenses.length} transaction
-          {expenses.length === 1 ? "" : "s"}
-        </span>
       </div>
 
       {!expenses.length ? (
