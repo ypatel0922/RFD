@@ -1788,8 +1788,56 @@ button.fb-receipt-opt-btn:hover {
     display: flex;
   }
 
+  /* Dashboard KPI row: compact 2×2 tiles (matches transactions/settings mobile density) */
+  .fb-dash-welcome:has(+ .fb-metric-grid) {
+    padding: 12px 14px;
+  }
+
+  .fb-dash-welcome:has(+ .fb-metric-grid) .fb-dash-title {
+    font-size: 1.15rem;
+    margin-bottom: 4px;
+  }
+
+  .fb-dash-welcome:has(+ .fb-metric-grid) .fb-dash-subtitle {
+    font-size: 0.82rem;
+    line-height: 1.35;
+  }
+
   .fb-metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .fb-metric-card {
+    padding: 10px 11px;
+    border-radius: 12px;
+    min-width: 0;
+    box-shadow: 0 1px 3px rgb(15 23 42 / 6%);
+  }
+
+  .fb-metric-label {
+    margin: 0 0 2px;
+    font-size: 0.6rem;
+    letter-spacing: 0.05em;
+    line-height: 1.2;
+  }
+
+  .fb-metric-value {
+    font-size: 0.95rem;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .fb-metric-split {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    font-size: 0.78rem;
+    line-height: 1.2;
+  }
+
+  .fb-metric-hint {
+    display: none;
   }
 }
 
@@ -1800,7 +1848,32 @@ button.fb-receipt-opt-btn:hover {
 }
 
 @media (max-width: 520px) {
+  .fb-dash-welcome:has(+ .fb-metric-grid) {
+    padding: 10px 12px;
+  }
+
+  .fb-dash-welcome:has(+ .fb-metric-grid) .fb-dash-title {
+    font-size: 1.05rem;
+  }
+
   .fb-metric-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .fb-metric-card {
+    padding: 8px 9px;
+  }
+
+  .fb-metric-label {
+    font-size: 0.55rem;
+  }
+
+  .fb-metric-value {
+    font-size: 0.88rem;
+  }
+
+  .fb-metric-split {
+    font-size: 0.72rem;
   }
 }
