@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 
 import {
   ArrowRight,
@@ -82,6 +82,14 @@ function statusPill(status: string) {
 
 const heroChecklist = ["Easier", "Cheaper", "Smarter", "Safer"];
 
+const initialDemoForm = {
+  fullName: "",
+  departmentName: "",
+  phoneNumber: "",
+  email: "",
+  companyWebsite: "",
+};
+
 const mobileNavLinks = [
   { href: "#features", label: "Features" },
   { href: "#ocr", label: "OCR" },
@@ -92,6 +100,10 @@ const mobileNavLinks = [
 
 export default function HomePage() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [demoForm, setDemoForm] = useState(initialDemoForm);
+  const [isSubmittingDemo, setIsSubmittingDemo] = useState(false);
+  const [demoSuccessMessage, setDemoSuccessMessage] = useState("");
+  const [demoErrorMessage, setDemoErrorMessage] = useState("");
 
   useEffect(() => {
     function closeOnDesktop() {
@@ -101,6 +113,33 @@ export default function HomePage() {
     closeOnDesktop();
     return () => window.removeEventListener("resize", closeOnDesktop);
   }, []);
+
+  async function handleDemoSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setDemoSuccessMessage("");
+    setDemoErrorMessage("");
+    setIsSubmittingDemo(true);
+
+    try {
+      const response = await fetch("/api/request-demo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(demoForm),
+      });
+
+      if (!response.ok) {
+        setDemoErrorMessage("Something went wrong. Please try again.");
+        return;
+      }
+
+      setDemoForm(initialDemoForm);
+      setDemoSuccessMessage("Thanks — we’ll reach out shortly.");
+    } catch {
+      setDemoErrorMessage("Something went wrong. Please try again.");
+    } finally {
+      setIsSubmittingDemo(false);
+    }
+  }
 
   return (
     <main className="min-h-screen w-full max-w-[100vw] overflow-x-hidden bg-zinc-50 text-zinc-900">
@@ -385,34 +424,71 @@ export default function HomePage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-6 p-6 md:grid-cols-[1.1fr_0.9fr] md:p-8">
-              <form className="grid gap-3 sm:grid-cols-2">
+              <form className="grid gap-3 sm:grid-cols-2" onSubmit={handleDemoSubmit}>
                 <Input
                   placeholder="Full Name"
                   aria-label="Full Name"
+                  name="fullName"
+                  required
+                  value={demoForm.fullName}
+                  onChange={(event) => setDemoForm((current) => ({ ...current, fullName: event.target.value }))}
                   className="border-slate-500 bg-slate-700 text-white placeholder:text-slate-300"
                 />
                 <Input
                   placeholder="Department Name"
                   aria-label="Department Name"
+                  name="departmentName"
+                  required
+                  value={demoForm.departmentName}
+                  onChange={(event) => setDemoForm((current) => ({ ...current, departmentName: event.target.value }))}
                   className="border-slate-500 bg-slate-700 text-white placeholder:text-slate-300"
                 />
                 <Input
                   placeholder="Phone Number"
                   aria-label="Phone Number"
+                  name="phoneNumber"
+                  value={demoForm.phoneNumber}
+                  onChange={(event) => setDemoForm((current) => ({ ...current, phoneNumber: event.target.value }))}
                   className="border-slate-500 bg-slate-700 text-white placeholder:text-slate-300"
                 />
                 <Input
                   placeholder="Email"
                   type="email"
                   aria-label="Email"
+                  name="email"
+                  required
+                  value={demoForm.email}
+                  onChange={(event) => setDemoForm((current) => ({ ...current, email: event.target.value }))}
                   className="border-slate-500 bg-slate-700 text-white placeholder:text-slate-300"
                 />
-                <div className="sm:col-span-2">
+                <input
+                  type="text"
+                  name="companyWebsite"
+                  tabIndex={-1}
+                  autoComplete="off"
+                  aria-hidden="true"
+                  value={demoForm.companyWebsite}
+                  onChange={(event) => setDemoForm((current) => ({ ...current, companyWebsite: event.target.value }))}
+                  className="absolute left-[-9999px] h-0 w-0 opacity-0"
+                />
+                <div className="sm:col-span-2 space-y-2">
                   <Button
+                    type="submit"
+                    disabled={isSubmittingDemo}
                     className="w-full bg-rose-700 text-white shadow-sm ring-2 ring-rose-200 hover:bg-rose-600 sm:w-auto"
                   >
                     Request Demo
                   </Button>
+                  {demoSuccessMessage ? (
+                    <p className="text-sm text-emerald-300" role="status">
+                      {demoSuccessMessage}
+                    </p>
+                  ) : null}
+                  {demoErrorMessage ? (
+                    <p className="text-sm text-rose-300" role="alert">
+                      {demoErrorMessage}
+                    </p>
+                  ) : null}
                 </div>
               </form>
               <div className="space-y-3 text-sm text-slate-100">
