@@ -264,6 +264,468 @@ function buildVendorAggregates(expenses: ExpenseRecord[]): VendorAggregate[] {
   });
 }
 
+const PRESET_EXPENSE_CATEGORIES = [
+  "Fuel",
+  "Supplies",
+  "Food",
+  "Training",
+  "Equipment",
+  "General",
+  "Maintenance",
+];
+
+const PAYMENT_METHOD_OPTIONS = [
+  { value: "credit_card", label: "Credit Card" },
+  { value: "debit_card", label: "Debit Card" },
+  { value: "check", label: "Check" },
+  { value: "cash", label: "Cash" },
+  { value: "ach", label: "ACH" },
+  { value: "other", label: "Other" },
+] as const;
+
+function matchPaymentMethod(raw: string): string {
+  const normalized = raw.trim().toLowerCase().replace(/[_-]+/g, " ");
+  if (!normalized) return "";
+  if (/credit/.test(normalized)) return "credit_card";
+  if (/debit/.test(normalized)) return "debit_card";
+  if (/check|cheque/.test(normalized)) return "check";
+  if (/\bcash\b/.test(normalized)) return "cash";
+  if (/ach|wire|transfer|eft/.test(normalized)) return "ach";
+  for (const option of PAYMENT_METHOD_OPTIONS) {
+    const valueLabel = option.value.replace(/_/g, " ");
+    if (normalized === valueLabel || normalized === option.label.toLowerCase() || normalized === option.value) {
+      return option.value;
+    }
+  }
+  return "";
+}
+
+function amountStringToCents(value: string): number {
+  const parsed = optionalNumber(value);
+  if (parsed == null || parsed <= 0) return 0;
+  return Math.round(parsed * 100);
+}
+
+function centsToAmountString(cents: number): string {
+  if (cents <= 0) return "";
+  return (cents / 100).toFixed(2);
+}
+
+function sortVendorSuggestions(vendors: VendorAggregate[]): VendorAggregate[] {
+  return [...vendors].sort((a, b) => {
+    const recentCmp = b.lastUsed.localeCompare(a.lastUsed);
+    if (recentCmp !== 0) return recentCmp;
+    const countCmp = b.count - a.count;
+    if (countCmp !== 0) return countCmp;
+    return a.label.localeCompare(b.label);
+  });
+}
+
+function buildCategoryOptions(expenses: ExpenseRecord[]): string[] {
+  const seen = new Set(PRESET_EXPENSE_CATEGORIES.map((c) => c.toLowerCase()));
+  const historical: string[] = [];
+  for (const expense of expenses) {
+    const cat = (expense.category || "").trim();
+    if (!cat) continue;
+    const key = cat.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    historical.push(cat);
+  }
+  historical.sort((a, b) => a.localeCompare(b));
+  return [...PRESET_EXPENSE_CATEGORIES, ...historical];
+}
+
+function suggestCategoryForVendor(vendor: string, expenses: ExpenseRecord[]): string {
+  const normalized = vendor.trim().toLowerCase();
+  if (!normalized) return "";
+  const matching = expenses.filter((expense) => {
+    const label = (expense.payee || expense.merchant_name || "").trim().toLowerCase();
+    return label === normalized && (expense.category || "").trim();
+  });
+  if (!matching.length) return "";
+  matching.sort((a, b) => parseExpenseSortDate(b).localeCompare(parseExpenseSortDate(a)));
+  const recentCategory = matching[0].category!.trim();
+  const counts = new Map<string, number>();
+  for (const expense of matching) {
+    const cat = expense.category!.trim();
+    counts.set(cat, (counts.get(cat) || 0) + 1);
+  }
+  let topCategory = recentCategory;
+  let topCount = 0;
+  for (const [cat, count] of counts) {
+    if (count > topCount) {
+      topCount = count;
+      topCategory = cat;
+    }
+  }
+  return topCount > 1 ? topCategory : recentCategory;
+}
+
+function formatBankAccountLabel(account: BankAccount): string {
+  const institution = account.institution_name?.trim();
+  const mask = account.account_mask?.trim();
+  const meta = [institution, mask ? `•••• ${mask}` : null].filter(Boolean).join(" ");
+  return meta ? `${account.name} — ${meta}` : account.name;
+}
+
+function useDismissOnOutsideClick(
+  ref: { current: HTMLElement | null },
+  onDismiss: () => void,
+  active: boolean,
+) {
+  useEffect(() => {
+    if (!active) return;
+    function handle(event: MouseEvent) {
+      if (ref.current && !ref.current.contains(event.target as Node)) onDismiss();
+    }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [active, onDismiss, ref]);
+}
+
+type ManualExpenseFormValues = {
+  transaction_date: string;
+  payee: string;
+  total_amount: number | null;
+  payment_method: string;
+  category: string;
+  bank_account_name: string;
+  description: string;
+};
+
+function VendorAutocompleteField({
+  label,
+  value,
+  onChange,
+  expenses,
+  required,
+  placeholder = "Start typing a vendor",
+  onVendorChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  expenses: ExpenseRecord[];
+  required?: boolean;
+  placeholder?: string;
+  onVendorChange?: (vendor: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const prevVendorRef = useRef(value.trim().toLowerCase());
+
+  const vendorSuggestions = useMemo(() => sortVendorSuggestions(buildVendorAggregates(expenses)), [expenses]);
+  const filteredVendors = useMemo(() => {
+    const q = value.trim().toLowerCase();
+    if (!q) return vendorSuggestions.slice(0, 8);
+    return vendorSuggestions.filter((vendor) => vendor.label.toLowerCase().includes(q)).slice(0, 8);
+  }, [value, vendorSuggestions]);
+
+  useDismissOnOutsideClick(wrapRef, () => setOpen(false), open);
+
+  function notifyVendorChange(nextVendor: string) {
+    const normalized = nextVendor.trim().toLowerCase();
+    if (!normalized || normalized === prevVendorRef.current) return;
+    prevVendorRef.current = normalized;
+    onVendorChange?.(nextVendor);
+  }
+
+  function applySuggestion(nextVendor: string) {
+    onChange(nextVendor);
+    setOpen(false);
+    notifyVendorChange(nextVendor);
+  }
+
+  function handleBlur(event: { currentTarget: HTMLInputElement }) {
+    const nextPayee = event.currentTarget.value;
+    window.setTimeout(() => {
+      setOpen(false);
+      const normalized = nextPayee.trim().toLowerCase();
+      if (!normalized || normalized === prevVendorRef.current) return;
+      const known = vendorSuggestions.some((vendor) => vendor.label.toLowerCase() === normalized);
+      if (!known) return;
+      notifyVendorChange(nextPayee);
+    }, 120);
+  }
+
+  return (
+    <label>
+      {label}
+      <div className="fb-combobox" ref={wrapRef}>
+        <input
+          value={value}
+          onChange={(event) => {
+            onChange(event.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          onBlur={handleBlur}
+          required={required}
+          autoComplete="off"
+          placeholder={placeholder}
+        />
+        {open && filteredVendors.length > 0 ? (
+          <ul className="fb-combobox-menu" role="listbox">
+            {filteredVendors.map((vendor) => (
+              <li key={vendor.key}>
+                <button
+                  type="button"
+                  role="option"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => applySuggestion(vendor.label)}
+                >
+                  <span className="fb-combobox-primary">{vendor.label}</span>
+                  {vendor.topCategory ? <span className="fb-combobox-meta">{vendor.topCategory}</span> : null}
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    </label>
+  );
+}
+
+function CategoryComboboxField({
+  label,
+  value,
+  onChange,
+  expenses,
+  placeholder = "Fuel, supplies, food, training...",
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  expenses: ExpenseRecord[];
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const categoryOptions = useMemo(() => buildCategoryOptions(expenses), [expenses]);
+  const filteredCategories = useMemo(() => {
+    const q = value.trim().toLowerCase();
+    if (!q) return categoryOptions.slice(0, 12);
+    return categoryOptions.filter((option) => option.toLowerCase().includes(q)).slice(0, 12);
+  }, [value, categoryOptions]);
+
+  useDismissOnOutsideClick(wrapRef, () => setOpen(false), open);
+
+  return (
+    <label>
+      {label}
+      <div className="fb-combobox" ref={wrapRef}>
+        <input
+          value={value}
+          onChange={(event) => {
+            onChange(event.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          autoComplete="off"
+          placeholder={placeholder}
+        />
+        {open && filteredCategories.length > 0 ? (
+          <ul className="fb-combobox-menu" role="listbox">
+            {filteredCategories.map((option) => (
+              <li key={option}>
+                <button
+                  type="button"
+                  role="option"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    onChange(option);
+                    setOpen(false);
+                  }}
+                >
+                  {option}
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    </label>
+  );
+}
+
+function CentsMoneyInput({
+  label,
+  value,
+  onChange,
+  required,
+  placeholder = "$0.00",
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  required?: boolean;
+  placeholder?: string;
+}) {
+  const cents = amountStringToCents(value);
+
+  return (
+    <label>
+      {label}
+      <input
+        inputMode="numeric"
+        autoComplete="off"
+        value={cents > 0 ? formatUsd(cents / 100) : ""}
+        onChange={(event) => {
+          const digits = event.target.value.replace(/\D/g, "");
+          const nextCents = digits ? Number.parseInt(digits, 10) : 0;
+          onChange(centsToAmountString(nextCents));
+        }}
+        required={required}
+        placeholder={placeholder}
+      />
+    </label>
+  );
+}
+
+function PaymentMethodSelect({
+  label,
+  value,
+  onChange,
+  required,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  required?: boolean;
+}) {
+  return (
+    <label>
+      {label}
+      <select value={value} onChange={(event) => onChange(event.target.value)} required={required}>
+        <option value="">Choose</option>
+        {PAYMENT_METHOD_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function BankAccountSelect({
+  label,
+  value,
+  onChange,
+  bankAccounts,
+  required,
+  emptyMessage,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  bankAccounts: BankAccount[];
+  required?: boolean;
+  emptyMessage?: string;
+}) {
+  return (
+    <label>
+      {label}
+      {bankAccounts.length ? (
+        <select value={value} onChange={(event) => onChange(event.target.value)} required={required}>
+          <option value="">Choose account</option>
+          {bankAccounts.map((account) => (
+            <option key={account.id} value={account.name}>
+              {formatBankAccountLabel(account)}
+              {account.is_default ? " (default)" : ""}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <p className="fb-field-hint">{emptyMessage || "Add an account in Settings before logging expenses."}</p>
+      )}
+    </label>
+  );
+}
+
+function ManualExpenseForm({
+  expenses,
+  bankAccounts,
+  defaultBankAccount,
+  disabled,
+  onSubmit,
+}: {
+  expenses: ExpenseRecord[];
+  bankAccounts: BankAccount[];
+  defaultBankAccount: string;
+  disabled: boolean;
+  onSubmit: (values: ManualExpenseFormValues) => Promise<void>;
+}) {
+  const [payee, setPayee] = useState("");
+  const [totalAmount, setTotalAmount] = useState("");
+  const [category, setCategory] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("");
+  const [bankAccount, setBankAccount] = useState(defaultBankAccount);
+  const [description, setDescription] = useState("");
+
+  function handleVendorChange(nextVendor: string) {
+    const suggestion = suggestCategoryForVendor(nextVendor, expenses);
+    if (suggestion) setCategory(suggestion);
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const amountCents = amountStringToCents(totalAmount);
+    await onSubmit({
+      transaction_date: String(form.get("transaction_date") || ""),
+      payee: payee.trim(),
+      total_amount: amountCents > 0 ? amountCents / 100 : null,
+      payment_method: paymentMethod,
+      category: category.trim(),
+      bank_account_name: bankAccount.trim(),
+      description: description.trim(),
+    });
+  }
+
+  return (
+    <form className="upload-form fb-expense-form fb-new-expense-manual-form" onSubmit={handleSubmit}>
+      <div className="form-grid two-column">
+        <label>
+          Date
+          <input type="date" name="transaction_date" required defaultValue={formatLocalYMD(new Date())} />
+        </label>
+        <VendorAutocompleteField
+          label="Vendor / payee"
+          value={payee}
+          onChange={setPayee}
+          expenses={expenses}
+          required
+          onVendorChange={handleVendorChange}
+        />
+        <CentsMoneyInput label="Amount" value={totalAmount} onChange={setTotalAmount} required />
+        <PaymentMethodSelect label="Payment type" value={paymentMethod} onChange={setPaymentMethod} required />
+        <CategoryComboboxField label="Category" value={category} onChange={setCategory} expenses={expenses} />
+        <BankAccountSelect
+          label="Bank/Credit account"
+          value={bankAccount}
+          onChange={setBankAccount}
+          bankAccounts={bankAccounts}
+          required
+          emptyMessage="Add an account in Settings before logging manual expenses."
+        />
+      </div>
+      <label>
+        Description
+        <textarea rows={2} value={description} onChange={(event) => setDescription(event.target.value)} />
+      </label>
+      <button
+        type="submit"
+        className="fb-primary-btn fb-new-expense-submit"
+        disabled={disabled || !bankAccounts.length}
+      >
+        {disabled ? "Saving..." : "Save manual expense"}
+      </button>
+    </form>
+  );
+}
+
 function NavGlyph({ children }: { children: ReactNode }) {
   return (
     <span className="fb-nav-glyph" aria-hidden>
@@ -1562,6 +2024,23 @@ function NewExpensePage({
   const [manualWorking, setManualWorking] = useState(false);
   const [working, setWorking] = useState(false);
   const [manualFormKey, setManualFormKey] = useState(0);
+  const [isMobileDevice, setIsMobileDevice] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const coarse = window.matchMedia("(pointer: coarse)");
+    const noHover = window.matchMedia("(hover: none)");
+    function sync() {
+      setIsMobileDevice(coarse.matches && noHover.matches);
+    }
+    sync();
+    coarse.addEventListener("change", sync);
+    noHover.addEventListener("change", sync);
+    return () => {
+      coarse.removeEventListener("change", sync);
+      noHover.removeEventListener("change", sync);
+    };
+  }, []);
 
   useEffect(() => {
     if (!launchTab) return;
@@ -1630,7 +2109,7 @@ function NewExpensePage({
       tax_amount: extracted.tax_amount || "",
       balance_after_transaction: extracted.balance_after_transaction || "",
       category: extracted.category || "",
-      payment_method: extracted.payment_method || "",
+      payment_method: matchPaymentMethod(extracted.payment_method || ""),
     });
     setWorking(false);
   }
@@ -1715,10 +2194,8 @@ function NewExpensePage({
     }
   }
 
-  async function submitManualExpense(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function submitManualExpense(values: ManualExpenseFormValues) {
     setManualWorking(true);
-    const form = new FormData(event.currentTarget);
     const payload: Record<string, unknown> = {
       id: crypto.randomUUID(),
       department_id: membership.department_id,
@@ -1730,14 +2207,14 @@ function NewExpensePage({
       created_by_user_id: user.id,
       created_by_email: user.email || "",
       uploaded_by: loggedByLabel(user),
-      transaction_date: optionalValue(String(form.get("transaction_date") || "")),
-      payee: optionalValue(String(form.get("payee") || "")),
-      merchant_name: optionalValue(String(form.get("payee") || "")),
-      total_amount: optionalNumber(String(form.get("total_amount") || "")),
-      payment_method: optionalValue(String(form.get("payment_method") || "")),
-      category: optionalValue(String(form.get("category") || "")),
-      description: optionalValue(String(form.get("description") || "")),
-      bank_account_name: optionalValue(String(form.get("bank_account_name") || "")),
+      transaction_date: optionalValue(values.transaction_date),
+      payee: optionalValue(values.payee),
+      merchant_name: optionalValue(values.payee),
+      total_amount: optionalNumber(values.total_amount),
+      payment_method: optionalValue(values.payment_method),
+      category: optionalValue(values.category),
+      description: optionalValue(values.description),
+      bank_account_name: optionalValue(values.bank_account_name),
       extraction_status: "needs_review",
       extraction_confidence: 0,
       extraction_notes: "Manual entry without receipt",
@@ -1791,6 +2268,7 @@ function NewExpensePage({
           <ReviewExpenseForm
             draft={draft}
             form={reviewForm}
+            expenses={expenses}
             bankAccounts={bankAccounts}
             loggedBy={loggedByLabel(user)}
             setForm={setReviewForm}
@@ -1807,19 +2285,9 @@ function NewExpensePage({
               <p className="eyebrow">Receipt</p>
               <h2>Add a receipt</h2>
             </div>
-            <div className="capture-options">
-              <ReceiptCaptureOption
-                title="Take a photo"
-                description="Open your camera and snap the receipt now."
-                accept="image/*"
-                capture
-                disabled={working}
-                onFileSelected={prepareReviewFromFile}
-              />
-              <ReceiptCaptureOption
-                title="Upload image or PDF"
-                description="Choose from camera roll, files, or desktop."
-                accept="image/*,application/pdf"
+            <div className="fb-receipt-upload-wrap">
+              <ReceiptUploadAction
+                isMobileDevice={isMobileDevice}
                 disabled={working}
                 onFileSelected={prepareReviewFromFile}
               />
@@ -1835,47 +2303,14 @@ function NewExpensePage({
               <p className="eyebrow">Manual</p>
               <h2>Enter expense details</h2>
             </div>
-            <form key={manualFormKey} className="upload-form fb-new-expense-manual-form" onSubmit={submitManualExpense}>
-              <div className="form-grid two-column">
-                <label>
-                  Date
-                  <input type="date" name="transaction_date" required />
-                </label>
-                <label>
-                  Vendor / payee
-                  <input name="payee" required />
-                </label>
-                <label>
-                  Amount
-                  <input name="total_amount" required />
-                </label>
-                <label>
-                  Payment type
-                  <select name="payment_method" required>
-                    <option value="">Choose</option>
-                    <option value="cash">Cash</option>
-                    <option value="debit_card">Debit card</option>
-                    <option value="credit_card">Credit card</option>
-                    <option value="check">Check</option>
-                  </select>
-                </label>
-                <label>
-                  Category
-                  <input name="category" />
-                </label>
-                <label>
-                  Bank/Credit account
-                  <input name="bank_account_name" />
-                </label>
-              </div>
-              <label>
-                Description
-                <textarea name="description" rows={2} />
-              </label>
-              <button type="submit" className="fb-primary-btn fb-new-expense-submit" disabled={manualWorking}>
-                {manualWorking ? "Saving..." : "Save manual expense"}
-              </button>
-            </form>
+            <ManualExpenseForm
+              key={manualFormKey}
+              expenses={expenses}
+              bankAccounts={bankAccounts}
+              defaultBankAccount={defaultBankAccount}
+              disabled={manualWorking}
+              onSubmit={submitManualExpense}
+            />
           </>
         )}
       </section>
@@ -2105,22 +2540,20 @@ function Dashboard({
   );
 }
 
-function ReceiptCaptureOption({
-  title,
-  description,
-  accept,
-  capture,
+function ReceiptUploadAction({
+  isMobileDevice,
   disabled,
   onFileSelected,
 }: {
-  title: string;
-  description: string;
-  accept: string;
-  capture?: boolean;
+  isMobileDevice: boolean;
   disabled: boolean;
   onFileSelected: (file: File) => Promise<void>;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const title = isMobileDevice ? "Add Receipt" : "Upload Receipt";
+  const description = isMobileDevice
+    ? "Take a photo or upload from your device."
+    : "Upload a receipt image or PDF.";
 
   async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -2130,7 +2563,7 @@ function ReceiptCaptureOption({
   }
 
   return (
-    <div className="capture-option">
+    <div className="capture-option fb-receipt-upload-single">
       <div>
         <strong>{title}</strong>
         <p className="muted">{description}</p>
@@ -2138,8 +2571,7 @@ function ReceiptCaptureOption({
       <input
         ref={inputRef}
         type="file"
-        accept={accept}
-        capture={capture ? "environment" : undefined}
+        accept="image/*,application/pdf"
         onChange={handleFileChange}
         style={{ display: "none" }}
       />
@@ -2153,6 +2585,7 @@ function ReceiptCaptureOption({
 function ReviewExpenseForm({
   draft,
   form,
+  expenses,
   bankAccounts,
   loggedBy,
   setForm,
@@ -2162,6 +2595,7 @@ function ReviewExpenseForm({
 }: {
   draft: ExpenseDraft;
   form: ReviewForm;
+  expenses: ExpenseRecord[];
   bankAccounts: BankAccount[];
   loggedBy: string;
   setForm: (form: ReviewForm) => void;
@@ -2171,6 +2605,11 @@ function ReviewExpenseForm({
 }) {
   function update(field: keyof ReviewForm, value: string) {
     setForm({ ...form, [field]: value });
+  }
+
+  function handleVendorChange(vendor: string) {
+    const suggestion = suggestCategoryForVendor(vendor, expenses);
+    if (suggestion) update("category", suggestion);
   }
 
   return (
@@ -2183,29 +2622,35 @@ function ReviewExpenseForm({
         <img className="receipt-preview" src={draft.receiptPreviewUrl} alt="Receipt preview" />
       )}
       {draft.extracted.notes && <div className="integration-note">{draft.extracted.notes}</div>}
-      <form onSubmit={onSubmit} className="upload-form">
+      <form onSubmit={onSubmit} className="upload-form fb-expense-form">
         <div className="form-grid two-column">
           <TextField label="Date" type="date" value={form.transaction_date} onChange={(v) => update("transaction_date", v)} required />
           <TextField label="Check / payment ref" value={form.payment_reference} onChange={(v) => update("payment_reference", v)} placeholder="Check #, debit, ACH, card..." />
-          <TextField label="Paid to / vendor" value={form.payee} onChange={(v) => update("payee", v)} required />
-          <TextField label="Payment amount" value={form.total_amount} onChange={(v) => update("total_amount", v)} required />
-          <TextField label="Tax" value={form.tax_amount} onChange={(v) => update("tax_amount", v)} />
+          <VendorAutocompleteField
+            label="Paid to / vendor"
+            value={form.payee}
+            onChange={(v) => update("payee", v)}
+            expenses={expenses}
+            required
+            onVendorChange={handleVendorChange}
+          />
+          <CentsMoneyInput label="Payment amount" value={form.total_amount} onChange={(v) => update("total_amount", v)} required />
+          <CentsMoneyInput label="Tax" value={form.tax_amount} onChange={(v) => update("tax_amount", v)} />
           <TextField label="Balance after transaction" value={form.balance_after_transaction} onChange={(v) => update("balance_after_transaction", v)} />
-          <label>
-            Bank account
-            <select value={form.bank_account_name} onChange={(event) => update("bank_account_name", event.target.value)}>
-              <option value="">Choose account</option>
-              {bankAccounts.map((account) => (
-                <option key={account.id} value={account.name}>
-                  {account.name}
-                  {account.is_default ? " (default)" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-          <TextField label="Payment method" value={form.payment_method} onChange={(v) => update("payment_method", v)} placeholder="Check, debit card, ACH..." />
+          <BankAccountSelect
+            label="Bank account"
+            value={form.bank_account_name}
+            onChange={(v) => update("bank_account_name", v)}
+            bankAccounts={bankAccounts}
+          />
+          <PaymentMethodSelect label="Payment method" value={form.payment_method} onChange={(v) => update("payment_method", v)} />
           <TextField label="Fund / budget line" value={form.fund} onChange={(v) => update("fund", v)} placeholder="General, equipment, fuel..." />
-          <TextField label="Category / purpose" value={form.category} onChange={(v) => update("category", v)} placeholder="Fuel, supplies, food, training..." />
+          <CategoryComboboxField
+            label="Category / purpose"
+            value={form.category}
+            onChange={(v) => update("category", v)}
+            expenses={expenses}
+          />
         </div>
         <label>
           Description / memo
