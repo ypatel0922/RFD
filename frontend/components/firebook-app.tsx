@@ -29,6 +29,8 @@ import {
   ReviewForm,
 } from "../lib/types";
 import { buildReconciliationReport, reconciliationReportCsv } from "../lib/reports";
+import { ReconciliationInboxSection } from "./reconciliation-inbox";
+import { TransactionsLedger } from "./TransactionsLedger";
 
 type AuthMode = "login" | "signup";
 type AppView =
@@ -262,6 +264,468 @@ function buildVendorAggregates(expenses: ExpenseRecord[]): VendorAggregate[] {
   });
 }
 
+const PRESET_EXPENSE_CATEGORIES = [
+  "Fuel",
+  "Supplies",
+  "Food",
+  "Training",
+  "Equipment",
+  "General",
+  "Maintenance",
+];
+
+const PAYMENT_METHOD_OPTIONS = [
+  { value: "credit_card", label: "Credit Card" },
+  { value: "debit_card", label: "Debit Card" },
+  { value: "check", label: "Check" },
+  { value: "cash", label: "Cash" },
+  { value: "ach", label: "ACH" },
+  { value: "other", label: "Other" },
+] as const;
+
+function matchPaymentMethod(raw: string): string {
+  const normalized = raw.trim().toLowerCase().replace(/[_-]+/g, " ");
+  if (!normalized) return "";
+  if (/credit/.test(normalized)) return "credit_card";
+  if (/debit/.test(normalized)) return "debit_card";
+  if (/check|cheque/.test(normalized)) return "check";
+  if (/\bcash\b/.test(normalized)) return "cash";
+  if (/ach|wire|transfer|eft/.test(normalized)) return "ach";
+  for (const option of PAYMENT_METHOD_OPTIONS) {
+    const valueLabel = option.value.replace(/_/g, " ");
+    if (normalized === valueLabel || normalized === option.label.toLowerCase() || normalized === option.value) {
+      return option.value;
+    }
+  }
+  return "";
+}
+
+function amountStringToCents(value: string): number {
+  const parsed = optionalNumber(value);
+  if (parsed == null || parsed <= 0) return 0;
+  return Math.round(parsed * 100);
+}
+
+function centsToAmountString(cents: number): string {
+  if (cents <= 0) return "";
+  return (cents / 100).toFixed(2);
+}
+
+function sortVendorSuggestions(vendors: VendorAggregate[]): VendorAggregate[] {
+  return [...vendors].sort((a, b) => {
+    const recentCmp = b.lastUsed.localeCompare(a.lastUsed);
+    if (recentCmp !== 0) return recentCmp;
+    const countCmp = b.count - a.count;
+    if (countCmp !== 0) return countCmp;
+    return a.label.localeCompare(b.label);
+  });
+}
+
+function buildCategoryOptions(expenses: ExpenseRecord[]): string[] {
+  const seen = new Set(PRESET_EXPENSE_CATEGORIES.map((c) => c.toLowerCase()));
+  const historical: string[] = [];
+  for (const expense of expenses) {
+    const cat = (expense.category || "").trim();
+    if (!cat) continue;
+    const key = cat.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    historical.push(cat);
+  }
+  historical.sort((a, b) => a.localeCompare(b));
+  return [...PRESET_EXPENSE_CATEGORIES, ...historical];
+}
+
+function suggestCategoryForVendor(vendor: string, expenses: ExpenseRecord[]): string {
+  const normalized = vendor.trim().toLowerCase();
+  if (!normalized) return "";
+  const matching = expenses.filter((expense) => {
+    const label = (expense.payee || expense.merchant_name || "").trim().toLowerCase();
+    return label === normalized && (expense.category || "").trim();
+  });
+  if (!matching.length) return "";
+  matching.sort((a, b) => parseExpenseSortDate(b).localeCompare(parseExpenseSortDate(a)));
+  const recentCategory = matching[0].category!.trim();
+  const counts = new Map<string, number>();
+  for (const expense of matching) {
+    const cat = expense.category!.trim();
+    counts.set(cat, (counts.get(cat) || 0) + 1);
+  }
+  let topCategory = recentCategory;
+  let topCount = 0;
+  for (const [cat, count] of counts) {
+    if (count > topCount) {
+      topCount = count;
+      topCategory = cat;
+    }
+  }
+  return topCount > 1 ? topCategory : recentCategory;
+}
+
+function formatBankAccountLabel(account: BankAccount): string {
+  const institution = account.institution_name?.trim();
+  const mask = account.account_mask?.trim();
+  const meta = [institution, mask ? `•••• ${mask}` : null].filter(Boolean).join(" ");
+  return meta ? `${account.name} — ${meta}` : account.name;
+}
+
+function useDismissOnOutsideClick(
+  ref: { current: HTMLElement | null },
+  onDismiss: () => void,
+  active: boolean,
+) {
+  useEffect(() => {
+    if (!active) return;
+    function handle(event: MouseEvent) {
+      if (ref.current && !ref.current.contains(event.target as Node)) onDismiss();
+    }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [active, onDismiss, ref]);
+}
+
+type ManualExpenseFormValues = {
+  transaction_date: string;
+  payee: string;
+  total_amount: number | null;
+  payment_method: string;
+  category: string;
+  bank_account_name: string;
+  description: string;
+};
+
+function VendorAutocompleteField({
+  label,
+  value,
+  onChange,
+  expenses,
+  required,
+  placeholder = "Start typing a vendor",
+  onVendorChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  expenses: ExpenseRecord[];
+  required?: boolean;
+  placeholder?: string;
+  onVendorChange?: (vendor: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const prevVendorRef = useRef(value.trim().toLowerCase());
+
+  const vendorSuggestions = useMemo(() => sortVendorSuggestions(buildVendorAggregates(expenses)), [expenses]);
+  const filteredVendors = useMemo(() => {
+    const q = value.trim().toLowerCase();
+    if (!q) return vendorSuggestions.slice(0, 8);
+    return vendorSuggestions.filter((vendor) => vendor.label.toLowerCase().includes(q)).slice(0, 8);
+  }, [value, vendorSuggestions]);
+
+  useDismissOnOutsideClick(wrapRef, () => setOpen(false), open);
+
+  function notifyVendorChange(nextVendor: string) {
+    const normalized = nextVendor.trim().toLowerCase();
+    if (!normalized || normalized === prevVendorRef.current) return;
+    prevVendorRef.current = normalized;
+    onVendorChange?.(nextVendor);
+  }
+
+  function applySuggestion(nextVendor: string) {
+    onChange(nextVendor);
+    setOpen(false);
+    notifyVendorChange(nextVendor);
+  }
+
+  function handleBlur(event: { currentTarget: HTMLInputElement }) {
+    const nextPayee = event.currentTarget.value;
+    window.setTimeout(() => {
+      setOpen(false);
+      const normalized = nextPayee.trim().toLowerCase();
+      if (!normalized || normalized === prevVendorRef.current) return;
+      const known = vendorSuggestions.some((vendor) => vendor.label.toLowerCase() === normalized);
+      if (!known) return;
+      notifyVendorChange(nextPayee);
+    }, 120);
+  }
+
+  return (
+    <label>
+      {label}
+      <div className="fb-combobox" ref={wrapRef}>
+        <input
+          value={value}
+          onChange={(event) => {
+            onChange(event.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          onBlur={handleBlur}
+          required={required}
+          autoComplete="off"
+          placeholder={placeholder}
+        />
+        {open && filteredVendors.length > 0 ? (
+          <ul className="fb-combobox-menu" role="listbox">
+            {filteredVendors.map((vendor) => (
+              <li key={vendor.key}>
+                <button
+                  type="button"
+                  role="option"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => applySuggestion(vendor.label)}
+                >
+                  <span className="fb-combobox-primary">{vendor.label}</span>
+                  {vendor.topCategory ? <span className="fb-combobox-meta">{vendor.topCategory}</span> : null}
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    </label>
+  );
+}
+
+function CategoryComboboxField({
+  label,
+  value,
+  onChange,
+  expenses,
+  placeholder = "Fuel, supplies, food, training...",
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  expenses: ExpenseRecord[];
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const categoryOptions = useMemo(() => buildCategoryOptions(expenses), [expenses]);
+  const filteredCategories = useMemo(() => {
+    const q = value.trim().toLowerCase();
+    if (!q) return categoryOptions.slice(0, 12);
+    return categoryOptions.filter((option) => option.toLowerCase().includes(q)).slice(0, 12);
+  }, [value, categoryOptions]);
+
+  useDismissOnOutsideClick(wrapRef, () => setOpen(false), open);
+
+  return (
+    <label>
+      {label}
+      <div className="fb-combobox" ref={wrapRef}>
+        <input
+          value={value}
+          onChange={(event) => {
+            onChange(event.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          autoComplete="off"
+          placeholder={placeholder}
+        />
+        {open && filteredCategories.length > 0 ? (
+          <ul className="fb-combobox-menu" role="listbox">
+            {filteredCategories.map((option) => (
+              <li key={option}>
+                <button
+                  type="button"
+                  role="option"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    onChange(option);
+                    setOpen(false);
+                  }}
+                >
+                  {option}
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    </label>
+  );
+}
+
+function CentsMoneyInput({
+  label,
+  value,
+  onChange,
+  required,
+  placeholder = "$0.00",
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  required?: boolean;
+  placeholder?: string;
+}) {
+  const cents = amountStringToCents(value);
+
+  return (
+    <label>
+      {label}
+      <input
+        inputMode="numeric"
+        autoComplete="off"
+        value={cents > 0 ? formatUsd(cents / 100) : ""}
+        onChange={(event) => {
+          const digits = event.target.value.replace(/\D/g, "");
+          const nextCents = digits ? Number.parseInt(digits, 10) : 0;
+          onChange(centsToAmountString(nextCents));
+        }}
+        required={required}
+        placeholder={placeholder}
+      />
+    </label>
+  );
+}
+
+function PaymentMethodSelect({
+  label,
+  value,
+  onChange,
+  required,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  required?: boolean;
+}) {
+  return (
+    <label>
+      {label}
+      <select value={value} onChange={(event) => onChange(event.target.value)} required={required}>
+        <option value="">Choose</option>
+        {PAYMENT_METHOD_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function BankAccountSelect({
+  label,
+  value,
+  onChange,
+  bankAccounts,
+  required,
+  emptyMessage,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  bankAccounts: BankAccount[];
+  required?: boolean;
+  emptyMessage?: string;
+}) {
+  return (
+    <label>
+      {label}
+      {bankAccounts.length ? (
+        <select value={value} onChange={(event) => onChange(event.target.value)} required={required}>
+          <option value="">Choose account</option>
+          {bankAccounts.map((account) => (
+            <option key={account.id} value={account.name}>
+              {formatBankAccountLabel(account)}
+              {account.is_default ? " (default)" : ""}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <p className="fb-field-hint">{emptyMessage || "Add an account in Settings before logging expenses."}</p>
+      )}
+    </label>
+  );
+}
+
+function ManualExpenseForm({
+  expenses,
+  bankAccounts,
+  defaultBankAccount,
+  disabled,
+  onSubmit,
+}: {
+  expenses: ExpenseRecord[];
+  bankAccounts: BankAccount[];
+  defaultBankAccount: string;
+  disabled: boolean;
+  onSubmit: (values: ManualExpenseFormValues) => Promise<void>;
+}) {
+  const [payee, setPayee] = useState("");
+  const [totalAmount, setTotalAmount] = useState("");
+  const [category, setCategory] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("");
+  const [bankAccount, setBankAccount] = useState(defaultBankAccount);
+  const [description, setDescription] = useState("");
+
+  function handleVendorChange(nextVendor: string) {
+    const suggestion = suggestCategoryForVendor(nextVendor, expenses);
+    if (suggestion) setCategory(suggestion);
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const amountCents = amountStringToCents(totalAmount);
+    await onSubmit({
+      transaction_date: String(form.get("transaction_date") || ""),
+      payee: payee.trim(),
+      total_amount: amountCents > 0 ? amountCents / 100 : null,
+      payment_method: paymentMethod,
+      category: category.trim(),
+      bank_account_name: bankAccount.trim(),
+      description: description.trim(),
+    });
+  }
+
+  return (
+    <form className="upload-form fb-expense-form fb-new-expense-manual-form" onSubmit={handleSubmit}>
+      <div className="form-grid two-column">
+        <label>
+          Date
+          <input type="date" name="transaction_date" required defaultValue={formatLocalYMD(new Date())} />
+        </label>
+        <VendorAutocompleteField
+          label="Vendor / payee"
+          value={payee}
+          onChange={setPayee}
+          expenses={expenses}
+          required
+          onVendorChange={handleVendorChange}
+        />
+        <CentsMoneyInput label="Amount" value={totalAmount} onChange={setTotalAmount} required />
+        <PaymentMethodSelect label="Payment type" value={paymentMethod} onChange={setPaymentMethod} required />
+        <CategoryComboboxField label="Category" value={category} onChange={setCategory} expenses={expenses} />
+        <BankAccountSelect
+          label="Bank/Credit account"
+          value={bankAccount}
+          onChange={setBankAccount}
+          bankAccounts={bankAccounts}
+          required
+          emptyMessage="Add an account in Settings before logging manual expenses."
+        />
+      </div>
+      <label>
+        Description
+        <textarea rows={2} value={description} onChange={(event) => setDescription(event.target.value)} />
+      </label>
+      <button
+        type="submit"
+        className="fb-primary-btn fb-new-expense-submit"
+        disabled={disabled || !bankAccounts.length}
+      >
+        {disabled ? "Saving..." : "Save manual expense"}
+      </button>
+    </form>
+  );
+}
+
 function NavGlyph({ children }: { children: ReactNode }) {
   return (
     <span className="fb-nav-glyph" aria-hidden>
@@ -291,6 +755,7 @@ export default function Home() {
   const [expenseEntryLaunch, setExpenseEntryLaunch] = useState<ExpenseEntryLaunch>(null);
   const [reportsDocumentsMode, setReportsDocumentsMode] = useState<ReportsDocumentsMode>("hub");
   const [ledgerBankAccountFilter, setLedgerBankAccountFilter] = useState("");
+  const [settingsSection, setSettingsSection] = useState<SettingsSectionId>("overview");
   const transactionsPanelRef = useRef<HTMLDivElement | null>(null);
   const [useCompactAppHeader, setUseCompactAppHeader] = useState(false);
 
@@ -807,26 +1272,42 @@ export default function Home() {
 
               <div className="fb-sidebar-divider" />
 
-              <button
-                type="button"
-                className={`fb-sidebar-link ${view === "settings" ? "fb-sidebar-link-active" : ""}`}
-                onClick={() => {
-                  setView("settings");
-                  setMobileNavOpen(false);
-                }}
-              >
-                <NavGlyph>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
-                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c0 .66.39 1.26 1 1.51H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
-                  </svg>
-                </NavGlyph>
-                <span className="fb-sidebar-link-label">Settings</span>
-              </button>
-
-             
-
-             
+              <div className="fb-sidebar-settings-group">
+                <button
+                  type="button"
+                  className={`fb-sidebar-link ${view === "settings" ? "fb-sidebar-link-active" : ""}`}
+                  onClick={() => {
+                    setView("settings");
+                    setMobileNavOpen(false);
+                  }}
+                >
+                  <NavGlyph>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
+                      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c0 .66.39 1.26 1 1.51H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
+                    </svg>
+                  </NavGlyph>
+                  <span className="fb-sidebar-link-label">Settings</span>
+                </button>
+                {view === "settings" ? (
+                  <div className="fb-sidebar-subnav" role="group" aria-label="Settings sections">
+                    {SETTINGS_NAV.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className={`fb-sidebar-sublink ${settingsSection === item.id ? "fb-sidebar-sublink-active" : ""}`}
+                        onClick={() => {
+                          setView("settings");
+                          setSettingsSection(item.id);
+                          setMobileNavOpen(false);
+                        }}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
             </nav>
 
             <div className="fb-sidebar-meta">
@@ -887,19 +1368,16 @@ export default function Home() {
             />
           ) : view === "transactions" ? (
             <div ref={transactionsPanelRef} className="fb-tab-stack">
-              <ExpenseLedger
+              <TransactionsLedger
                 expenses={expenses}
                 receiptUrls={receiptUrls}
                 user={session.user}
                 onExpensesChanged={() => loadExpenses(membership.department_id)}
                 showErrorMessage={showErrorMessage}
                 showSuccessMessage={showSuccessMessage}
-                ledgerScope={ledgerScope}
-                onLedgerScopeChange={setLedgerScope}
                 vendorQuery={ledgerVendorQuery}
                 onVendorQueryChange={setLedgerVendorQuery}
                 ledgerMayTruncate={expenses.length >= LEDGER_ALL_LIMIT}
-                forceAllScope
                 bankAccountFilter={ledgerBankAccountFilter}
                 onClearBankAccountFilter={() => setLedgerBankAccountFilter("")}
               />
@@ -908,14 +1386,30 @@ export default function Home() {
             <ReconciliationInboxSection
               expenses={expenses}
               receiptUrls={receiptUrls}
+              bankAccounts={bankAccounts}
+              membership={membership}
+              user={session.user}
+              onExpensesChanged={() => loadExpenses(membership.department_id)}
+              showErrorMessage={showErrorMessage}
+              showSuccessMessage={showSuccessMessage}
               onOpenFullReport={() => {
                 setView("reports_documents");
                 setReportsDocumentsMode("reconciliation");
                 setMobileNavOpen(false);
               }}
+              onOpenUploadStatement={() => {
+                setView("reports_documents");
+                setReportsDocumentsMode("statements");
+                setMobileNavOpen(false);
+              }}
               onOpenTransactions={() => {
                 setView("transactions");
                 setLedgerBankAccountFilter("");
+                setMobileNavOpen(false);
+              }}
+              onOpenNewExpense={() => {
+                setExpenseEntryLaunch({ tab: "receipt" });
+                setView("new_expense");
                 setMobileNavOpen(false);
               }}
             />
@@ -952,38 +1446,20 @@ export default function Home() {
           ) : view === "vendors" ? (
             <VendorsSection expenses={expenses} />
           ) : view === "settings" ? (
-            <div className="fb-tab-stack">
-              <Settings
-                membership={membership}
-                session={session}
-                bankAccounts={bankAccounts}
-                departmentSettings={departmentSettings}
-                onBankAccountsChanged={handleBankAccountsChanged}
-                onDepartmentSettingsChanged={() => loadDepartmentSettings(membership.department_id)}
-                showErrorMessage={showErrorMessage}
-                showSuccessMessage={showSuccessMessage}
-              />
-              <section className="card fb-settings-placeholder">
-                <div className="section-heading">
-                  <p className="eyebrow">Department roster</p>
-                  <h2>People in your department</h2>
-                </div>
-                <p className="muted">
-                  A shared roster of treasurers and officers will appear here. For now, coordinate access with your
-                  department admin outside Firebook if you need to add teammates.
-                </p>
-              </section>
-              <section className="card fb-settings-placeholder">
-                <div className="section-heading">
-                  <p className="eyebrow">Profile &amp; security</p>
-                  <h2>Your login and role</h2>
-                </div>
-                <p className="muted">
-                  Editing display name, email, password, and department title will be available here. Your current role
-                  is shown in the header ({membership.role}).
-                </p>
-              </section>
-            </div>
+            <Settings
+              membership={membership}
+              session={session}
+              user={session.user}
+              bankAccounts={bankAccounts}
+              expenses={expenses}
+              departmentSettings={departmentSettings}
+              activeSection={settingsSection}
+              onSectionChange={setSettingsSection}
+              onBankAccountsChanged={handleBankAccountsChanged}
+              onDepartmentSettingsChanged={() => loadDepartmentSettings(membership.department_id)}
+              showErrorMessage={showErrorMessage}
+              showSuccessMessage={showSuccessMessage}
+            />
           ) : null}
         </div>
       </div>
@@ -1519,95 +1995,6 @@ function AccountsTabSection({
   );
 }
 
-function ReconciliationInboxSection({
-  expenses,
-  receiptUrls,
-  onOpenFullReport,
-  onOpenTransactions,
-}: {
-  expenses: ExpenseRecord[];
-  receiptUrls: Record<string, string>;
-  onOpenFullReport: () => void;
-  onOpenTransactions: () => void;
-}) {
-  const actionItems = useMemo(() => expenses.filter((e) => expenseNeedsReconciliationAttention(e)), [expenses]);
-  return (
-    <div className="fb-tab-stack">
-      <section className="card fb-dash-welcome">
-        <p className="eyebrow">Action required</p>
-        <h1 className="fb-dash-title">Reconciliation</h1>
-        <p className="fb-dash-subtitle">
-          Items below still need review or a bank match. Matched expenses are hidden here but remain in{" "}
-          <strong>Transactions</strong> and in the full reconciliation report.
-        </p>
-      </section>
-      <section className="card">
-        <ReconciliationProgress expenses={expenses} />
-        <div className="fb-recon-actions">
-          <button type="button" className="fb-primary-btn" onClick={onOpenFullReport}>
-            Open full reconciliation report
-          </button>
-          <button type="button" className="fb-secondary-btn" onClick={onOpenTransactions}>
-            Search all transactions
-          </button>
-        </div>
-      </section>
-      <section className="card">
-        <div className="section-heading">
-          <p className="eyebrow">Queue</p>
-          <h2>Needs attention ({actionItems.length})</h2>
-        </div>
-        {actionItems.length ? (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Payee</th>
-                  <th>Date</th>
-                  <th>Amount</th>
-                  <th>Extraction</th>
-                  <th>Reconcile</th>
-                  <th>Receipt</th>
-                </tr>
-              </thead>
-              <tbody>
-                {actionItems.slice(0, 200).map((expense) => (
-                  <tr key={expense.id}>
-                    <td>{expense.payee || expense.merchant_name || "Needs review"}</td>
-                    <td>{expense.transaction_date || "—"}</td>
-                    <td>{expense.total_amount != null ? `$${expense.total_amount}` : "—"}</td>
-                    <td>
-                      <span className={`status status-${expense.extraction_status}`}>
-                        {expense.extraction_status.replaceAll("_", " ")}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`status status-${expense.reconciliation_status}`}>
-                        {expense.reconciliation_status.replaceAll("_", " ")}
-                      </span>
-                    </td>
-                    <td>
-                      {receiptUrls[expense.id] ? (
-                        <a href={receiptUrls[expense.id]} target="_blank" rel="noopener noreferrer">
-                          View
-                        </a>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p className="empty-state">Nothing needs attention right now. Great work.</p>
-        )}
-      </section>
-    </div>
-  );
-}
-
 function NewExpensePage({
   membership,
   user,
@@ -1637,6 +2024,23 @@ function NewExpensePage({
   const [manualWorking, setManualWorking] = useState(false);
   const [working, setWorking] = useState(false);
   const [manualFormKey, setManualFormKey] = useState(0);
+  const [isMobileDevice, setIsMobileDevice] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const coarse = window.matchMedia("(pointer: coarse)");
+    const noHover = window.matchMedia("(hover: none)");
+    function sync() {
+      setIsMobileDevice(coarse.matches && noHover.matches);
+    }
+    sync();
+    coarse.addEventListener("change", sync);
+    noHover.addEventListener("change", sync);
+    return () => {
+      coarse.removeEventListener("change", sync);
+      noHover.removeEventListener("change", sync);
+    };
+  }, []);
 
   useEffect(() => {
     if (!launchTab) return;
@@ -1705,7 +2109,7 @@ function NewExpensePage({
       tax_amount: extracted.tax_amount || "",
       balance_after_transaction: extracted.balance_after_transaction || "",
       category: extracted.category || "",
-      payment_method: extracted.payment_method || "",
+      payment_method: matchPaymentMethod(extracted.payment_method || ""),
     });
     setWorking(false);
   }
@@ -1790,10 +2194,8 @@ function NewExpensePage({
     }
   }
 
-  async function submitManualExpense(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function submitManualExpense(values: ManualExpenseFormValues) {
     setManualWorking(true);
-    const form = new FormData(event.currentTarget);
     const payload: Record<string, unknown> = {
       id: crypto.randomUUID(),
       department_id: membership.department_id,
@@ -1805,14 +2207,14 @@ function NewExpensePage({
       created_by_user_id: user.id,
       created_by_email: user.email || "",
       uploaded_by: loggedByLabel(user),
-      transaction_date: optionalValue(String(form.get("transaction_date") || "")),
-      payee: optionalValue(String(form.get("payee") || "")),
-      merchant_name: optionalValue(String(form.get("payee") || "")),
-      total_amount: optionalNumber(String(form.get("total_amount") || "")),
-      payment_method: optionalValue(String(form.get("payment_method") || "")),
-      category: optionalValue(String(form.get("category") || "")),
-      description: optionalValue(String(form.get("description") || "")),
-      bank_account_name: optionalValue(String(form.get("bank_account_name") || "")),
+      transaction_date: optionalValue(values.transaction_date),
+      payee: optionalValue(values.payee),
+      merchant_name: optionalValue(values.payee),
+      total_amount: optionalNumber(values.total_amount),
+      payment_method: optionalValue(values.payment_method),
+      category: optionalValue(values.category),
+      description: optionalValue(values.description),
+      bank_account_name: optionalValue(values.bank_account_name),
       extraction_status: "needs_review",
       extraction_confidence: 0,
       extraction_notes: "Manual entry without receipt",
@@ -1866,6 +2268,7 @@ function NewExpensePage({
           <ReviewExpenseForm
             draft={draft}
             form={reviewForm}
+            expenses={expenses}
             bankAccounts={bankAccounts}
             loggedBy={loggedByLabel(user)}
             setForm={setReviewForm}
@@ -1882,19 +2285,9 @@ function NewExpensePage({
               <p className="eyebrow">Receipt</p>
               <h2>Add a receipt</h2>
             </div>
-            <div className="capture-options">
-              <ReceiptCaptureOption
-                title="Take a photo"
-                description="Open your camera and snap the receipt now."
-                accept="image/*"
-                capture
-                disabled={working}
-                onFileSelected={prepareReviewFromFile}
-              />
-              <ReceiptCaptureOption
-                title="Upload image or PDF"
-                description="Choose from camera roll, files, or desktop."
-                accept="image/*,application/pdf"
+            <div className="fb-receipt-upload-wrap">
+              <ReceiptUploadAction
+                isMobileDevice={isMobileDevice}
                 disabled={working}
                 onFileSelected={prepareReviewFromFile}
               />
@@ -1910,47 +2303,14 @@ function NewExpensePage({
               <p className="eyebrow">Manual</p>
               <h2>Enter expense details</h2>
             </div>
-            <form key={manualFormKey} className="upload-form fb-new-expense-manual-form" onSubmit={submitManualExpense}>
-              <div className="form-grid two-column">
-                <label>
-                  Date
-                  <input type="date" name="transaction_date" required />
-                </label>
-                <label>
-                  Vendor / payee
-                  <input name="payee" required />
-                </label>
-                <label>
-                  Amount
-                  <input name="total_amount" required />
-                </label>
-                <label>
-                  Payment type
-                  <select name="payment_method" required>
-                    <option value="">Choose</option>
-                    <option value="cash">Cash</option>
-                    <option value="debit_card">Debit card</option>
-                    <option value="credit_card">Credit card</option>
-                    <option value="check">Check</option>
-                  </select>
-                </label>
-                <label>
-                  Category
-                  <input name="category" />
-                </label>
-                <label>
-                  Bank/Credit account
-                  <input name="bank_account_name" />
-                </label>
-              </div>
-              <label>
-                Description
-                <textarea name="description" rows={2} />
-              </label>
-              <button type="submit" className="fb-primary-btn fb-new-expense-submit" disabled={manualWorking}>
-                {manualWorking ? "Saving..." : "Save manual expense"}
-              </button>
-            </form>
+            <ManualExpenseForm
+              key={manualFormKey}
+              expenses={expenses}
+              bankAccounts={bankAccounts}
+              defaultBankAccount={defaultBankAccount}
+              disabled={manualWorking}
+              onSubmit={submitManualExpense}
+            />
           </>
         )}
       </section>
@@ -2180,22 +2540,20 @@ function Dashboard({
   );
 }
 
-function ReceiptCaptureOption({
-  title,
-  description,
-  accept,
-  capture,
+function ReceiptUploadAction({
+  isMobileDevice,
   disabled,
   onFileSelected,
 }: {
-  title: string;
-  description: string;
-  accept: string;
-  capture?: boolean;
+  isMobileDevice: boolean;
   disabled: boolean;
   onFileSelected: (file: File) => Promise<void>;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const title = isMobileDevice ? "Add Receipt" : "Upload Receipt";
+  const description = isMobileDevice
+    ? "Take a photo or upload from your device."
+    : "Upload a receipt image or PDF.";
 
   async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -2205,7 +2563,7 @@ function ReceiptCaptureOption({
   }
 
   return (
-    <div className="capture-option">
+    <div className="capture-option fb-receipt-upload-single">
       <div>
         <strong>{title}</strong>
         <p className="muted">{description}</p>
@@ -2213,8 +2571,7 @@ function ReceiptCaptureOption({
       <input
         ref={inputRef}
         type="file"
-        accept={accept}
-        capture={capture ? "environment" : undefined}
+        accept="image/*,application/pdf"
         onChange={handleFileChange}
         style={{ display: "none" }}
       />
@@ -2228,6 +2585,7 @@ function ReceiptCaptureOption({
 function ReviewExpenseForm({
   draft,
   form,
+  expenses,
   bankAccounts,
   loggedBy,
   setForm,
@@ -2237,6 +2595,7 @@ function ReviewExpenseForm({
 }: {
   draft: ExpenseDraft;
   form: ReviewForm;
+  expenses: ExpenseRecord[];
   bankAccounts: BankAccount[];
   loggedBy: string;
   setForm: (form: ReviewForm) => void;
@@ -2246,6 +2605,11 @@ function ReviewExpenseForm({
 }) {
   function update(field: keyof ReviewForm, value: string) {
     setForm({ ...form, [field]: value });
+  }
+
+  function handleVendorChange(vendor: string) {
+    const suggestion = suggestCategoryForVendor(vendor, expenses);
+    if (suggestion) update("category", suggestion);
   }
 
   return (
@@ -2258,29 +2622,35 @@ function ReviewExpenseForm({
         <img className="receipt-preview" src={draft.receiptPreviewUrl} alt="Receipt preview" />
       )}
       {draft.extracted.notes && <div className="integration-note">{draft.extracted.notes}</div>}
-      <form onSubmit={onSubmit} className="upload-form">
+      <form onSubmit={onSubmit} className="upload-form fb-expense-form">
         <div className="form-grid two-column">
           <TextField label="Date" type="date" value={form.transaction_date} onChange={(v) => update("transaction_date", v)} required />
           <TextField label="Check / payment ref" value={form.payment_reference} onChange={(v) => update("payment_reference", v)} placeholder="Check #, debit, ACH, card..." />
-          <TextField label="Paid to / vendor" value={form.payee} onChange={(v) => update("payee", v)} required />
-          <TextField label="Payment amount" value={form.total_amount} onChange={(v) => update("total_amount", v)} required />
-          <TextField label="Tax" value={form.tax_amount} onChange={(v) => update("tax_amount", v)} />
+          <VendorAutocompleteField
+            label="Paid to / vendor"
+            value={form.payee}
+            onChange={(v) => update("payee", v)}
+            expenses={expenses}
+            required
+            onVendorChange={handleVendorChange}
+          />
+          <CentsMoneyInput label="Payment amount" value={form.total_amount} onChange={(v) => update("total_amount", v)} required />
+          <CentsMoneyInput label="Tax" value={form.tax_amount} onChange={(v) => update("tax_amount", v)} />
           <TextField label="Balance after transaction" value={form.balance_after_transaction} onChange={(v) => update("balance_after_transaction", v)} />
-          <label>
-            Bank account
-            <select value={form.bank_account_name} onChange={(event) => update("bank_account_name", event.target.value)}>
-              <option value="">Choose account</option>
-              {bankAccounts.map((account) => (
-                <option key={account.id} value={account.name}>
-                  {account.name}
-                  {account.is_default ? " (default)" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-          <TextField label="Payment method" value={form.payment_method} onChange={(v) => update("payment_method", v)} placeholder="Check, debit card, ACH..." />
+          <BankAccountSelect
+            label="Bank account"
+            value={form.bank_account_name}
+            onChange={(v) => update("bank_account_name", v)}
+            bankAccounts={bankAccounts}
+          />
+          <PaymentMethodSelect label="Payment method" value={form.payment_method} onChange={(v) => update("payment_method", v)} />
           <TextField label="Fund / budget line" value={form.fund} onChange={(v) => update("fund", v)} placeholder="General, equipment, fuel..." />
-          <TextField label="Category / purpose" value={form.category} onChange={(v) => update("category", v)} placeholder="Fuel, supplies, food, training..." />
+          <CategoryComboboxField
+            label="Category / purpose"
+            value={form.category}
+            onChange={(v) => update("category", v)}
+            expenses={expenses}
+          />
         </div>
         <label>
           Description / memo
@@ -2330,507 +2700,6 @@ function TextField({
         placeholder={placeholder}
       />
     </label>
-  );
-}
-
-function ExpenseLedger({
-  expenses,
-  receiptUrls,
-  user,
-  onExpensesChanged,
-  showErrorMessage,
-  showSuccessMessage,
-  ledgerScope,
-  onLedgerScopeChange,
-  vendorQuery,
-  onVendorQueryChange,
-  ledgerMayTruncate,
-  forceAllScope = false,
-  bankAccountFilter = "",
-  onClearBankAccountFilter,
-}: {
-  expenses: ExpenseRecord[];
-  receiptUrls: Record<string, string>;
-  user: User;
-  onExpensesChanged: () => Promise<void>;
-  showErrorMessage: (message: string) => void;
-  showSuccessMessage: (message: string | null) => void;
-  ledgerScope: LedgerScope;
-  onLedgerScopeChange: (scope: LedgerScope) => void;
-  vendorQuery: string;
-  onVendorQueryChange: (value: string) => void;
-  ledgerMayTruncate: boolean;
-  forceAllScope?: boolean;
-  bankAccountFilter?: string;
-  onClearBankAccountFilter?: () => void;
-}) {
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editReason, setEditReason] = useState("");
-  const [editValues, setEditValues] = useState<Record<string, string>>({});
-  const [categoryFilter, setCategoryFilter] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const [amountMin, setAmountMin] = useState("");
-  const [amountMax, setAmountMax] = useState("");
-
-  const scopedExpenses = useMemo(() => {
-    if (forceAllScope) return expenses;
-    return ledgerScope === "recent" ? expenses.slice(0, LEDGER_RECENT_LIMIT) : expenses;
-  }, [expenses, ledgerScope, forceAllScope]);
-
-  function applyDatePreset(preset: "ytd" | "last_year" | "last12" | "clear") {
-    const now = new Date();
-    if (preset === "clear") {
-      setDateFrom("");
-      setDateTo("");
-      return;
-    }
-    if (preset === "ytd") {
-      setDateFrom(formatLocalYMD(new Date(now.getFullYear(), 0, 1)));
-      setDateTo(formatLocalYMD(now));
-      return;
-    }
-    if (preset === "last_year") {
-      const y = now.getFullYear() - 1;
-      setDateFrom(formatLocalYMD(new Date(y, 0, 1)));
-      setDateTo(formatLocalYMD(new Date(y, 11, 31)));
-      return;
-    }
-    const start = new Date(now);
-    start.setFullYear(start.getFullYear() - 1);
-    setDateFrom(formatLocalYMD(start));
-    setDateTo(formatLocalYMD(now));
-  }
-
-  const filteredExpenses = useMemo(() => {
-    let list = scopedExpenses;
-    const q = vendorQuery.trim().toLowerCase();
-    if (q) {
-      list = list.filter((expense) => {
-        const payee = (expense.payee || expense.merchant_name || "").toLowerCase();
-        const desc = (expense.description || "").toLowerCase();
-        return payee.includes(q) || desc.includes(q);
-      });
-    }
-    if (bankAccountFilter.trim()) {
-      const b = bankAccountFilter.trim().toLowerCase();
-      list = list.filter((expense) => (expense.bank_account_name || "").trim().toLowerCase() === b);
-    }
-    if (categoryFilter.trim()) {
-      const c = categoryFilter.trim().toLowerCase();
-      list = list.filter((expense) => (expense.category || "").toLowerCase().includes(c));
-    }
-    if (dateFrom) {
-      list = list.filter((expense) => (expense.transaction_date || "") >= dateFrom);
-    }
-    if (dateTo) {
-      list = list.filter((expense) => (expense.transaction_date || "") <= dateTo);
-    }
-    const min = optionalNumber(amountMin);
-    const max = optionalNumber(amountMax);
-    if (min != null) {
-      list = list.filter((expense) => (expenseNumericAmount(expense.total_amount) ?? -Infinity) >= min);
-    }
-    if (max != null) {
-      list = list.filter((expense) => (expenseNumericAmount(expense.total_amount) ?? Infinity) <= max);
-    }
-    return list;
-  }, [scopedExpenses, vendorQuery, bankAccountFilter, categoryFilter, dateFrom, dateTo, amountMin, amountMax]);
-
-  const filteredTotal = useMemo(
-    () =>
-      filteredExpenses.reduce((sum, expense) => {
-        const n = expenseNumericAmount(expense.total_amount);
-        return sum + (n != null ? n : 0);
-      }, 0),
-    [filteredExpenses],
-  );
-
-  const displayExpenses = useMemo(() => {
-    if (ledgerScope === "recent" && !forceAllScope) return filteredExpenses;
-    const copy = [...filteredExpenses];
-    copy.sort((a, b) => {
-      const da = parseExpenseSortDate(a);
-      const db = parseExpenseSortDate(b);
-      if (da !== db) return db.localeCompare(da);
-      return (b.created_at || "").localeCompare(a.created_at || "");
-    });
-    return copy;
-  }, [filteredExpenses, ledgerScope, forceAllScope]);
-
-  const ledgerRows = useMemo(() => {
-    type Row = { kind: "quarter"; key: string; label: string } | { kind: "expense"; expense: ExpenseRecord };
-    if (ledgerScope === "recent" && !forceAllScope) {
-      return displayExpenses.map((expense) => ({ kind: "expense" as const, expense }));
-    }
-    const rows: Row[] = [];
-    const buckets = new Map<string, { label: string; items: ExpenseRecord[] }>();
-    for (const expense of displayExpenses) {
-      const iso = parseExpenseSortDate(expense);
-      const q = quarterKeyAndLabelFromISO(iso);
-      const key = q?.key ?? "undated";
-      const label = q?.label ?? "Undated / needs date";
-      if (!buckets.has(key)) {
-        buckets.set(key, { label, items: [] });
-      }
-      buckets.get(key)!.items.push(expense);
-    }
-    const keys = [...buckets.keys()].sort((a, b) => {
-      if (a === "undated") return 1;
-      if (b === "undated") return -1;
-      return b.localeCompare(a);
-    });
-    for (const key of keys) {
-      const bucket = buckets.get(key)!;
-      rows.push({ kind: "quarter", key, label: bucket.label });
-      for (const expense of bucket.items) {
-        rows.push({ kind: "expense", expense });
-      }
-    }
-    return rows;
-  }, [ledgerScope, forceAllScope, displayExpenses]);
-
-  function beginEdit(expense: ExpenseRecord) {
-    setEditingId(expense.id);
-    setEditReason("");
-    setEditValues({
-      payee: expense.payee || expense.merchant_name || "",
-      total_amount: expense.total_amount == null ? "" : String(expense.total_amount),
-      transaction_date: expense.transaction_date || "",
-      category: expense.category || "",
-      bank_account_name: expense.bank_account_name || "",
-      description: expense.description || "",
-    });
-  }
-
-  async function saveEdit(expenseId: string) {
-    if (!editReason.trim()) {
-      showErrorMessage("Enter a reason for manual edits.");
-      return;
-    }
-    const { error } = await supabase
-      .from("expenses")
-      .update({
-        payee: optionalValue(editValues.payee || ""),
-        merchant_name: optionalValue(editValues.payee || ""),
-        total_amount: optionalNumber(editValues.total_amount),
-        transaction_date: optionalValue(editValues.transaction_date || ""),
-        category: optionalValue(editValues.category || ""),
-        bank_account_name: optionalValue(editValues.bank_account_name || ""),
-        description: optionalValue(editValues.description || ""),
-        last_manual_edit_reason: editReason.trim(),
-        last_manual_edit_at: new Date().toISOString(),
-        last_manual_edit_by: user.email || user.id,
-      })
-      .eq("id", expenseId);
-    if (error) {
-      showErrorMessage(error.message);
-      return;
-    }
-    setEditingId(null);
-    setEditReason("");
-    showSuccessMessage("Expense updated.");
-    await onExpensesChanged();
-  }
-
-  function clearFilters() {
-    onVendorQueryChange("");
-    onClearBankAccountFilter?.();
-    setCategoryFilter("");
-    setDateFrom("");
-    setDateTo("");
-    setAmountMin("");
-    setAmountMax("");
-  }
-
-  return (
-    <section className="card fb-ledger-card">
-      <div className="section-heading">
-        <p className="eyebrow">Expense ledger</p>
-        <h2>{forceAllScope ? "All transactions" : ledgerScope === "recent" ? "Recent receipts" : "All transactions"}</h2>
-        {forceAllScope ? (
-          <p className="muted">
-            Full department history with quarterly grouping. Use filters to refine by vendor, category, dates, or amounts.
-            {bankAccountFilter.trim() ? (
-              <>
-                {" "}
-                <button type="button" className="link-button" onClick={() => onClearBankAccountFilter?.()}>
-                  Clear account filter
-                </button>
-              </>
-            ) : null}
-          </p>
-        ) : ledgerScope === "recent" ? (
-          <p className="muted">
-            Showing the {LEDGER_RECENT_LIMIT} most recently logged expenses. Use <strong>View all</strong> for the full
-            list by quarter, or search in the <strong>header</strong> to jump there with filters.
-          </p>
-        ) : (
-          <p className="muted">
-            Transactions are grouped by calendar quarter (e.g. 1/1/25–3/31/25). Refine with filters below.
-          </p>
-        )}
-      </div>
-
-      {!forceAllScope ? (
-        <div className="ledger-toolbar">
-          <div className="tab-buttons">
-            <button
-              type="button"
-              className={ledgerScope === "recent" ? "" : "secondary-action"}
-              onClick={() => onLedgerScopeChange("recent")}
-            >
-              Recent
-            </button>
-            <button
-              type="button"
-              className={ledgerScope === "all" ? "" : "secondary-action"}
-              onClick={() => onLedgerScopeChange("all")}
-            >
-              View all
-            </button>
-          </div>
-        </div>
-      ) : null}
-      {ledgerMayTruncate ? (
-        <p className="notice">
-          Showing up to {LEDGER_ALL_LIMIT.toLocaleString()} expenses. Contact support if you need a larger export.
-        </p>
-      ) : null}
-
-      {ledgerScope === "all" || forceAllScope || vendorQuery || bankAccountFilter || categoryFilter || dateFrom || dateTo || amountMin || amountMax ? (
-        <>
-          <div className="ledger-filters">
-            <label>
-              Vendor / memo
-              <input
-                type="search"
-                placeholder="e.g. Shell, Amazon"
-                value={vendorQuery}
-                onChange={(event) => onVendorQueryChange(event.target.value)}
-                autoComplete="off"
-              />
-            </label>
-            <label>
-              Category
-              <input
-                type="search"
-                placeholder="Fuel, supplies…"
-                value={categoryFilter}
-                onChange={(event) => setCategoryFilter(event.target.value)}
-                autoComplete="off"
-              />
-            </label>
-            <label>
-              From date
-              <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
-            </label>
-            <label>
-              To date
-              <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
-            </label>
-            <label>
-              Min $
-              <input
-                inputMode="decimal"
-                placeholder="0"
-                value={amountMin}
-                onChange={(event) => setAmountMin(event.target.value)}
-              />
-            </label>
-            <label>
-              Max $
-              <input
-                inputMode="decimal"
-                placeholder="Any"
-                value={amountMax}
-                onChange={(event) => setAmountMax(event.target.value)}
-              />
-            </label>
-          </div>
-          <div className="ledger-presets">
-            <span className="muted">Quick dates:</span>
-            <button type="button" className="secondary-action" onClick={() => applyDatePreset("ytd")}>
-              Year to date
-            </button>
-            <button type="button" className="secondary-action" onClick={() => applyDatePreset("last_year")}>
-              Last calendar year
-            </button>
-            <button type="button" className="secondary-action" onClick={() => applyDatePreset("last12")}>
-              Last 12 months
-            </button>
-            <button type="button" className="secondary-action" onClick={() => applyDatePreset("clear")}>
-              Clear dates
-            </button>
-            <button type="button" className="secondary-action" onClick={clearFilters}>
-              Reset all filters
-            </button>
-          </div>
-        </>
-      ) : null}
-
-      {expenses.length ? (
-        <>
-          <div className="ledger-meta">
-            <span>
-              {ledgerScope === "recent" && !forceAllScope ? (
-                <>
-                  Showing {filteredExpenses.length} of {scopedExpenses.length} in recent view ({expenses.length} loaded
-                  total)
-                </>
-              ) : (
-                <>
-                  Showing {filteredExpenses.length} transaction{filteredExpenses.length === 1 ? "" : "s"} (
-                  {expenses.length} loaded)
-                </>
-              )}
-            </span>
-            {filteredExpenses.length > 0 ? (
-              <span>
-                Filtered total: <strong>${filteredTotal.toFixed(2)}</strong>
-              </span>
-            ) : null}
-          </div>
-          {filteredExpenses.length ? (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Receipt</th>
-                    <th>Payee</th>
-                    <th>Logged by</th>
-                    <th>Ref</th>
-                    <th>Date</th>
-                    <th>Total</th>
-                    <th>Purpose</th>
-                    <th>Extraction</th>
-                    <th>Reconcile</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ledgerRows.map((row) =>
-                    row.kind === "quarter" ? (
-                      <tr key={`quarter-${row.key}`} className="ledger-quarter-row">
-                        <td colSpan={9}>
-                          <span className="ledger-quarter-label">{row.label}</span>
-                        </td>
-                      </tr>
-                    ) : (
-                      <tr key={row.expense.id}>
-                        <td>
-                          {receiptUrls[row.expense.id] ? (
-                            <a
-                              href={receiptUrls[row.expense.id]}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              View source
-                            </a>
-                          ) : (
-                            <span>Receipt stored</span>
-                          )}
-                          <span className="filename">{row.expense.original_filename}</span>
-                        </td>
-                        <td>{row.expense.payee || row.expense.merchant_name || "Needs review"}</td>
-                        <td>
-                          <span className="filename">{formatExpenseLoggedBy(row.expense)}</span>
-                        </td>
-                        <td>{row.expense.payment_reference || "-"}</td>
-                        <td>{row.expense.transaction_date || "Needs review"}</td>
-                        <td>{row.expense.total_amount ? `$${row.expense.total_amount}` : "Needs review"}</td>
-                        <td>
-                          {row.expense.description || row.expense.category || "Uncategorized"}
-                          {row.expense.fund && <span className="filename">{row.expense.fund}</span>}
-                        </td>
-                        <td>
-                          <span className={`status status-${row.expense.extraction_status}`}>
-                            {row.expense.extraction_status.replaceAll("_", " ")}
-                          </span>
-                        </td>
-                        <td>
-                          <span className={`status status-${row.expense.reconciliation_status}`}>
-                            {row.expense.reconciliation_status.replaceAll("_", " ")}
-                          </span>
-                          {row.expense.reconciliation_candidate ? (
-                            <span className="filename">
-                              Possible match: {row.expense.reconciliation_candidate_notes || "Review manually"}
-                            </span>
-                          ) : null}
-                          {row.expense.last_manual_edit_reason ? (
-                            <span className="filename">Last edit: {row.expense.last_manual_edit_reason}</span>
-                          ) : null}
-                          {editingId === row.expense.id ? (
-                            <div className="form-stack">
-                              <input
-                                placeholder="Vendor"
-                                value={editValues.payee || ""}
-                                onChange={(event) =>
-                                  setEditValues((prev) => ({ ...prev, payee: event.target.value }))
-                                }
-                              />
-                              <input
-                                placeholder="Amount"
-                                value={editValues.total_amount || ""}
-                                onChange={(event) =>
-                                  setEditValues((prev) => ({ ...prev, total_amount: event.target.value }))
-                                }
-                              />
-                              <input
-                                type="date"
-                                value={editValues.transaction_date || ""}
-                                onChange={(event) =>
-                                  setEditValues((prev) => ({ ...prev, transaction_date: event.target.value }))
-                                }
-                              />
-                              <input
-                                placeholder="Category"
-                                value={editValues.category || ""}
-                                onChange={(event) =>
-                                  setEditValues((prev) => ({ ...prev, category: event.target.value }))
-                                }
-                              />
-                              <input
-                                placeholder="Bank account"
-                                value={editValues.bank_account_name || ""}
-                                onChange={(event) =>
-                                  setEditValues((prev) => ({ ...prev, bank_account_name: event.target.value }))
-                                }
-                              />
-                              <textarea
-                                rows={2}
-                                placeholder="Reason for edit (required)"
-                                value={editReason}
-                                onChange={(event) => setEditReason(event.target.value)}
-                              />
-                              <div className="button-row">
-                                <button type="button" onClick={() => void saveEdit(row.expense.id)}>
-                                  Save edit
-                                </button>
-                                <button type="button" className="secondary-action" onClick={() => setEditingId(null)}>
-                                  Cancel
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            <button type="button" className="secondary-action" onClick={() => beginEdit(row.expense)}>
-                              Edit
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ),
-                  )}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <p className="empty-state">No expenses match these filters. Try clearing filters or broadening the date range.</p>
-          )}
-        </>
-      ) : (
-        <p className="empty-state">No expenses logged yet. Upload a receipt to start.</p>
-      )}
-    </section>
   );
 }
 
@@ -3155,11 +3024,284 @@ function Reports({
   );
 }
 
+type SettingsSectionId =
+  | "overview"
+  | "bank_accounts"
+  | "members"
+  | "categories"
+  | "permissions"
+  | "compliance"
+  | "notifications"
+  | "security";
+
+const SETTINGS_NAV: { id: SettingsSectionId; label: string }[] = [
+  { id: "overview", label: "Overview" },
+  { id: "bank_accounts", label: "Bank Accounts" },
+  { id: "members", label: "Department Members" },
+  { id: "categories", label: "Categories" },
+  { id: "permissions", label: "Permissions & Approvals" },
+  { id: "compliance", label: "Compliance" },
+  { id: "notifications", label: "Notifications" },
+  { id: "security", label: "Security" },
+];
+
+type ExternalPlaidAccount = {
+  id: string;
+  name: string;
+  mask: string | null;
+  type: string;
+  subtype: string | null;
+  created_at: string;
+};
+
+type DepartmentMemberRow = {
+  user_id: string;
+  role: string;
+  created_at: string;
+};
+
+type DisplayBankRow =
+  | { source: "bank"; bank: BankAccount; plaid: ExternalPlaidAccount | null }
+  | { source: "plaid"; plaid: ExternalPlaidAccount; bank: null };
+
+function formatSettingsDate(iso: string | null | undefined) {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  } catch {
+    return "—";
+  }
+}
+
+function matchPlaidAccount(account: BankAccount, externalAccounts: ExternalPlaidAccount[]) {
+  const mask = account.account_mask?.trim();
+  const name = account.name.trim().toLowerCase();
+  return (
+    externalAccounts.find((ext) => {
+      if (mask && ext.mask && ext.mask.replace(/\D/g, "") === mask.replace(/\D/g, "")) return true;
+      const extName = ext.name.trim().toLowerCase();
+      return extName === name || extName.includes(name) || name.includes(extName);
+    }) ?? null
+  );
+}
+
+function uniqueCategoriesFromExpenses(expenses: ExpenseRecord[]) {
+  const set = new Set<string>();
+  for (const expense of expenses) {
+    const category = (expense.category || "").trim();
+    if (category) set.add(category);
+  }
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+}
+
+function latestBalanceForAccount(expenses: ExpenseRecord[], accountName: string) {
+  const matches = expenses
+    .filter(
+      (expense) =>
+        expense.bank_account_name?.trim().toLowerCase() === accountName.trim().toLowerCase() &&
+        expense.balance_after_transaction != null,
+    )
+    .sort((a, b) => parseExpenseSortDate(b).localeCompare(parseExpenseSortDate(a)));
+  if (!matches.length) return null;
+  const value = matches[0].balance_after_transaction;
+  const parsed = typeof value === "number" ? value : Number(String(value).replace(/[$,]/g, ""));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function buildDisplayBankRows(bankAccounts: BankAccount[], externalAccounts: ExternalPlaidAccount[]): DisplayBankRow[] {
+  const matchedPlaidIds = new Set<string>();
+  const rows: DisplayBankRow[] = bankAccounts.map((bank) => {
+    const plaid = matchPlaidAccount(bank, externalAccounts);
+    if (plaid) matchedPlaidIds.add(plaid.id);
+    return { source: "bank", bank, plaid };
+  });
+  for (const plaid of externalAccounts) {
+    if (!matchedPlaidIds.has(plaid.id)) {
+      rows.push({ source: "plaid", plaid, bank: null });
+    }
+  }
+  return rows;
+}
+
+const SETTINGS_OVERVIEW_ACCOUNT_LIMIT = 4;
+
+const SETTINGS_OVERVIEW_MANAGEMENT_CARDS: {
+  id: SettingsSectionId;
+  title: string;
+  description: string;
+  cta: string;
+}[] = [
+  {
+    id: "members",
+    title: "Department Members",
+    description: "Invite members, manage roles, and control access.",
+    cta: "Manage members",
+  },
+  {
+    id: "categories",
+    title: "Categories",
+    description: "Create and organize categories for transactions.",
+    cta: "Manage categories",
+  },
+  {
+    id: "permissions",
+    title: "Permissions & Approvals",
+    description: "Set approval rules, spending limits, and review requirements.",
+    cta: "Manage permissions",
+  },
+  {
+    id: "compliance",
+    title: "Compliance",
+    description: "Stay ready for NYS 2%, IRS 990, and audit reporting.",
+    cta: "View compliance",
+  },
+  {
+    id: "notifications",
+    title: "Notifications",
+    description: "Choose reminders and alerts for important activity.",
+    cta: "Manage notifications",
+  },
+  {
+    id: "security",
+    title: "Security",
+    description: "Manage password, sessions, and account protection.",
+    cta: "Manage security",
+  },
+];
+
+type PlaidOverviewStatus = "connected" | "not_connected" | "needs_reconnect";
+
+function formatAccountTypeLabel(row: DisplayBankRow) {
+  if (row.source !== "plaid") return null;
+  const raw = (row.plaid.subtype || row.plaid.type || "").trim();
+  if (!raw) return null;
+  const key = raw.toLowerCase().replace(/_/g, " ");
+  const labels: Record<string, string> = {
+    checking: "Checking",
+    savings: "Savings",
+    "money market": "Money Market",
+    cd: "CD",
+    "credit card": "Credit Card",
+    paypal: "PayPal",
+    prepaid: "Prepaid",
+    depository: "Depository",
+    credit: "Credit",
+    loan: "Loan",
+    brokerage: "Brokerage",
+    "2% funds": "2% Funds",
+  };
+  return labels[key] || raw.replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function formatAccountSubline(row: DisplayBankRow) {
+  const institution =
+    row.source === "bank" ? row.bank.institution_name?.trim() || "Manual account" : "Plaid";
+  const mask = row.source === "bank" ? row.bank.account_mask : row.plaid.mask;
+  if (mask?.trim()) {
+    const maskLabel = `•••• ${mask.trim()}`;
+    return institution === "Plaid" || institution === "Manual account" ? maskLabel : `${institution} ${maskLabel}`;
+  }
+  return institution;
+}
+
+function getPlaidOverviewStatus(
+  row: DisplayBankRow,
+  plaidConnected: boolean,
+  hasPlaidConnection: boolean,
+): PlaidOverviewStatus {
+  if (plaidConnected) return "connected";
+  if (row.source === "bank" && hasPlaidConnection) return "needs_reconnect";
+  return "not_connected";
+}
+
+function formatOverviewDateTime(iso: string | null | undefined) {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  } catch {
+    return "—";
+  }
+}
+
+function getDisplayRowMeta(row: DisplayBankRow, expenses: ExpenseRecord[], plaidSyncedAt: string | null) {
+  const name = row.source === "bank" ? row.bank.name : row.plaid.name;
+  const institution =
+    row.source === "bank" ? row.bank.institution_name || "Manual account" : `Plaid · ${row.plaid.type}`;
+  const mask = row.source === "bank" ? row.bank.account_mask : row.plaid.mask;
+  const isDefault = row.source === "bank" && row.bank.is_default;
+  const plaidMatch = row.source === "bank" ? row.plaid : row.plaid;
+  const plaidConnected = Boolean(plaidMatch);
+  const balance = latestBalanceForAccount(expenses, name);
+  const lastSynced = plaidConnected ? plaidSyncedAt || plaidMatch?.created_at : null;
+  const bankId = row.source === "bank" ? row.bank.id : null;
+  const id = row.source === "bank" ? row.bank.id : row.plaid.id;
+  const accountType = formatAccountTypeLabel(row);
+  const subline = formatAccountSubline(row);
+  return { name, institution, mask, isDefault, plaidConnected, balance, lastSynced, bankId, id, accountType, subline };
+}
+
+function getOverviewRowMeta(
+  row: DisplayBankRow,
+  expenses: ExpenseRecord[],
+  plaidSyncedAt: string | null,
+  hasPlaidConnection: boolean,
+) {
+  const base = getDisplayRowMeta(row, expenses, plaidSyncedAt);
+  const plaidStatus = getPlaidOverviewStatus(row, base.plaidConnected, hasPlaidConnection);
+  return {
+    ...base,
+    plaidStatus,
+    lastSyncedLabel: formatOverviewDateTime(base.lastSynced),
+  };
+}
+
+function SettingsOverviewPlaidPill({
+  status,
+  onConnect,
+}: {
+  status: PlaidOverviewStatus;
+  onConnect: () => void;
+}) {
+  const label =
+    status === "connected" ? "Connected" : status === "needs_reconnect" ? "Needs reconnect" : "Not connected";
+  const tone = status === "connected" ? "success" : status === "needs_reconnect" ? "warning" : "neutral";
+
+  if (status === "connected") {
+    return <SettingsStatusPill tone={tone}>{label}</SettingsStatusPill>;
+  }
+
+  return (
+    <button type="button" className={`fb-settings-pill fb-settings-pill--${tone} fb-settings-pill-btn`} onClick={onConnect}>
+      {label}
+    </button>
+  );
+}
+
+function SettingsStatusPill({
+  tone,
+  children,
+}: {
+  tone: "success" | "neutral" | "warning" | "primary";
+  children: ReactNode;
+}) {
+  return <span className={`fb-settings-pill fb-settings-pill--${tone}`}>{children}</span>;
+}
+
 function Settings({
   membership,
   session,
+  user,
   bankAccounts,
+  expenses,
   departmentSettings,
+  activeSection,
+  onSectionChange,
   onBankAccountsChanged,
   onDepartmentSettingsChanged,
   showErrorMessage,
@@ -3167,15 +3309,35 @@ function Settings({
 }: {
   membership: DepartmentMembership;
   session: Session;
+  user: User;
   bankAccounts: BankAccount[];
+  expenses: ExpenseRecord[];
   departmentSettings: DepartmentSetting | null;
+  activeSection: SettingsSectionId;
+  onSectionChange: (section: SettingsSectionId) => void;
   onBankAccountsChanged: () => Promise<void>;
   onDepartmentSettingsChanged: () => Promise<void>;
   showErrorMessage: (message: string) => void;
   showSuccessMessage: (message: string | null) => void;
 }) {
+  const [showAddAccount, setShowAddAccount] = useState(false);
   const [plaidLinkToken, setPlaidLinkToken] = useState<string | null>(null);
   const [syncWorking, setSyncWorking] = useState(false);
+  const [externalAccounts, setExternalAccounts] = useState<ExternalPlaidAccount[]>([]);
+  const [plaidSyncedAt, setPlaidSyncedAt] = useState<string | null>(null);
+  const [departmentMembers, setDepartmentMembers] = useState<DepartmentMemberRow[]>([]);
+
+  const categories = useMemo(() => uniqueCategoriesFromExpenses(expenses), [expenses]);
+  const displayRows = useMemo(
+    () => buildDisplayBankRows(bankAccounts, externalAccounts),
+    [bankAccounts, externalAccounts],
+  );
+  const connectedAccountCount = displayRows.length;
+  const memberCount = Math.max(departmentMembers.length, 1);
+  const hasPlaidConnection = externalAccounts.length > 0;
+  const isCompliant =
+    connectedAccountCount > 0 && categories.length > 0 && Boolean(membership.departments?.setup_completed_at);
+
   const { open: openPlaid, ready: plaidReady } = usePlaidLink({
     token: plaidLinkToken || "",
     onSuccess: async (public_token) => {
@@ -3193,9 +3355,42 @@ function Settings({
         return;
       }
       await onBankAccountsChanged();
+      await loadPlaidData();
       showSuccessMessage(`Plaid connected. Imported ${exchangePayload.accounts || 0} accounts.`);
     },
   });
+
+  const loadPlaidData = useCallback(async () => {
+    const { data: accounts } = await supabase
+      .from("external_accounts")
+      .select("id,name,mask,type,subtype,created_at")
+      .eq("department_id", membership.department_id)
+      .order("created_at", { ascending: true });
+    setExternalAccounts((accounts as ExternalPlaidAccount[] | null) || []);
+
+    const { data: txRow } = await supabase
+      .from("external_transactions")
+      .select("created_at")
+      .eq("department_id", membership.department_id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    setPlaidSyncedAt((txRow as { created_at?: string } | null)?.created_at || null);
+  }, [membership.department_id]);
+
+  const loadMembers = useCallback(async () => {
+    const { data } = await supabase
+      .from("department_members")
+      .select("user_id,role,created_at")
+      .eq("department_id", membership.department_id)
+      .order("created_at", { ascending: true });
+    setDepartmentMembers((data as DepartmentMemberRow[] | null) || []);
+  }, [membership.department_id]);
+
+  useEffect(() => {
+    void loadPlaidData();
+    void loadMembers();
+  }, [loadMembers, loadPlaidData]);
 
   async function startPlaidLink() {
     const response = await fetch("/api/plaid/create-link-token", {
@@ -3233,6 +3428,7 @@ function Settings({
       setSyncWorking(false);
       return;
     }
+    await loadPlaidData();
     showSuccessMessage(`Synced ${payload.inserted || 0} transactions, matched ${payload.matched || 0}.`);
     setSyncWorking(false);
   }
@@ -3272,11 +3468,12 @@ function Settings({
       body: JSON.stringify({ departmentId: membership.department_id }),
     });
     formElement.reset();
+    setShowAddAccount(false);
     await onBankAccountsChanged();
     if (!setupResponse.ok) {
-      const payload = (await setupResponse.json()) as { error?: string };
+      const setupPayload = (await setupResponse.json()) as { error?: string };
       showErrorMessage(
-        `Bank account saved, but setup status was not updated: ${payload.error || setupResponse.statusText}. Check server env (SUPABASE_SERVICE_ROLE_KEY).`,
+        `Bank account saved, but setup status was not updated: ${setupPayload.error || setupResponse.statusText}. Check server env (SUPABASE_SERVICE_ROLE_KEY).`,
       );
       return;
     }
@@ -3291,6 +3488,7 @@ function Settings({
       return;
     }
     await onBankAccountsChanged();
+    showSuccessMessage("Default account updated.");
   }
 
   async function toggleAutoLog(autoLog: boolean) {
@@ -3307,77 +3505,546 @@ function Settings({
     showSuccessMessage("Statement auto-log setting saved.");
   }
 
+  function renderSummaryCards() {
+    return (
+      <div className="fb-settings-summary-grid">
+        <button type="button" className="fb-settings-summary-card" onClick={() => onSectionChange("bank_accounts")}>
+          <p className="fb-settings-summary-label">Connected Accounts</p>
+          <p className="fb-settings-summary-value">{connectedAccountCount}</p>
+        </button>
+        <button type="button" className="fb-settings-summary-card" onClick={() => onSectionChange("members")}>
+          <p className="fb-settings-summary-label">Department Members</p>
+          <p className="fb-settings-summary-value">{memberCount}</p>
+        </button>
+        <button type="button" className="fb-settings-summary-card" onClick={() => onSectionChange("categories")}>
+          <p className="fb-settings-summary-label">Categories</p>
+          <p className="fb-settings-summary-value">{categories.length}</p>
+        </button>
+        <button type="button" className="fb-settings-summary-card" onClick={() => onSectionChange("compliance")}>
+          <p className="fb-settings-summary-label">Compliant</p>
+          <p className="fb-settings-summary-value">{isCompliant ? "Yes" : "Review"}</p>
+          {!isCompliant ? <SettingsStatusPill tone="warning">Needs attention</SettingsStatusPill> : <SettingsStatusPill tone="success">Compliant</SettingsStatusPill>}
+        </button>
+      </div>
+    );
+  }
+
+  function renderOverviewBankAccountsPreview() {
+    const previewRows = displayRows.slice(0, SETTINGS_OVERVIEW_ACCOUNT_LIMIT);
+    const hasMore = displayRows.length > SETTINGS_OVERVIEW_ACCOUNT_LIMIT;
+
+    return (
+      <section className="card fb-settings-panel-card fb-settings-overview-accounts">
+        <div className="fb-settings-panel-head">
+          <div>
+            <h2 className="fb-settings-panel-title">Connected Bank Accounts</h2>
+            <p className="fb-settings-panel-subtitle">Manage and connect your department&apos;s bank accounts.</p>
+          </div>
+          {displayRows.length ? (
+            <button type="button" className="link-button fb-settings-view-all" onClick={() => onSectionChange("bank_accounts")}>
+              View all accounts
+            </button>
+          ) : null}
+        </div>
+
+        {previewRows.length ? (
+          <>
+            <div className="fb-settings-accounts-table fb-settings-overview-table table-wrap">
+              <table className="fb-settings-table fb-settings-overview-table-grid">
+                <thead>
+                  <tr>
+                    <th>Account</th>
+                    <th>Type</th>
+                    <th>Balance</th>
+                    <th>Last Synced</th>
+                    <th>Plaid</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {previewRows.map((row) => {
+                    const meta = getOverviewRowMeta(row, expenses, plaidSyncedAt, hasPlaidConnection);
+                    return (
+                      <tr key={meta.id}>
+                        <td className="fb-settings-account-cell">
+                          <div className="fb-settings-account-primary">
+                            <strong>{meta.name}</strong>
+                            {meta.isDefault ? <span className="fb-settings-inline-pill">Default</span> : null}
+                          </div>
+                          <span className="fb-settings-account-subline">{meta.subline}</span>
+                        </td>
+                        <td>
+                          {meta.accountType ? (
+                            <SettingsStatusPill tone="neutral">{meta.accountType}</SettingsStatusPill>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td>{meta.balance != null ? formatUsd(meta.balance) : "—"}</td>
+                        <td>{meta.lastSyncedLabel}</td>
+                        <td>
+                          <SettingsOverviewPlaidPill
+                            status={meta.plaidStatus}
+                            onConnect={() => void startPlaidLink()}
+                          />
+                        </td>
+                        <td>
+                          <div className="fb-settings-overview-actions">
+                            {meta.plaidConnected ? (
+                              <button
+                                type="button"
+                                className="fb-secondary-btn fb-settings-overview-sync"
+                                disabled={syncWorking}
+                                onClick={() => void syncPlaidTransactions()}
+                              >
+                                {syncWorking ? "…" : "Sync"}
+                              </button>
+                            ) : null}
+                            <button
+                              type="button"
+                              className="fb-settings-overview-manage"
+                              aria-label={`Manage ${meta.name}`}
+                              onClick={() => onSectionChange("bank_accounts")}
+                            >
+                              Manage
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="fb-settings-overview-cards">
+              {previewRows.map((row) => {
+                const meta = getOverviewRowMeta(row, expenses, plaidSyncedAt, hasPlaidConnection);
+                return (
+                  <div key={meta.id} className="fb-settings-preview-account-card">
+                    <div className="fb-settings-account-card-head">
+                      <div className="fb-settings-account-cell">
+                        <div className="fb-settings-account-primary">
+                          <h3 className="fb-settings-account-name">{meta.name}</h3>
+                          {meta.isDefault ? <SettingsStatusPill tone="primary">Default</SettingsStatusPill> : null}
+                        </div>
+                        <span className="fb-settings-account-subline">{meta.subline}</span>
+                      </div>
+                      <SettingsOverviewPlaidPill
+                        status={meta.plaidStatus}
+                        onConnect={() => void startPlaidLink()}
+                      />
+                    </div>
+                    <dl className="fb-settings-account-details fb-settings-preview-details">
+                      <div>
+                        <dt>Type</dt>
+                        <dd>{meta.accountType || "—"}</dd>
+                      </div>
+                      <div>
+                        <dt>Balance</dt>
+                        <dd>{meta.balance != null ? formatUsd(meta.balance) : "—"}</dd>
+                      </div>
+                      <div>
+                        <dt>Last synced</dt>
+                        <dd>{meta.lastSyncedLabel}</dd>
+                      </div>
+                    </dl>
+                    <div className="fb-settings-overview-actions">
+                      {meta.plaidConnected ? (
+                        <button
+                          type="button"
+                          className="fb-secondary-btn"
+                          disabled={syncWorking}
+                          onClick={() => void syncPlaidTransactions()}
+                        >
+                          {syncWorking ? "Syncing…" : "Sync"}
+                        </button>
+                      ) : null}
+                      <button type="button" className="fb-settings-overview-manage" onClick={() => onSectionChange("bank_accounts")}>
+                        Manage
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="fb-settings-overview-footer">
+              {hasMore ? (
+                <p className="muted fb-settings-overview-more">
+                  Showing {previewRows.length} of {displayRows.length} accounts.
+                </p>
+              ) : null}
+              <button type="button" className="fb-secondary-btn" onClick={() => onSectionChange("bank_accounts")}>
+                View all accounts
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="fb-settings-overview-empty">
+            <p className="empty-state">No accounts connected yet.</p>
+            <button type="button" className="fb-primary-btn" onClick={() => onSectionChange("bank_accounts")}>
+              Add or connect accounts
+            </button>
+          </div>
+        )}
+      </section>
+    );
+  }
+
+  function renderOverviewManagementCards() {
+    return (
+      <div className="fb-settings-mgmt-grid">
+        {SETTINGS_OVERVIEW_MANAGEMENT_CARDS.map((card) => (
+          <article key={card.id} className="fb-settings-mgmt-card">
+            <h3 className="fb-settings-mgmt-title">{card.title}</h3>
+            <p className="fb-settings-mgmt-desc">{card.description}</p>
+            <button type="button" className="fb-settings-mgmt-cta" onClick={() => onSectionChange(card.id)}>
+              {card.cta}
+            </button>
+          </article>
+        ))}
+      </div>
+    );
+  }
+
+  function renderOverview() {
+    return (
+      <div className="fb-settings-overview">
+        {renderSummaryCards()}
+        {renderOverviewBankAccountsPreview()}
+        {renderOverviewManagementCards()}
+      </div>
+    );
+  }
+
+  function renderAccountRow(row: DisplayBankRow) {
+    const name = row.source === "bank" ? row.bank.name : row.plaid.name;
+    const institution =
+      row.source === "bank" ? row.bank.institution_name || "Manual account" : `Plaid · ${row.plaid.type}`;
+    const mask = row.source === "bank" ? row.bank.account_mask : row.plaid.mask;
+    const isDefault = row.source === "bank" && row.bank.is_default;
+    const plaidMatch = row.source === "bank" ? row.plaid : row.plaid;
+    const plaidConnected = Boolean(plaidMatch);
+    const balance = latestBalanceForAccount(expenses, name);
+    const lastSynced = plaidConnected ? plaidSyncedAt || plaidMatch?.created_at : null;
+    const bankId = row.source === "bank" ? row.bank.id : null;
+
+    return (
+      <div key={row.source === "bank" ? row.bank.id : row.plaid.id} className="fb-settings-account-card">
+        <div className="fb-settings-account-card-head">
+          <div>
+            <h3 className="fb-settings-account-name">{name}</h3>
+            <p className="fb-settings-account-meta">{institution}</p>
+          </div>
+          <div className="fb-settings-account-badges">
+            {isDefault ? <SettingsStatusPill tone="primary">Default</SettingsStatusPill> : null}
+            <SettingsStatusPill tone={plaidConnected ? "success" : "neutral"}>
+              {plaidConnected ? "Connected" : "Not connected"}
+            </SettingsStatusPill>
+          </div>
+        </div>
+        <dl className="fb-settings-account-details">
+          <div>
+            <dt>Last four</dt>
+            <dd>{mask ? `•••• ${mask}` : "—"}</dd>
+          </div>
+          <div>
+            <dt>Balance</dt>
+            <dd>{balance != null ? formatUsd(balance) : "—"}</dd>
+          </div>
+          <div>
+            <dt>Last synced</dt>
+            <dd>{formatSettingsDate(lastSynced)}</dd>
+          </div>
+        </dl>
+        <div className="fb-settings-account-actions">
+          {plaidConnected ? (
+            <button
+              type="button"
+              className="fb-secondary-btn"
+              disabled={syncWorking}
+              onClick={() => void syncPlaidTransactions()}
+            >
+              {syncWorking ? "Syncing…" : "Sync"}
+            </button>
+          ) : (
+            <button type="button" className="fb-primary-btn" onClick={() => void startPlaidLink()}>
+              {hasPlaidConnection ? "Reconnect Plaid" : "Connect Plaid"}
+            </button>
+          )}
+          {bankId && !isDefault ? (
+            <button type="button" className="fb-secondary-btn" onClick={() => void makeDefault(bankId)}>
+              Make default
+            </button>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  function renderBankAccountsSection() {
+    return (
+      <section className="card fb-settings-panel-card">
+        <div className="fb-settings-panel-head">
+          <div>
+            <h2 className="fb-settings-panel-title">Connected Bank Accounts</h2>
+            <p className="fb-settings-panel-subtitle">Manage and connect your department&apos;s bank accounts.</p>
+          </div>
+          <button type="button" className="fb-primary-btn" onClick={() => setShowAddAccount((open) => !open)}>
+            {showAddAccount ? "Close" : "Add Account"}
+          </button>
+        </div>
+
+        <label className="fb-settings-toggle">
+          <input
+            type="checkbox"
+            checked={Boolean(departmentSettings?.auto_log_statement_expenses)}
+            onChange={(event) => void toggleAutoLog(event.target.checked)}
+          />
+          <span>Automatically create missing expenses from uploaded statements</span>
+        </label>
+
+        {showAddAccount ? (
+          <form className="fb-settings-add-form" onSubmit={createAccount}>
+            <label>
+              Account name
+              <input name="name" required placeholder="Operating checking" />
+            </label>
+            <label>
+              Institution
+              <input name="institution_name" placeholder="Chase, M&T, etc." />
+            </label>
+            <label>
+              Last 4 / mask
+              <input name="account_mask" placeholder="1234" />
+            </label>
+            <label className="fb-settings-checkbox">
+              <input type="checkbox" name="is_default" />
+              <span>Set as default account</span>
+            </label>
+            <button type="submit" className="fb-primary-btn">
+              Save account
+            </button>
+          </form>
+        ) : null}
+
+        {displayRows.length ? (
+          <>
+            <div className="fb-settings-accounts-table table-wrap">
+              <table className="fb-settings-table">
+                <thead>
+                  <tr>
+                    <th>Account</th>
+                    <th>Institution</th>
+                    <th>Last four</th>
+                    <th>Balance</th>
+                    <th>Last synced</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {displayRows.map((row) => {
+                    const name = row.source === "bank" ? row.bank.name : row.plaid.name;
+                    const institution =
+                      row.source === "bank"
+                        ? row.bank.institution_name || "Manual"
+                        : `Plaid · ${row.plaid.type}`;
+                    const mask = row.source === "bank" ? row.bank.account_mask : row.plaid.mask;
+                    const isDefault = row.source === "bank" && row.bank.is_default;
+                    const plaidMatch = row.source === "bank" ? row.plaid : row.plaid;
+                    const plaidConnected = Boolean(plaidMatch);
+                    const balance = latestBalanceForAccount(expenses, name);
+                    const lastSynced = plaidConnected ? plaidSyncedAt || plaidMatch?.created_at : null;
+                    const bankId = row.source === "bank" ? row.bank.id : null;
+                    return (
+                      <tr key={row.source === "bank" ? row.bank.id : row.plaid.id}>
+                        <td>
+                          <strong>{name}</strong>
+                          {isDefault ? (
+                            <span className="fb-settings-inline-pill">Default</span>
+                          ) : null}
+                        </td>
+                        <td>{institution}</td>
+                        <td>{mask ? `•••• ${mask}` : "—"}</td>
+                        <td>{balance != null ? formatUsd(balance) : "—"}</td>
+                        <td>{formatSettingsDate(lastSynced)}</td>
+                        <td>
+                          <SettingsStatusPill tone={plaidConnected ? "success" : "neutral"}>
+                            {plaidConnected ? "Connected" : "Not connected"}
+                          </SettingsStatusPill>
+                        </td>
+                        <td>
+                          <div className="fb-settings-row-actions">
+                            {plaidConnected ? (
+                              <button
+                                type="button"
+                                className="fb-secondary-btn"
+                                disabled={syncWorking}
+                                onClick={() => void syncPlaidTransactions()}
+                              >
+                                {syncWorking ? "Syncing…" : "Sync"}
+                              </button>
+                            ) : (
+                              <button type="button" className="fb-secondary-btn" onClick={() => void startPlaidLink()}>
+                                {hasPlaidConnection ? "Reconnect" : "Connect"}
+                              </button>
+                            )}
+                            {bankId && !isDefault ? (
+                              <button type="button" className="link-button" onClick={() => void makeDefault(bankId)}>
+                                Make default
+                              </button>
+                            ) : null}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="fb-settings-accounts-cards">{displayRows.map((row) => renderAccountRow(row))}</div>
+          </>
+        ) : (
+          <p className="empty-state">No accounts yet. Add a manual account or connect through Plaid.</p>
+        )}
+      </section>
+    );
+  }
+
+  function renderPlaceholderCard(
+    title: string,
+    subtitle: string,
+    body: ReactNode,
+    actions?: ReactNode,
+  ) {
+    return (
+      <section className="card fb-settings-panel-card">
+        <div className="fb-settings-panel-head">
+          <div>
+            <h2 className="fb-settings-panel-title">{title}</h2>
+            <p className="fb-settings-panel-subtitle">{subtitle}</p>
+          </div>
+          {actions}
+        </div>
+        <div className="fb-settings-panel-body">{body}</div>
+      </section>
+    );
+  }
+
+  function renderSectionContent() {
+    switch (activeSection) {
+      case "overview":
+        return renderOverview();
+      case "bank_accounts":
+        return renderBankAccountsSection();
+      case "members":
+        return renderPlaceholderCard(
+          "Department Members",
+          "Invite members and manage roles and access for your department.",
+          <>
+            <div className="fb-settings-dept-info">
+              <p className="fb-settings-dept-name">{membership.departments?.name || "Fire Department"}</p>
+              <p className="muted">Shared configuration and ledger for everyone in this department.</p>
+            </div>
+            <ul className="fb-settings-member-list">
+              {departmentMembers.map((member) => (
+                <li key={member.user_id}>
+                  <span className="fb-settings-member-role">{member.role}</span>
+                  <span className="muted">
+                    {member.user_id === user.id ? "You" : `Member · ${member.user_id.slice(0, 8)}…`}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p className="muted">
+              Invite teammates through your department signup link. Full invite management is coming soon.
+            </p>
+          </>,
+          <button type="button" className="fb-secondary-btn" disabled>
+            Invite member (soon)
+          </button>,
+        );
+      case "categories":
+        return renderPlaceholderCard(
+          "Categories",
+          "Create and organize categories for transactions and new expense entries.",
+          categories.length ? (
+            <>
+              <p>
+                <strong>{categories.length}</strong> categories in use from your expense ledger.
+              </p>
+              <div className="fb-settings-tag-list">
+                {categories.slice(0, 12).map((category) => (
+                  <span key={category} className="fb-settings-tag">
+                    {category}
+                  </span>
+                ))}
+                {categories.length > 12 ? <span className="fb-settings-tag muted">+{categories.length - 12} more</span> : null}
+              </div>
+            </>
+          ) : (
+            <p className="muted">Categories will appear as you log expenses with a category field.</p>
+          ),
+          <button type="button" className="fb-secondary-btn" disabled>
+            Manage categories (soon)
+          </button>,
+        );
+      case "permissions":
+        return renderPlaceholderCard(
+          "Permissions & Approvals",
+          "Approval rules, spending limits, and who can review or export reports.",
+          <ul className="fb-settings-checklist muted">
+            <li>Spending limits by role (coming soon)</li>
+            <li>Expense review requirements (coming soon)</li>
+            <li>Report export permissions (coming soon)</li>
+          </ul>,
+        );
+      case "compliance":
+        return renderPlaceholderCard(
+          "Compliance",
+          "NYS 2% reporting, IRS 990 support, and audit readiness.",
+          <ul className="fb-settings-checklist muted">
+            <li>NYS 2% sales tax reporting — see Tax Forms tab</li>
+            <li>IRS Form 990 package — in preparation</li>
+            <li>Audit trail via Transactions and Reports</li>
+          </ul>,
+        );
+      case "notifications":
+        return renderPlaceholderCard(
+          "Notifications",
+          "Choose reminders for receipts, reconciliation, sync failures, and deadlines.",
+          <ul className="fb-settings-checklist muted">
+            <li>Missing receipt reminders (coming soon)</li>
+            <li>Reconciliation reminders (coming soon)</li>
+            <li>Failed bank sync alerts (coming soon)</li>
+            <li>Report deadline notices (coming soon)</li>
+          </ul>,
+        );
+      case "security":
+        return renderPlaceholderCard(
+          "Security",
+          "Password, sessions, and access protection for your account.",
+          <>
+            <p>
+              Signed in as <strong>{user.email}</strong> · role <strong>{membership.role}</strong>
+            </p>
+            <p className="muted">Password changes and active session management will be available here soon.</p>
+          </>,
+        );
+      default:
+        return null;
+    }
+  }
+
   return (
-    <section className="card">
-      <div className="section-heading">
-        <p className="eyebrow">Configuration</p>
-        <h2>Bank account settings</h2>
-      </div>
-      <label>
-        <input
-          type="checkbox"
-          checked={Boolean(departmentSettings?.auto_log_statement_expenses)}
-          onChange={(event) => void toggleAutoLog(event.target.checked)}
-        />
-        Automatically create missing expenses from uploaded statements
-      </label>
-      <div className="button-row">
-        <button type="button" onClick={() => void startPlaidLink()}>
-          Connect bank/credit card with Plaid
-        </button>
-        <button type="button" className="secondary-action" disabled={syncWorking} onClick={() => void syncPlaidTransactions()}>
-          {syncWorking ? "Syncing..." : "Sync Plaid transactions"}
-        </button>
-      </div>
-      <form className="upload-form" onSubmit={createAccount}>
-        <label>
-          Account name
-          <input name="name" required />
-        </label>
-        <label>
-          Institution
-          <input name="institution_name" placeholder="Chase, M&T, etc." />
-        </label>
-        <label>
-          Last 4 / mask
-          <input name="account_mask" placeholder="1234" />
-        </label>
-        <label>
-          <input type="checkbox" name="is_default" /> Set as default account
-        </label>
-        <button type="submit">Save account</button>
-      </form>
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Institution</th>
-              <th>Mask</th>
-              <th>Default</th>
-            </tr>
-          </thead>
-          <tbody>
-            {bankAccounts.map((account) => (
-              <tr key={account.id}>
-                <td>{account.name}</td>
-                <td>{account.institution_name || ""}</td>
-                <td>{account.account_mask || ""}</td>
-                <td>
-                  {account.is_default ? (
-                    "Yes"
-                  ) : (
-                    <button type="button" className="secondary-action" onClick={() => void makeDefault(account.id)}>
-                      Make default
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
+    <div className="fb-settings-page">
+      <header className="card fb-settings-header fb-dash-welcome">
+        <h1 className="fb-dash-title">Settings</h1>
+        <p className="fb-dash-subtitle">Manage your department, accounts, users, and preferences.</p>
+      </header>
+
+      <div className="fb-settings-content">{renderSectionContent()}</div>
+    </div>
   );
 }
 
