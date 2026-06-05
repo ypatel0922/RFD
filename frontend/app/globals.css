@@ -1515,15 +1515,92 @@ button.fb-sidebar-link-active {
   background: linear-gradient(135deg, #9a2929, var(--primary-dark));
 }
 
-.fb-new-expense-page .capture-options {
+.fb-receipt-upload-wrap {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
+  justify-content: center;
+  padding: 2px 0 4px;
+}
+
+.fb-receipt-upload-single {
+  width: 100%;
+  max-width: 420px;
+  text-align: center;
 }
 
 .fb-new-expense-manual-form .fb-new-expense-submit {
   width: 100%;
   margin-top: 4px;
+}
+
+.fb-expense-form .fb-combobox {
+  position: relative;
+}
+
+.fb-expense-form .fb-combobox-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: var(--shadow-card);
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.fb-expense-form .fb-combobox-menu li {
+  margin: 0;
+}
+
+.fb-expense-form .fb-combobox-menu button {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  border-radius: 10px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  padding: 12px 14px;
+  min-height: 44px;
+  font-weight: 700;
+}
+
+.fb-expense-form .fb-combobox-menu button:hover {
+  background: var(--surface-muted);
+  color: var(--ink);
+}
+
+.fb-expense-form .fb-combobox-primary {
+  font-weight: 800;
+}
+
+.fb-expense-form .fb-combobox-meta {
+  font-size: 0.82rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.fb-expense-form .fb-field-hint {
+  margin: 0;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px dashed var(--border);
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.fb-expense-form select {
+  width: 100%;
 }
 
 .fb-section-head {
