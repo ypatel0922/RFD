@@ -179,6 +179,37 @@ export type ReconciliationReport = {
   endingRegisterBalance: string | number | null;
 };
 
+export type DepartmentTaxProfile = {
+  id?: string;
+  department_id: string;
+  department_name: string | null;
+  address: string | null;
+  city: string | null;
+  county: string | null;
+  zip: string | null;
+  entity_type: string | null;
+  treasurer_name: string | null;
+  treasurer_email: string | null;
+  treasurer_phone: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type TaxFormRun = {
+  id: string;
+  department_id: string;
+  tax_year: number;
+  starting_balance: number;
+  revenue_total: number;
+  expense_total: number;
+  ending_balance: number;
+  generated_pdf: string | null;
+  status: "draft" | "final";
+  form_data: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type OnboardingProfile = {
   id: string;
   department_id: string;
@@ -249,6 +280,22 @@ export type DepartmentVendor = {
   normalized_name: string;
   default_category: string | null;
   created_from: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TaxFormFiling = {
+  id: string;
+  department_id: string;
+  tax_form_type: string;
+  tax_year: number;
+  source: "generated_firebook" | "uploaded_prior_filing";
+  status: "draft" | "saved" | "uploaded" | "archived";
+  file_path: string | null;
+  file_name: string | null;
+  file_mime_type: string | null;
+  extracted_data: Record<string, unknown> | null;
+  created_by: string | null;
   created_at: string;
   updated_at: string;
 };
