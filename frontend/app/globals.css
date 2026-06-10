@@ -4612,3 +4612,612 @@ button.fb-receipt-opt-btn:hover {
     border-radius: 0;
   }
 }
+
+/* ============================================================================
+   Onboarding Section
+   ============================================================================ */
+
+/* Overview callout card */
+.fb-onboarding-callout {
+  background: linear-gradient(135deg, #fdf4f4 0%, #fff 100%);
+  border: 1.5px solid rgb(127 29 29 / 20%);
+}
+
+.fb-onboarding-callout-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.fb-onboarding-callout-body .fb-primary-btn {
+  flex-shrink: 0;
+}
+
+/* Page wrapper */
+.fb-onboarding-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* Step navigation */
+.fb-onboarding-steps {
+  display: flex;
+  flex-direction: row;
+  gap: 0;
+  padding: 6px;
+  background: var(--card);
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
+}
+
+.fb-onboarding-step-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  background: transparent;
+  border: none;
+  border-radius: 12px;
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 0.88rem;
+  cursor: pointer;
+  min-height: auto;
+  text-align: left;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+button.fb-onboarding-step-btn {
+  background: transparent;
+  color: var(--muted);
+}
+
+button.fb-onboarding-step-btn:hover {
+  background: var(--surface-muted);
+  color: var(--ink);
+}
+
+.fb-onboarding-step-btn--active,
+button.fb-onboarding-step-btn.fb-onboarding-step-btn--active {
+  background: var(--primary) !important;
+  color: #fff !important;
+}
+
+button.fb-onboarding-step-btn.fb-onboarding-step-btn--active:hover {
+  background: var(--primary-hover) !important;
+}
+
+.fb-onboarding-step-num {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 10%);
+  font-size: 0.78rem;
+  font-weight: 900;
+  flex-shrink: 0;
+}
+
+.fb-onboarding-step-btn--active .fb-onboarding-step-num {
+  background: rgb(255 255 255 / 22%);
+}
+
+.fb-onboarding-step-label {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Info note */
+.fb-onboarding-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.fb-onboarding-note p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.fb-onboarding-note svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--primary);
+}
+
+/* Section headings inside steps */
+.fb-onboarding-section-label {
+  margin: 0 0 10px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Existing accounts list */
+.fb-onboarding-existing-section {
+  margin-top: 2px;
+}
+
+.fb-onboarding-account-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fb-onboarding-account-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-muted);
+  flex-wrap: wrap;
+}
+
+.fb-onboarding-account-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.fb-onboarding-account-name {
+  margin: 0;
+  font-weight: 800;
+  font-size: 0.93rem;
+}
+
+.fb-onboarding-account-meta {
+  margin: 2px 0 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.fb-onboarding-balance-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-size: 0.88rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.fb-onboarding-balance-badge .muted {
+  font-weight: 400;
+  font-size: 0.78rem;
+}
+
+/* Balance add form */
+.fb-onboarding-balance-form {
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.fb-onboarding-balance-form-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.fb-onboarding-form-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.fb-onboarding-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.fb-onboarding-form-grid label,
+.fb-onboarding-balance-form > label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.fb-onboarding-form-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Saved balances list */
+.fb-onboarding-balance-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fb-onboarding-balance-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  flex-wrap: wrap;
+}
+
+.fb-onboarding-balance-info {
+  min-width: 0;
+  flex: 1;
+}
+
+/* Upload zone */
+.fb-onboarding-upload-zone {
+  display: block;
+  border: 2px dashed var(--border);
+  border-radius: 16px;
+  background: var(--surface-muted);
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.fb-onboarding-upload-zone.fb-drag-over,
+.fb-onboarding-upload-zone:focus-within {
+  border-color: var(--primary);
+  background: rgb(127 29 29 / 3%);
+}
+
+.fb-onboarding-upload-zone.fb-onboarding-upload-zone--busy {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.fb-onboarding-upload-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 40px 24px;
+  text-align: center;
+}
+
+.fb-onboarding-upload-icon {
+  color: var(--muted);
+}
+
+.fb-onboarding-upload-label {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+
+.fb-onboarding-upload-btn-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.fb-onboarding-upload-btn {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  pointer-events: none;
+}
+
+.fb-onboarding-file-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+}
+
+.fb-onboarding-upload-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* Uploaded file list */
+.fb-onboarding-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fb-onboarding-file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-muted);
+}
+
+.fb-onboarding-file-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.fb-onboarding-file-name {
+  margin: 0;
+  font-weight: 700;
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fb-onboarding-file-meta {
+  margin: 2px 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* Suggestion groups */
+.fb-onboarding-suggestion-group {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.fb-onboarding-group-title {
+  margin: 0;
+  padding: 13px 16px 11px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--surface-muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.fb-onboarding-suggestion-list {
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  padding: 6px;
+  gap: 2px;
+}
+
+.fb-onboarding-suggestion-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 10px;
+  border-radius: 10px;
+  flex-wrap: wrap;
+}
+
+.fb-onboarding-suggestion-card:hover {
+  background: var(--surface-muted);
+}
+
+.fb-onboarding-suggestion-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.fb-onboarding-suggestion-value {
+  margin: 0;
+  font-weight: 700;
+  font-size: 0.93rem;
+}
+
+.fb-onboarding-confidence {
+  font-size: 0.76rem;
+  color: var(--muted);
+  white-space: nowrap;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.fb-onboarding-suggestion-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.fb-onboarding-suggestion-actions .fb-primary-btn,
+.fb-onboarding-suggestion-actions .fb-secondary-btn {
+  padding: 7px 14px;
+  min-height: 34px;
+  font-size: 0.83rem;
+}
+
+.fb-onboarding-rename-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.fb-onboarding-rename-form input {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 0.88rem;
+  min-width: 160px;
+  background: var(--card);
+  color: var(--ink);
+}
+
+.fb-onboarding-rename-form .fb-primary-btn,
+.fb-onboarding-rename-form .fb-secondary-btn {
+  padding: 7px 14px;
+  min-height: 34px;
+  font-size: 0.83rem;
+}
+
+/* Reviewed / resolved suggestions */
+.fb-onboarding-reviewed {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.fb-onboarding-reviewed-toggle {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--muted);
+  cursor: pointer;
+  background: var(--surface-muted);
+  list-style: none;
+  user-select: none;
+}
+
+.fb-onboarding-reviewed-toggle::marker,
+.fb-onboarding-reviewed-toggle::-webkit-details-marker {
+  display: none;
+}
+
+.fb-onboarding-suggestion-list--resolved {
+  background: var(--surface-muted);
+}
+
+.fb-onboarding-suggestion-card--resolved {
+  opacity: 0.72;
+}
+
+.fb-onboarding-original {
+  font-size: 0.78rem;
+}
+
+/* Empty state for suggestions */
+.fb-onboarding-empty-suggestions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 0 4px;
+}
+
+/* Step footer (navigation between steps) */
+.fb-onboarding-step-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+/* ── Mobile ──────────────────────────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+  .fb-onboarding-step-label {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .fb-onboarding-steps {
+    flex-direction: column;
+  }
+
+  .fb-onboarding-step-btn {
+    justify-content: flex-start;
+  }
+
+  .fb-onboarding-step-label {
+    display: block;
+  }
+
+  .fb-onboarding-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .fb-onboarding-account-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .fb-onboarding-balance-badge {
+    align-items: flex-start;
+  }
+
+  .fb-onboarding-suggestion-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .fb-onboarding-suggestion-actions {
+    width: 100%;
+  }
+
+  .fb-onboarding-suggestion-actions .fb-primary-btn,
+  .fb-onboarding-suggestion-actions .fb-secondary-btn {
+    flex: 1;
+    max-width: none;
+  }
+
+  .fb-onboarding-step-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .fb-onboarding-step-footer .fb-primary-btn,
+  .fb-onboarding-step-footer .fb-secondary-btn {
+    max-width: none;
+    width: 100%;
+    text-align: center;
+  }
+
+  .fb-onboarding-callout-body {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .fb-onboarding-callout-body .fb-primary-btn {
+    width: 100%;
+    max-width: none;
+  }
+
+  .fb-onboarding-upload-inner {
+    padding: 28px 16px;
+  }
+}

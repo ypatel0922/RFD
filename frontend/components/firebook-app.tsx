@@ -20,11 +20,16 @@ import {
   BankStatementExtraction,
   BankStatementUpload,
   Department,
+  DepartmentCategory,
   DepartmentSetting,
   DepartmentMembership,
+  DepartmentVendor,
   ExpenseDraft,
   ExpenseRecord,
   ExtractedReceiptData,
+  OnboardingBeginningBalance,
+  OnboardingPriorRecordUpload,
+  OnboardingSuggestion,
   ROLE_OPTIONS,
   ReviewForm,
 } from "../lib/types";
@@ -190,17 +195,30 @@ type AccountSnapshot = {
   lastActivityDate: string | null;
 };
 
-function buildAccountSnapshots(bankAccounts: BankAccount[], expenses: ExpenseRecord[]): AccountSnapshot[] {
+function buildAccountSnapshots(
+  bankAccounts: BankAccount[],
+  expenses: ExpenseRecord[],
+  beginningBalances?: OnboardingBeginningBalance[],
+): AccountSnapshot[] {
   return bankAccounts.map((account) => {
     const matches = expenses
       .filter((expense) => (expense.bank_account_name || "").trim().toLowerCase() === account.name.trim().toLowerCase())
       .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
     const latest = matches[0];
-    const lastBalance =
+    const expenseBalance =
       latest && latest.balance_after_transaction != null && latest.balance_after_transaction !== ""
         ? expenseNumericAmount(latest.balance_after_transaction)
         : null;
-    const lastActivityDate = latest?.transaction_date || latest?.created_at?.slice(0, 10) || null;
+    const openingBalance = beginningBalances?.find(
+      (b) =>
+        (b.account_id != null && b.account_id === account.id) ||
+        normalizeName(b.account_name) === normalizeName(account.name),
+    );
+    const lastBalance = expenseBalance ?? (openingBalance ? openingBalance.beginning_balance : null);
+    const lastActivityDate =
+      latest?.transaction_date ||
+      latest?.created_at?.slice(0, 10) ||
+      (openingBalance ? openingBalance.balance_date : null);
     return { account, lastBalance, lastActivityDate };
   });
 }
@@ -221,7 +239,10 @@ type VendorAggregate = {
   topCategory: string | null;
 };
 
-function buildVendorAggregates(expenses: ExpenseRecord[]): VendorAggregate[] {
+function buildVendorAggregates(
+  expenses: ExpenseRecord[],
+  departmentVendors?: DepartmentVendor[],
+): VendorAggregate[] {
   const map = new Map<
     string,
     { label: string; count: number; total: number; lastIso: string; categories: Map<string, number> }
@@ -242,6 +263,22 @@ function buildVendorAggregates(expenses: ExpenseRecord[]): VendorAggregate[] {
     if (iso && iso > row.lastIso) row.lastIso = iso;
     if (cat) {
       row.categories.set(cat, (row.categories.get(cat) || 0) + 1);
+    }
+  }
+  // Merge department vendors that have no expense history
+  if (departmentVendors) {
+    for (const dv of departmentVendors) {
+      const key = dv.normalized_name;
+      if (!map.has(key)) {
+        const cats = new Map<string, number>();
+        if (dv.default_category) cats.set(dv.default_category, 1);
+        map.set(key, { label: dv.name, count: 0, total: 0, lastIso: "", categories: cats });
+      } else if (dv.default_category) {
+        const row = map.get(key)!;
+        if (!row.categories.has(dv.default_category)) {
+          row.categories.set(dv.default_category, 0);
+        }
+      }
     }
   }
   return [...map.values()].map((row) => {
@@ -321,8 +358,23 @@ function sortVendorSuggestions(vendors: VendorAggregate[]): VendorAggregate[] {
   });
 }
 
-function buildCategoryOptions(expenses: ExpenseRecord[]): string[] {
+function buildCategoryOptions(
+  expenses: ExpenseRecord[],
+  departmentCategories?: DepartmentCategory[],
+): string[] {
   const seen = new Set(PRESET_EXPENSE_CATEGORIES.map((c) => c.toLowerCase()));
+  const result: string[] = [...PRESET_EXPENSE_CATEGORIES];
+  // Add department categories (from onboarding or manual) after presets
+  if (departmentCategories) {
+    for (const dc of departmentCategories) {
+      const key = dc.normalized_name;
+      if (!seen.has(key)) {
+        seen.add(key);
+        result.push(dc.name);
+      }
+    }
+  }
+  // Add expense-derived categories at the end
   const historical: string[] = [];
   for (const expense of expenses) {
     const cat = (expense.category || "").trim();
@@ -333,33 +385,44 @@ function buildCategoryOptions(expenses: ExpenseRecord[]): string[] {
     historical.push(cat);
   }
   historical.sort((a, b) => a.localeCompare(b));
-  return [...PRESET_EXPENSE_CATEGORIES, ...historical];
+  return [...result, ...historical];
 }
 
-function suggestCategoryForVendor(vendor: string, expenses: ExpenseRecord[]): string {
+function suggestCategoryForVendor(
+  vendor: string,
+  expenses: ExpenseRecord[],
+  departmentVendors?: DepartmentVendor[],
+): string {
   const normalized = vendor.trim().toLowerCase();
   if (!normalized) return "";
   const matching = expenses.filter((expense) => {
     const label = (expense.payee || expense.merchant_name || "").trim().toLowerCase();
     return label === normalized && (expense.category || "").trim();
   });
-  if (!matching.length) return "";
-  matching.sort((a, b) => parseExpenseSortDate(b).localeCompare(parseExpenseSortDate(a)));
-  const recentCategory = matching[0].category!.trim();
-  const counts = new Map<string, number>();
-  for (const expense of matching) {
-    const cat = expense.category!.trim();
-    counts.set(cat, (counts.get(cat) || 0) + 1);
-  }
-  let topCategory = recentCategory;
-  let topCount = 0;
-  for (const [cat, count] of counts) {
-    if (count > topCount) {
-      topCount = count;
-      topCategory = cat;
+  if (matching.length > 0) {
+    matching.sort((a, b) => parseExpenseSortDate(b).localeCompare(parseExpenseSortDate(a)));
+    const recentCategory = matching[0].category!.trim();
+    const counts = new Map<string, number>();
+    for (const expense of matching) {
+      const cat = expense.category!.trim();
+      counts.set(cat, (counts.get(cat) || 0) + 1);
     }
+    let topCategory = recentCategory;
+    let topCount = 0;
+    for (const [cat, count] of counts) {
+      if (count > topCount) {
+        topCount = count;
+        topCategory = cat;
+      }
+    }
+    return topCount > 1 ? topCategory : recentCategory;
   }
-  return topCount > 1 ? topCategory : recentCategory;
+  // Fall back to department vendor default category
+  if (departmentVendors) {
+    const dv = departmentVendors.find((v) => v.normalized_name === normalized);
+    if (dv?.default_category) return dv.default_category;
+  }
+  return "";
 }
 
 function formatBankAccountLabel(account: BankAccount): string {
@@ -367,6 +430,10 @@ function formatBankAccountLabel(account: BankAccount): string {
   const mask = account.account_mask?.trim();
   const meta = [institution, mask ? `•••• ${mask}` : null].filter(Boolean).join(" ");
   return meta ? `${account.name} — ${meta}` : account.name;
+}
+
+function normalizeName(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 function useDismissOnOutsideClick(
@@ -399,6 +466,7 @@ function VendorAutocompleteField({
   value,
   onChange,
   expenses,
+  departmentVendors,
   required,
   placeholder = "Start typing a vendor",
   onVendorChange,
@@ -407,6 +475,7 @@ function VendorAutocompleteField({
   value: string;
   onChange: (value: string) => void;
   expenses: ExpenseRecord[];
+  departmentVendors?: DepartmentVendor[];
   required?: boolean;
   placeholder?: string;
   onVendorChange?: (vendor: string) => void;
@@ -415,7 +484,10 @@ function VendorAutocompleteField({
   const wrapRef = useRef<HTMLDivElement>(null);
   const prevVendorRef = useRef(value.trim().toLowerCase());
 
-  const vendorSuggestions = useMemo(() => sortVendorSuggestions(buildVendorAggregates(expenses)), [expenses]);
+  const vendorSuggestions = useMemo(
+    () => sortVendorSuggestions(buildVendorAggregates(expenses, departmentVendors)),
+    [expenses, departmentVendors],
+  );
   const filteredVendors = useMemo(() => {
     const q = value.trim().toLowerCase();
     if (!q) return vendorSuggestions.slice(0, 8);
@@ -492,17 +564,22 @@ function CategoryComboboxField({
   value,
   onChange,
   expenses,
+  departmentCategories,
   placeholder = "Fuel, supplies, food, training...",
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   expenses: ExpenseRecord[];
+  departmentCategories?: DepartmentCategory[];
   placeholder?: string;
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const categoryOptions = useMemo(() => buildCategoryOptions(expenses), [expenses]);
+  const categoryOptions = useMemo(
+    () => buildCategoryOptions(expenses, departmentCategories),
+    [expenses, departmentCategories],
+  );
   const filteredCategories = useMemo(() => {
     const q = value.trim().toLowerCase();
     if (!q) return categoryOptions.slice(0, 12);
@@ -650,12 +727,16 @@ function ManualExpenseForm({
   defaultBankAccount,
   disabled,
   onSubmit,
+  departmentCategories,
+  departmentVendors,
 }: {
   expenses: ExpenseRecord[];
   bankAccounts: BankAccount[];
   defaultBankAccount: string;
   disabled: boolean;
   onSubmit: (values: ManualExpenseFormValues) => Promise<void>;
+  departmentCategories?: DepartmentCategory[];
+  departmentVendors?: DepartmentVendor[];
 }) {
   const [payee, setPayee] = useState("");
   const [totalAmount, setTotalAmount] = useState("");
@@ -665,7 +746,7 @@ function ManualExpenseForm({
   const [description, setDescription] = useState("");
 
   function handleVendorChange(nextVendor: string) {
-    const suggestion = suggestCategoryForVendor(nextVendor, expenses);
+    const suggestion = suggestCategoryForVendor(nextVendor, expenses, departmentVendors);
     if (suggestion) setCategory(suggestion);
   }
 
@@ -696,12 +777,19 @@ function ManualExpenseForm({
           value={payee}
           onChange={setPayee}
           expenses={expenses}
+          departmentVendors={departmentVendors}
           required
           onVendorChange={handleVendorChange}
         />
         <CentsMoneyInput label="Amount" value={totalAmount} onChange={setTotalAmount} required />
         <PaymentMethodSelect label="Payment type" value={paymentMethod} onChange={setPaymentMethod} required />
-        <CategoryComboboxField label="Category" value={category} onChange={setCategory} expenses={expenses} />
+        <CategoryComboboxField
+          label="Category"
+          value={category}
+          onChange={setCategory}
+          expenses={expenses}
+          departmentCategories={departmentCategories}
+        />
         <BankAccountSelect
           label="Bank/Credit account"
           value={bankAccount}
@@ -742,6 +830,9 @@ export default function Home() {
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [departmentSettings, setDepartmentSettings] = useState<DepartmentSetting | null>(null);
+  const [departmentCategories, setDepartmentCategories] = useState<DepartmentCategory[]>([]);
+  const [departmentVendors, setDepartmentVendors] = useState<DepartmentVendor[]>([]);
+  const [onboardingBeginningBalances, setOnboardingBeginningBalances] = useState<OnboardingBeginningBalance[]>([]);
   const [receiptUrls, setReceiptUrls] = useState<Record<string, string>>({});
   const [statementUrls, setStatementUrls] = useState<Record<string, string>>({});
   const [authMode, setAuthMode] = useState<AuthMode>("login");
@@ -827,8 +918,13 @@ export default function Home() {
       );
     }
     setMembership(loadedMembership);
-    await loadDepartmentSettings(loadedMembership.department_id);
-    await loadBankAccounts(loadedMembership.department_id);
+    await Promise.all([
+      loadDepartmentSettings(loadedMembership.department_id),
+      loadBankAccounts(loadedMembership.department_id),
+      loadDepartmentCategories(loadedMembership.department_id),
+      loadDepartmentVendors(loadedMembership.department_id),
+      loadOnboardingBeginningBalances(loadedMembership.department_id),
+    ]);
   }
 
   async function loadDepartmentSettings(departmentId: string) {
@@ -858,6 +954,32 @@ export default function Home() {
       return;
     }
     setBankAccounts((data || []) as BankAccount[]);
+  }
+
+  async function loadDepartmentCategories(departmentId: string) {
+    const { data } = await supabase
+      .from("department_categories")
+      .select("*")
+      .eq("department_id", departmentId)
+      .order("name");
+    setDepartmentCategories((data as DepartmentCategory[] | null) ?? []);
+  }
+
+  async function loadDepartmentVendors(departmentId: string) {
+    const { data } = await supabase
+      .from("department_vendors")
+      .select("*")
+      .eq("department_id", departmentId)
+      .order("name");
+    setDepartmentVendors((data as DepartmentVendor[] | null) ?? []);
+  }
+
+  async function loadOnboardingBeginningBalances(departmentId: string) {
+    const { data } = await supabase
+      .from("onboarding_beginning_balances")
+      .select("*")
+      .eq("department_id", departmentId);
+    setOnboardingBeginningBalances((data as OnboardingBeginningBalance[] | null) ?? []);
   }
 
   async function refreshMembershipRow(user: User) {
@@ -1365,6 +1487,8 @@ export default function Home() {
               setMessage={setMessage}
               showSuccessMessage={showSuccessMessage}
               showErrorMessage={showErrorMessage}
+              departmentCategories={departmentCategories}
+              departmentVendors={departmentVendors}
             />
           ) : view === "transactions" ? (
             <div ref={transactionsPanelRef} className="fb-tab-stack">
@@ -1417,6 +1541,7 @@ export default function Home() {
             <AccountsTabSection
               bankAccounts={bankAccounts}
               expenses={expenses}
+              beginningBalances={onboardingBeginningBalances}
               onViewAccountTransactions={(accountName) => {
                 setLedgerBankAccountFilter(accountName);
                 setView("transactions");
@@ -1444,7 +1569,7 @@ export default function Home() {
           ) : view === "tax_forms" ? (
             <TaxFormsSection />
           ) : view === "vendors" ? (
-            <VendorsSection expenses={expenses} />
+            <VendorsSection expenses={expenses} departmentVendors={departmentVendors} />
           ) : view === "settings" ? (
             <Settings
               membership={membership}
@@ -1453,10 +1578,14 @@ export default function Home() {
               bankAccounts={bankAccounts}
               expenses={expenses}
               departmentSettings={departmentSettings}
+              departmentCategories={departmentCategories}
               activeSection={settingsSection}
               onSectionChange={setSettingsSection}
               onBankAccountsChanged={handleBankAccountsChanged}
               onDepartmentSettingsChanged={() => loadDepartmentSettings(membership.department_id)}
+              onCategoriesChanged={() => loadDepartmentCategories(membership.department_id)}
+              onVendorsChanged={() => loadDepartmentVendors(membership.department_id)}
+              onBeginningBalancesChanged={() => loadOnboardingBeginningBalances(membership.department_id)}
               showErrorMessage={showErrorMessage}
               showSuccessMessage={showSuccessMessage}
             />
@@ -1852,10 +1981,16 @@ function TaxFormsSection() {
 
 type VendorSort = "recent" | "count" | "spend" | "category";
 
-function VendorsSection({ expenses }: { expenses: ExpenseRecord[] }) {
+function VendorsSection({
+  expenses,
+  departmentVendors,
+}: {
+  expenses: ExpenseRecord[];
+  departmentVendors?: DepartmentVendor[];
+}) {
   const [sort, setSort] = useState<VendorSort>("spend");
   const rows = useMemo(() => {
-    const list = buildVendorAggregates(expenses);
+    const list = buildVendorAggregates(expenses, departmentVendors);
     const sorted = [...list];
     if (sort === "count") sorted.sort((a, b) => b.count - a.count);
     else if (sort === "spend") sorted.sort((a, b) => b.totalSpend - a.totalSpend);
@@ -1870,8 +2005,8 @@ function VendorsSection({ expenses }: { expenses: ExpenseRecord[] }) {
         <p className="eyebrow">Directory</p>
         <h1 className="fb-dash-title">Vendors</h1>
         <p className="fb-dash-subtitle">
-          Vendors are derived from payee and merchant fields on logged expenses. Sorting helps treasurers see who you pay
-          most often.
+          Vendors from logged expenses and onboarding setup. Sorting helps treasurers see who you
+          pay most often.
         </p>
       </section>
       <section className="card">
@@ -1924,7 +2059,7 @@ function VendorsSection({ expenses }: { expenses: ExpenseRecord[] }) {
           </div>
         ) : (
           <p className="empty-state">
-            No vendors yet. Vendors will appear automatically as you log expenses with payee or merchant names.
+            No vendors yet. Vendors appear from logged expenses and from accepted vendor suggestions in Settings → Onboarding.
           </p>
         )}
       </section>
@@ -1935,23 +2070,28 @@ function VendorsSection({ expenses }: { expenses: ExpenseRecord[] }) {
 function AccountsTabSection({
   bankAccounts,
   expenses,
+  beginningBalances,
   onViewAccountTransactions,
   onBankAccountsChanged,
 }: {
   bankAccounts: BankAccount[];
   expenses: ExpenseRecord[];
+  beginningBalances?: OnboardingBeginningBalance[];
   onViewAccountTransactions: (accountName: string) => void;
   onBankAccountsChanged: () => Promise<void>;
 }) {
-  const snapshots = useMemo(() => buildAccountSnapshots(bankAccounts, expenses), [bankAccounts, expenses]);
+  const snapshots = useMemo(
+    () => buildAccountSnapshots(bankAccounts, expenses, beginningBalances),
+    [bankAccounts, expenses, beginningBalances],
+  );
   return (
     <div className="fb-tab-stack">
       <section className="card fb-dash-welcome">
         <p className="eyebrow">Cash & credit</p>
         <h1 className="fb-dash-title">Accounts</h1>
         <p className="fb-dash-subtitle">
-          Department bank and card accounts. Balances reflect the latest register total captured on an expense when
-          available.
+          Department bank and card accounts. Balances reflect the latest register total on an
+          expense, or the onboarding beginning balance when no activity exists yet.
         </p>
       </section>
       {snapshots.length ? (
@@ -2006,6 +2146,8 @@ function NewExpensePage({
   setMessage,
   showSuccessMessage,
   showErrorMessage,
+  departmentCategories,
+  departmentVendors,
 }: {
   membership: DepartmentMembership;
   user: User;
@@ -2017,6 +2159,8 @@ function NewExpensePage({
   setMessage: (message: string | null) => void;
   showSuccessMessage: (message: string | null) => void;
   showErrorMessage: (message: string) => void;
+  departmentCategories?: DepartmentCategory[];
+  departmentVendors?: DepartmentVendor[];
 }) {
   const [entryTab, setEntryTab] = useState<"receipt" | "manual">("receipt");
   const [draft, setDraft] = useState<ExpenseDraft | null>(null);
@@ -2278,6 +2422,8 @@ function NewExpensePage({
               setDraft(null);
               setReviewForm(null);
             }}
+            departmentCategories={departmentCategories}
+            departmentVendors={departmentVendors}
           />
         ) : entryTab === "receipt" ? (
           <>
@@ -2310,6 +2456,8 @@ function NewExpensePage({
               defaultBankAccount={defaultBankAccount}
               disabled={manualWorking}
               onSubmit={submitManualExpense}
+              departmentCategories={departmentCategories}
+              departmentVendors={departmentVendors}
             />
           </>
         )}
@@ -2592,6 +2740,8 @@ function ReviewExpenseForm({
   disabled,
   onSubmit,
   onCancel,
+  departmentCategories,
+  departmentVendors,
 }: {
   draft: ExpenseDraft;
   form: ReviewForm;
@@ -2602,13 +2752,15 @@ function ReviewExpenseForm({
   disabled: boolean;
   onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onCancel: () => void;
+  departmentCategories?: DepartmentCategory[];
+  departmentVendors?: DepartmentVendor[];
 }) {
   function update(field: keyof ReviewForm, value: string) {
     setForm({ ...form, [field]: value });
   }
 
   function handleVendorChange(vendor: string) {
-    const suggestion = suggestCategoryForVendor(vendor, expenses);
+    const suggestion = suggestCategoryForVendor(vendor, expenses, departmentVendors);
     if (suggestion) update("category", suggestion);
   }
 
@@ -2631,6 +2783,7 @@ function ReviewExpenseForm({
             value={form.payee}
             onChange={(v) => update("payee", v)}
             expenses={expenses}
+            departmentVendors={departmentVendors}
             required
             onVendorChange={handleVendorChange}
           />
@@ -2650,6 +2803,7 @@ function ReviewExpenseForm({
             value={form.category}
             onChange={(v) => update("category", v)}
             expenses={expenses}
+            departmentCategories={departmentCategories}
           />
         </div>
         <label>
@@ -3026,6 +3180,7 @@ function Reports({
 
 type SettingsSectionId =
   | "overview"
+  | "onboarding"
   | "bank_accounts"
   | "members"
   | "categories"
@@ -3036,6 +3191,7 @@ type SettingsSectionId =
 
 const SETTINGS_NAV: { id: SettingsSectionId; label: string }[] = [
   { id: "overview", label: "Overview" },
+  { id: "onboarding", label: "Onboarding" },
   { id: "bank_accounts", label: "Bank Accounts" },
   { id: "members", label: "Department Members" },
   { id: "categories", label: "Categories" },
@@ -3094,7 +3250,12 @@ function uniqueCategoriesFromExpenses(expenses: ExpenseRecord[]) {
   return Array.from(set).sort((a, b) => a.localeCompare(b));
 }
 
-function latestBalanceForAccount(expenses: ExpenseRecord[], accountName: string) {
+function latestBalanceForAccount(
+  expenses: ExpenseRecord[],
+  accountName: string,
+  beginningBalances?: OnboardingBeginningBalance[],
+  bankAccountId?: string,
+) {
   const matches = expenses
     .filter(
       (expense) =>
@@ -3102,10 +3263,21 @@ function latestBalanceForAccount(expenses: ExpenseRecord[], accountName: string)
         expense.balance_after_transaction != null,
     )
     .sort((a, b) => parseExpenseSortDate(b).localeCompare(parseExpenseSortDate(a)));
-  if (!matches.length) return null;
-  const value = matches[0].balance_after_transaction;
-  const parsed = typeof value === "number" ? value : Number(String(value).replace(/[$,]/g, ""));
-  return Number.isFinite(parsed) ? parsed : null;
+  if (matches.length > 0) {
+    const value = matches[0].balance_after_transaction;
+    const parsed = typeof value === "number" ? value : Number(String(value).replace(/[$,]/g, ""));
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  // Fall back to beginning balance if no expense balance exists
+  if (beginningBalances) {
+    const opening = beginningBalances.find(
+      (b) =>
+        (bankAccountId != null && b.account_id === bankAccountId) ||
+        normalizeName(b.account_name) === normalizeName(accountName),
+    );
+    if (opening) return opening.beginning_balance;
+  }
+  return null;
 }
 
 function buildDisplayBankRows(bankAccounts: BankAccount[], externalAccounts: ExternalPlaidAccount[]): DisplayBankRow[] {
@@ -3229,7 +3401,12 @@ function formatOverviewDateTime(iso: string | null | undefined) {
   }
 }
 
-function getDisplayRowMeta(row: DisplayBankRow, expenses: ExpenseRecord[], plaidSyncedAt: string | null) {
+function getDisplayRowMeta(
+  row: DisplayBankRow,
+  expenses: ExpenseRecord[],
+  plaidSyncedAt: string | null,
+  beginningBalances?: OnboardingBeginningBalance[],
+) {
   const name = row.source === "bank" ? row.bank.name : row.plaid.name;
   const institution =
     row.source === "bank" ? row.bank.institution_name || "Manual account" : `Plaid · ${row.plaid.type}`;
@@ -3237,9 +3414,9 @@ function getDisplayRowMeta(row: DisplayBankRow, expenses: ExpenseRecord[], plaid
   const isDefault = row.source === "bank" && row.bank.is_default;
   const plaidMatch = row.source === "bank" ? row.plaid : row.plaid;
   const plaidConnected = Boolean(plaidMatch);
-  const balance = latestBalanceForAccount(expenses, name);
-  const lastSynced = plaidConnected ? plaidSyncedAt || plaidMatch?.created_at : null;
   const bankId = row.source === "bank" ? row.bank.id : null;
+  const balance = latestBalanceForAccount(expenses, name, beginningBalances, bankId ?? undefined);
+  const lastSynced = plaidConnected ? plaidSyncedAt || plaidMatch?.created_at : null;
   const id = row.source === "bank" ? row.bank.id : row.plaid.id;
   const accountType = formatAccountTypeLabel(row);
   const subline = formatAccountSubline(row);
@@ -3251,8 +3428,9 @@ function getOverviewRowMeta(
   expenses: ExpenseRecord[],
   plaidSyncedAt: string | null,
   hasPlaidConnection: boolean,
+  beginningBalances?: OnboardingBeginningBalance[],
 ) {
-  const base = getDisplayRowMeta(row, expenses, plaidSyncedAt);
+  const base = getDisplayRowMeta(row, expenses, plaidSyncedAt, beginningBalances);
   const plaidStatus = getPlaidOverviewStatus(row, base.plaidConnected, hasPlaidConnection);
   return {
     ...base,
@@ -3300,10 +3478,14 @@ function Settings({
   bankAccounts,
   expenses,
   departmentSettings,
+  departmentCategories,
   activeSection,
   onSectionChange,
   onBankAccountsChanged,
   onDepartmentSettingsChanged,
+  onCategoriesChanged,
+  onVendorsChanged,
+  onBeginningBalancesChanged,
   showErrorMessage,
   showSuccessMessage,
 }: {
@@ -3313,10 +3495,14 @@ function Settings({
   bankAccounts: BankAccount[];
   expenses: ExpenseRecord[];
   departmentSettings: DepartmentSetting | null;
+  departmentCategories: DepartmentCategory[];
   activeSection: SettingsSectionId;
   onSectionChange: (section: SettingsSectionId) => void;
   onBankAccountsChanged: () => Promise<void>;
   onDepartmentSettingsChanged: () => Promise<void>;
+  onCategoriesChanged: () => Promise<void>;
+  onVendorsChanged: () => Promise<void>;
+  onBeginningBalancesChanged: () => Promise<void>;
   showErrorMessage: (message: string) => void;
   showSuccessMessage: (message: string | null) => void;
 }) {
@@ -3327,7 +3513,32 @@ function Settings({
   const [plaidSyncedAt, setPlaidSyncedAt] = useState<string | null>(null);
   const [departmentMembers, setDepartmentMembers] = useState<DepartmentMemberRow[]>([]);
 
-  const categories = useMemo(() => uniqueCategoriesFromExpenses(expenses), [expenses]);
+  // Onboarding state
+  const [onboardingStep, setOnboardingStep] = useState<1 | 2 | 3>(1);
+  const [onboardingLoading, setOnboardingLoading] = useState(false);
+  const [beginningBalances, setBeginningBalances] = useState<OnboardingBeginningBalance[]>([]);
+  const [showAddBalance, setShowAddBalance] = useState(false);
+  const [balanceFormDefaults, setBalanceFormDefaults] = useState<{
+    account_id?: string;
+    account_name?: string;
+    institution?: string;
+    mask?: string;
+  }>({});
+  const [balanceSaving, setBalanceSaving] = useState(false);
+  const [priorUploads, setPriorUploads] = useState<OnboardingPriorRecordUpload[]>([]);
+  const [uploadWorking, setUploadWorking] = useState(false);
+  const [suggestions, setSuggestions] = useState<OnboardingSuggestion[]>([]);
+  const [renamingSuggestionId, setRenamingSuggestionId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [suggestionWorking, setSuggestionWorking] = useState<string | null>(null);
+
+  const categories = useMemo(() => {
+    const fromExpenses = uniqueCategoriesFromExpenses(expenses);
+    const fromDept = departmentCategories.map((c) => c.name);
+    const seen = new Set(fromExpenses.map((c) => c.toLowerCase()));
+    const extras = fromDept.filter((c) => !seen.has(c.toLowerCase()));
+    return [...fromExpenses, ...extras].sort((a, b) => a.localeCompare(b));
+  }, [expenses, departmentCategories]);
   const displayRows = useMemo(
     () => buildDisplayBankRows(bankAccounts, externalAccounts),
     [bankAccounts, externalAccounts],
@@ -3387,10 +3598,52 @@ function Settings({
     setDepartmentMembers((data as DepartmentMemberRow[] | null) || []);
   }, [membership.department_id]);
 
+  const loadBeginningBalances = useCallback(async () => {
+    const { data } = await supabase
+      .from("onboarding_beginning_balances")
+      .select("*")
+      .eq("department_id", membership.department_id)
+      .order("created_at", { ascending: true });
+    setBeginningBalances((data as OnboardingBeginningBalance[] | null) ?? []);
+  }, [membership.department_id]);
+
+  const loadPriorUploads = useCallback(async () => {
+    const { data } = await supabase
+      .from("onboarding_prior_record_uploads")
+      .select("*")
+      .eq("department_id", membership.department_id)
+      .order("created_at", { ascending: false });
+    setPriorUploads((data as OnboardingPriorRecordUpload[] | null) ?? []);
+  }, [membership.department_id]);
+
+  const loadSuggestions = useCallback(async () => {
+    const { data } = await supabase
+      .from("onboarding_suggestions")
+      .select("*")
+      .eq("department_id", membership.department_id)
+      .order("created_at", { ascending: true });
+    setSuggestions((data as OnboardingSuggestion[] | null) ?? []);
+  }, [membership.department_id]);
+
+  const loadOnboardingData = useCallback(async () => {
+    setOnboardingLoading(true);
+    try {
+      await Promise.all([loadBeginningBalances(), loadPriorUploads(), loadSuggestions()]);
+    } finally {
+      setOnboardingLoading(false);
+    }
+  }, [loadBeginningBalances, loadPriorUploads, loadSuggestions]);
+
   useEffect(() => {
     void loadPlaidData();
     void loadMembers();
   }, [loadMembers, loadPlaidData]);
+
+  useEffect(() => {
+    if (activeSection === "onboarding") {
+      void loadOnboardingData();
+    }
+  }, [activeSection, loadOnboardingData]);
 
   async function startPlaidLink() {
     const response = await fetch("/api/plaid/create-link-token", {
@@ -3505,6 +3758,1030 @@ function Settings({
     showSuccessMessage("Statement auto-log setting saved.");
   }
 
+  // ── Onboarding actions ────────────────────────────────────────────────────
+
+  async function saveBeginningBalance(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const accountName = ((data.get("account_name") as string) || "").trim();
+    const accountType = ((data.get("account_type") as string) || "").trim();
+    const institution = ((data.get("institution") as string) || "").trim();
+    const mask = ((data.get("mask") as string) || "").trim();
+    const balanceRaw = ((data.get("beginning_balance") as string) || "").replace(/[$,]/g, "");
+    const balanceDate = ((data.get("balance_date") as string) || "").trim();
+    const isDefault = data.get("is_default") === "on";
+
+    if (!accountName || !accountType || !balanceRaw || !balanceDate) {
+      showErrorMessage("Account name, type, balance, and date are required.");
+      return;
+    }
+    const balance = parseFloat(balanceRaw);
+    if (!Number.isFinite(balance)) {
+      showErrorMessage("Enter a valid balance amount.");
+      return;
+    }
+
+    setBalanceSaving(true);
+    try {
+      // Find or create the corresponding bank_account record
+      let resolvedAccountId: string | null = balanceFormDefaults.account_id ?? null;
+      let createdNewAccount = false;
+      if (!resolvedAccountId) {
+        const normalized = normalizeName(accountName);
+        const existingAccount = bankAccounts.find((a) => normalizeName(a.name) === normalized);
+        if (existingAccount) {
+          resolvedAccountId = existingAccount.id;
+        } else {
+          const { data: newAccount, error: accountError } = await supabase
+            .from("bank_accounts")
+            .insert({
+              department_id: membership.department_id,
+              name: accountName,
+              institution_name: institution || null,
+              account_mask: mask || null,
+              is_default: isDefault,
+            })
+            .select()
+            .single();
+          if (accountError) throw accountError;
+          resolvedAccountId = (newAccount as { id: string }).id;
+          createdNewAccount = true;
+          await onBankAccountsChanged();
+        }
+      }
+
+      const { error } = await supabase.from("onboarding_beginning_balances").insert({
+        department_id: membership.department_id,
+        account_id: resolvedAccountId,
+        account_name: accountName,
+        account_type: accountType,
+        institution: institution || null,
+        mask: mask || null,
+        beginning_balance: balance,
+        balance_date: balanceDate,
+        is_default: isDefault,
+        created_by: user.id,
+      });
+      if (error) throw error;
+      form.reset();
+      setShowAddBalance(false);
+      setBalanceFormDefaults({});
+      await loadBeginningBalances();
+      await onBeginningBalancesChanged();
+      const msg = createdNewAccount
+        ? `Account "${accountName}" created and beginning balance saved.`
+        : "Beginning balances saved and applied to your accounts.";
+      showSuccessMessage(msg);
+    } catch (err) {
+      showErrorMessage(err instanceof Error ? err.message : "Could not save balance.");
+    } finally {
+      setBalanceSaving(false);
+    }
+  }
+
+  async function deleteBeginningBalance(id: string) {
+    const { error } = await supabase.from("onboarding_beginning_balances").delete().eq("id", id);
+    if (error) {
+      showErrorMessage("Could not remove balance.");
+      return;
+    }
+    await loadBeginningBalances();
+    await onBeginningBalancesChanged();
+  }
+
+  async function uploadPriorRecord(file: File) {
+    setUploadWorking(true);
+    const uploadId = crypto.randomUUID();
+    const safeName = file.name.replace(/[^a-z0-9._-]/gi, "_");
+    const filePath = `${membership.department_id}/prior-records/${uploadId}-${safeName}`;
+
+    try {
+      const { error: storageError } = await supabase.storage
+        .from("onboarding")
+        .upload(filePath, file, { contentType: file.type || "application/octet-stream" });
+      if (storageError) throw storageError;
+
+      const { data: uploadRecord, error: dbError } = await supabase
+        .from("onboarding_prior_record_uploads")
+        .insert({
+          department_id: membership.department_id,
+          file_path: filePath,
+          file_name: file.name,
+          file_mime_type: file.type || null,
+          status: "processing",
+          created_by: user.id,
+        })
+        .select()
+        .single();
+      if (dbError) throw dbError;
+
+      const { data: signedUrlData } = await supabase.storage
+        .from("onboarding")
+        .createSignedUrl(filePath, 300);
+
+      let extractedData: Record<string, unknown> | null = null;
+      let newStatus: "reviewed" | "failed" = "reviewed";
+      try {
+        const response = await fetch("/api/extract-onboarding-records", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            file_url: signedUrlData?.signedUrl,
+            filename: file.name,
+            content_type: file.type || "application/octet-stream",
+          }),
+        });
+        if (response.ok) {
+          extractedData = (await response.json()) as Record<string, unknown>;
+          await createSuggestionsFromExtraction(
+            (uploadRecord as { id: string }).id,
+            extractedData,
+          );
+        } else {
+          newStatus = "failed";
+        }
+      } catch {
+        newStatus = "failed";
+      }
+
+      await supabase
+        .from("onboarding_prior_record_uploads")
+        .update({
+          status: newStatus,
+          extracted_data: extractedData,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", (uploadRecord as { id: string }).id);
+
+      await loadOnboardingData();
+      showSuccessMessage(
+        `Uploaded ${file.name}${newStatus === "reviewed" ? " — suggestions generated." : "."}`,
+      );
+    } catch (err) {
+      showErrorMessage(err instanceof Error ? err.message : "Upload failed.");
+      await loadPriorUploads();
+    } finally {
+      setUploadWorking(false);
+    }
+  }
+
+  async function createSuggestionsFromExtraction(
+    uploadId: string,
+    data: Record<string, unknown>,
+  ) {
+    type SuggestionInsert = {
+      department_id: string;
+      suggestion_type: "account" | "category" | "vendor" | "income_type";
+      suggested_value: string;
+      confidence: number | null;
+      source_upload_id: string;
+      status: "pending";
+    };
+    const toInsert: SuggestionInsert[] = [];
+    const existingKeys = new Set(
+      suggestions.map((s) => `${s.suggestion_type}:${s.suggested_value.toLowerCase()}`),
+    );
+    const conf = typeof data.confidence === "number" ? data.confidence : null;
+
+    const addGroup = (
+      values: unknown,
+      type: SuggestionInsert["suggestion_type"],
+    ) => {
+      if (!Array.isArray(values)) return;
+      for (const v of values as string[]) {
+        const key = `${type}:${v.toLowerCase()}`;
+        if (v.trim() && !existingKeys.has(key)) {
+          existingKeys.add(key);
+          toInsert.push({
+            department_id: membership.department_id,
+            suggestion_type: type,
+            suggested_value: v.trim(),
+            confidence: conf,
+            source_upload_id: uploadId,
+            status: "pending",
+          });
+        }
+      }
+    };
+
+    addGroup(data.accounts, "account");
+    addGroup(data.categories, "category");
+    addGroup(data.vendors, "vendor");
+    addGroup(data.income_types, "income_type");
+
+    if (toInsert.length > 0) {
+      await supabase.from("onboarding_suggestions").insert(toInsert);
+    }
+  }
+
+  async function acceptSuggestion(suggestion: OnboardingSuggestion) {
+    const value = suggestion.suggested_value.trim();
+    setSuggestionWorking(suggestion.id);
+    try {
+      let feedbackMsg = `"${value}" accepted.`;
+
+      if (suggestion.suggestion_type === "category" || suggestion.suggestion_type === "income_type") {
+        const normalized = normalizeName(value);
+        const { data: existing } = await supabase
+          .from("department_categories")
+          .select("id, name")
+          .eq("department_id", membership.department_id)
+          .eq("normalized_name", normalized)
+          .maybeSingle();
+        if (existing) {
+          feedbackMsg = `Matched existing category: "${(existing as { name: string }).name}"`;
+        } else {
+          const { error } = await supabase.from("department_categories").insert({
+            department_id: membership.department_id,
+            name: value,
+            normalized_name: normalized,
+            created_from: "onboarding",
+          });
+          if (error) throw error;
+          feedbackMsg = `"${value}" added to Categories.`;
+          await onCategoriesChanged();
+        }
+      } else if (suggestion.suggestion_type === "vendor") {
+        const normalized = normalizeName(value);
+        const { data: existing } = await supabase
+          .from("department_vendors")
+          .select("id, name")
+          .eq("department_id", membership.department_id)
+          .eq("normalized_name", normalized)
+          .maybeSingle();
+        if (existing) {
+          feedbackMsg = `Matched existing vendor: "${(existing as { name: string }).name}"`;
+        } else {
+          const { error } = await supabase.from("department_vendors").insert({
+            department_id: membership.department_id,
+            name: value,
+            normalized_name: normalized,
+            created_from: "onboarding",
+          });
+          if (error) throw error;
+          feedbackMsg = `"${value}" added to Vendors.`;
+          await onVendorsChanged();
+        }
+      } else if (suggestion.suggestion_type === "account") {
+        const normalized = normalizeName(value);
+        const existingAccount = bankAccounts.find((a) => normalizeName(a.name) === normalized);
+        if (existingAccount) {
+          feedbackMsg = `Matched existing account: "${existingAccount.name}"`;
+        } else {
+          const { error } = await supabase.from("bank_accounts").insert({
+            department_id: membership.department_id,
+            name: value,
+            institution_name: null,
+            account_mask: null,
+            is_default: false,
+          });
+          if (error) throw error;
+          await onBankAccountsChanged();
+          feedbackMsg = `"${value}" added to Accounts.`;
+        }
+      }
+
+      const { error } = await supabase
+        .from("onboarding_suggestions")
+        .update({
+          status: "accepted",
+          accepted_value: value,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", suggestion.id);
+      if (error) throw error;
+      await loadSuggestions();
+      showSuccessMessage(feedbackMsg);
+    } catch (err) {
+      showErrorMessage(err instanceof Error ? err.message : "Could not accept suggestion.");
+    } finally {
+      setSuggestionWorking(null);
+    }
+  }
+
+  async function ignoreSuggestion(id: string) {
+    setSuggestionWorking(id);
+    try {
+      const { error } = await supabase
+        .from("onboarding_suggestions")
+        .update({ status: "ignored", updated_at: new Date().toISOString() })
+        .eq("id", id);
+      if (error) throw error;
+      await loadSuggestions();
+    } catch (err) {
+      showErrorMessage(err instanceof Error ? err.message : "Could not ignore suggestion.");
+    } finally {
+      setSuggestionWorking(null);
+    }
+  }
+
+  async function confirmRenameSuggestion(suggestion: OnboardingSuggestion) {
+    const finalValue = renameValue.trim();
+    if (!finalValue) return;
+    setSuggestionWorking(suggestion.id);
+    try {
+      // Write the renamed value to the same real table as acceptSuggestion
+      if (suggestion.suggestion_type === "category" || suggestion.suggestion_type === "income_type") {
+        const normalized = normalizeName(finalValue);
+        const { data: existing } = await supabase
+          .from("department_categories")
+          .select("id")
+          .eq("department_id", membership.department_id)
+          .eq("normalized_name", normalized)
+          .maybeSingle();
+        if (!existing) {
+          const { error } = await supabase.from("department_categories").insert({
+            department_id: membership.department_id,
+            name: finalValue,
+            normalized_name: normalized,
+            created_from: "onboarding",
+          });
+          if (error) throw error;
+          await onCategoriesChanged();
+        }
+      } else if (suggestion.suggestion_type === "vendor") {
+        const normalized = normalizeName(finalValue);
+        const { data: existing } = await supabase
+          .from("department_vendors")
+          .select("id")
+          .eq("department_id", membership.department_id)
+          .eq("normalized_name", normalized)
+          .maybeSingle();
+        if (!existing) {
+          const { error } = await supabase.from("department_vendors").insert({
+            department_id: membership.department_id,
+            name: finalValue,
+            normalized_name: normalized,
+            created_from: "onboarding",
+          });
+          if (error) throw error;
+          await onVendorsChanged();
+        }
+      } else if (suggestion.suggestion_type === "account") {
+        const normalized = normalizeName(finalValue);
+        const exists = bankAccounts.some((a) => normalizeName(a.name) === normalized);
+        if (!exists) {
+          const { error } = await supabase.from("bank_accounts").insert({
+            department_id: membership.department_id,
+            name: finalValue,
+            institution_name: null,
+            account_mask: null,
+            is_default: false,
+          });
+          if (error) throw error;
+          await onBankAccountsChanged();
+        }
+      }
+
+      const { error } = await supabase
+        .from("onboarding_suggestions")
+        .update({
+          status: "renamed",
+          accepted_value: finalValue,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", suggestion.id);
+      if (error) throw error;
+      setRenamingSuggestionId(null);
+      setRenameValue("");
+      await loadSuggestions();
+      showSuccessMessage(`Saved as "${finalValue}".`);
+    } catch (err) {
+      showErrorMessage(err instanceof Error ? err.message : "Could not rename suggestion.");
+    } finally {
+      setSuggestionWorking(null);
+    }
+  }
+
+  // ── Onboarding render helpers ─────────────────────────────────────────────
+
+  function renderBeginningBalancesStep() {
+    return (
+      <section className="card fb-settings-panel-card">
+        <div className="fb-settings-panel-head">
+          <div>
+            <h2 className="fb-settings-panel-title">Beginning Balances</h2>
+            <p className="fb-settings-panel-subtitle">
+              Enter the balances you are starting with in Firebook. These are used as your opening
+              balances before Firebook starts tracking activity.
+            </p>
+          </div>
+          {!showAddBalance && (
+            <button
+              type="button"
+              className="fb-primary-btn"
+              onClick={() => {
+                setBalanceFormDefaults({});
+                setShowAddBalance(true);
+              }}
+            >
+              Add account
+            </button>
+          )}
+        </div>
+
+        <div className="fb-onboarding-note">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          <p>
+            If you connect an account through Plaid, future transactions and balances will sync
+            automatically.
+          </p>
+        </div>
+
+        {bankAccounts.length > 0 && (
+          <div className="fb-onboarding-existing-section">
+            <p className="fb-onboarding-section-label">Your Firebook accounts</p>
+            <div className="fb-onboarding-account-list">
+              {bankAccounts.map((account) => {
+                const existingBalance = beginningBalances.find(
+                  (b) =>
+                    b.account_id === account.id ||
+                    b.account_name.toLowerCase().trim() ===
+                      account.name.toLowerCase().trim(),
+                );
+                return (
+                  <div key={account.id} className="fb-onboarding-account-row">
+                    <div className="fb-onboarding-account-info">
+                      <p className="fb-onboarding-account-name">{account.name}</p>
+                      <p className="fb-onboarding-account-meta">
+                        {[
+                          account.institution_name || "Manual account",
+                          account.account_mask ? `•••• ${account.account_mask}` : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                    </div>
+                    {existingBalance ? (
+                      <div className="fb-onboarding-balance-badge">
+                        <span>{formatUsd(existingBalance.beginning_balance)}</span>
+                        <span className="muted">
+                          as of {formatSettingsDate(existingBalance.balance_date)}
+                        </span>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        className="fb-secondary-btn"
+                        onClick={() => {
+                          setBalanceFormDefaults({
+                            account_id: account.id,
+                            account_name: account.name,
+                            institution: account.institution_name || "",
+                            mask: account.account_mask || "",
+                          });
+                          setShowAddBalance(true);
+                        }}
+                      >
+                        Add balance
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {showAddBalance && (
+          <form
+            className="fb-onboarding-balance-form"
+            onSubmit={(e) => void saveBeginningBalance(e)}
+          >
+            <div className="fb-onboarding-balance-form-header">
+              <h3 className="fb-onboarding-form-title">
+                {balanceFormDefaults.account_name
+                  ? `Add balance — ${balanceFormDefaults.account_name}`
+                  : "Add beginning balance"}
+              </h3>
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => {
+                  setShowAddBalance(false);
+                  setBalanceFormDefaults({});
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+            <div className="fb-onboarding-form-grid">
+              <label>
+                Account name
+                <input
+                  name="account_name"
+                  required
+                  placeholder="Operating Checking"
+                  defaultValue={balanceFormDefaults.account_name || ""}
+                  key={`name-${balanceFormDefaults.account_name || "new"}`}
+                />
+              </label>
+              <label>
+                Account type
+                <select name="account_type" required defaultValue="">
+                  <option value="" disabled>
+                    Select type
+                  </option>
+                  <option value="Checking">Checking</option>
+                  <option value="Savings">Savings</option>
+                  <option value="2% Funds">2% Funds</option>
+                  <option value="Credit Card">Credit Card</option>
+                  <option value="Cash">Cash</option>
+                  <option value="Other">Other</option>
+                </select>
+              </label>
+              <label>
+                Institution
+                <input
+                  name="institution"
+                  placeholder="Chase, M&T, etc."
+                  defaultValue={balanceFormDefaults.institution || ""}
+                  key={`inst-${balanceFormDefaults.institution || "new"}`}
+                />
+              </label>
+              <label>
+                Last four / mask
+                <input
+                  name="mask"
+                  placeholder="1234"
+                  maxLength={4}
+                  defaultValue={balanceFormDefaults.mask || ""}
+                  key={`mask-${balanceFormDefaults.mask || "new"}`}
+                />
+              </label>
+              <label>
+                Beginning balance
+                <input
+                  name="beginning_balance"
+                  type="text"
+                  required
+                  inputMode="decimal"
+                  placeholder="0.00"
+                />
+              </label>
+              <label>
+                Balance date
+                <input name="balance_date" type="date" required />
+              </label>
+            </div>
+            <label className="fb-settings-checkbox">
+              <input type="checkbox" name="is_default" />
+              <span>Set as default account</span>
+            </label>
+            <div className="fb-onboarding-form-actions">
+              <button type="submit" className="fb-primary-btn" disabled={balanceSaving}>
+                {balanceSaving ? "Saving…" : "Save beginning balance"}
+              </button>
+              <button
+                type="button"
+                className="fb-secondary-btn"
+                onClick={() => {
+                  setShowAddBalance(false);
+                  setBalanceFormDefaults({});
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
+
+        {beginningBalances.length > 0 && (
+          <div className="fb-onboarding-balance-list">
+            <p className="fb-onboarding-section-label">Saved beginning balances</p>
+            {beginningBalances.map((bal) => (
+              <div key={bal.id} className="fb-onboarding-balance-row">
+                <div className="fb-onboarding-balance-info">
+                  <p className="fb-onboarding-account-name">{bal.account_name}</p>
+                  <p className="fb-onboarding-account-meta">
+                    {[bal.account_type, bal.institution, bal.mask ? `•••• ${bal.mask}` : null]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                </div>
+                <div className="fb-onboarding-balance-badge">
+                  <span>{formatUsd(bal.beginning_balance)}</span>
+                  <span className="muted">as of {formatSettingsDate(bal.balance_date)}</span>
+                  {bal.is_default ? <SettingsStatusPill tone="primary">Default</SettingsStatusPill> : null}
+                </div>
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => void deleteBeginningBalance(bal.id)}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {beginningBalances.length === 0 && !showAddBalance && (
+          <p className="empty-state">
+            No beginning balances added yet.{" "}
+            {bankAccounts.length ? "Use the buttons above or add a new account." : 'Click "Add account" to get started.'}
+          </p>
+        )}
+
+        <div className="fb-onboarding-step-footer">
+          <button
+            type="button"
+            className="fb-primary-btn"
+            onClick={() => {
+              setOnboardingStep(2);
+              void loadOnboardingData();
+            }}
+          >
+            Continue to Upload Records
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  function renderUploadPriorRecordsStep() {
+    const STATUS_LABEL: Record<string, string> = {
+      uploaded: "Uploaded",
+      processing: "Processing",
+      reviewed: "Reviewed",
+      failed: "Failed",
+    };
+    const STATUS_TONE: Record<string, "success" | "neutral" | "warning"> = {
+      uploaded: "neutral",
+      processing: "neutral",
+      reviewed: "success",
+      failed: "warning",
+    };
+
+    return (
+      <section className="card fb-settings-panel-card">
+        <div className="fb-settings-panel-head">
+          <div>
+            <h2 className="fb-settings-panel-title">Upload Prior Records</h2>
+            <p className="fb-settings-panel-subtitle">
+              Upload photos, PDFs, or spreadsheets of old registers, notebooks, statements, or
+              logs. Firebook will use them to suggest categories and accounts.
+            </p>
+          </div>
+        </div>
+
+        <label
+          className={`fb-onboarding-upload-zone${uploadWorking ? " fb-onboarding-upload-zone--busy" : ""}`}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.currentTarget.classList.add("fb-drag-over");
+          }}
+          onDragLeave={(e) => e.currentTarget.classList.remove("fb-drag-over")}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.currentTarget.classList.remove("fb-drag-over");
+            const files = Array.from(e.dataTransfer.files);
+            for (const file of files) {
+              void uploadPriorRecord(file);
+            }
+          }}
+        >
+          <div className="fb-onboarding-upload-inner">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="36"
+              height="36"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="fb-onboarding-upload-icon"
+              aria-hidden="true"
+            >
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="17 8 12 3 7 8" />
+              <line x1="12" y1="3" x2="12" y2="15" />
+            </svg>
+            <p className="fb-onboarding-upload-label">
+              {uploadWorking ? "Uploading…" : "Drag files here or browse"}
+            </p>
+            <span className="fb-onboarding-upload-btn-wrap">
+              <span className="fb-primary-btn fb-onboarding-upload-btn" aria-hidden="true">
+                {uploadWorking ? "Uploading…" : "Browse files"}
+              </span>
+              <input
+                type="file"
+                multiple
+                accept=".jpg,.jpeg,.png,.pdf,.csv,.xlsx,.xls"
+                className="fb-onboarding-file-input"
+                disabled={uploadWorking}
+                onChange={(e) => {
+                  const files = Array.from(e.target.files || []);
+                  e.target.value = "";
+                  for (const file of files) {
+                    void uploadPriorRecord(file);
+                  }
+                }}
+              />
+            </span>
+            <p className="fb-onboarding-upload-hint">
+              JPG · PNG · PDF · CSV · XLSX — Registers, notebooks, statements, spreadsheets
+            </p>
+          </div>
+        </label>
+
+        {priorUploads.length > 0 && (
+          <div className="fb-onboarding-file-list">
+            <p className="fb-onboarding-section-label">Uploaded files</p>
+            {priorUploads.map((upload) => (
+              <div key={upload.id} className="fb-onboarding-file-row">
+                <div className="fb-onboarding-file-info">
+                  <p className="fb-onboarding-file-name">{upload.file_name}</p>
+                  <p className="fb-onboarding-file-meta">
+                    {formatSettingsDate(upload.created_at)}
+                  </p>
+                </div>
+                <SettingsStatusPill tone={STATUS_TONE[upload.status] ?? "neutral"}>
+                  {STATUS_LABEL[upload.status] ?? upload.status}
+                </SettingsStatusPill>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {priorUploads.length === 0 && (
+          <p className="muted" style={{ fontSize: "0.88rem" }}>
+            No files uploaded yet. Accepted formats include handwritten bank registers, check logs,
+            deposit records, prior treasurer notebooks, and spreadsheet exports.
+          </p>
+        )}
+
+        <div className="fb-onboarding-step-footer">
+          <button
+            type="button"
+            className="fb-primary-btn"
+            onClick={() => {
+              setOnboardingStep(3);
+              void loadOnboardingData();
+            }}
+          >
+            Review Suggestions
+          </button>
+          <button
+            type="button"
+            className="fb-secondary-btn"
+            onClick={() => setOnboardingStep(1)}
+          >
+            Back
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  function renderReviewSuggestionsStep() {
+    const pending = suggestions.filter((s) => s.status === "pending");
+    const resolved = suggestions.filter((s) => s.status !== "pending");
+
+    const GROUPS: Array<{
+      type: OnboardingSuggestion["suggestion_type"];
+      label: string;
+    }> = [
+      { type: "account", label: "Suggested Accounts" },
+      { type: "category", label: "Suggested Categories" },
+      { type: "vendor", label: "Suggested Vendors / Payees" },
+      { type: "income_type", label: "Suggested Income Types" },
+    ];
+
+    return (
+      <section className="card fb-settings-panel-card">
+        <div className="fb-settings-panel-head">
+          <div>
+            <h2 className="fb-settings-panel-title">Review Suggestions</h2>
+            <p className="fb-settings-panel-subtitle">
+              Firebook found possible accounts, categories, vendors, and transaction types from
+              your uploaded records. Accept what looks right and ignore the rest.
+            </p>
+          </div>
+        </div>
+
+        {onboardingLoading && <p className="muted">Loading suggestions…</p>}
+
+        {!onboardingLoading && suggestions.length === 0 && (
+          <div className="fb-onboarding-empty-suggestions">
+            <p className="muted">
+              No suggestions yet. Upload prior records in Step 2 and Firebook will generate
+              suggestions from them.
+            </p>
+            <button
+              type="button"
+              className="fb-secondary-btn"
+              onClick={() => setOnboardingStep(2)}
+            >
+              Go to Upload Records
+            </button>
+          </div>
+        )}
+
+        {!onboardingLoading && pending.length === 0 && resolved.length > 0 && (
+          <p className="muted" style={{ padding: "4px 0 8px" }}>
+            All suggestions have been reviewed.
+          </p>
+        )}
+
+        {GROUPS.map(({ type, label }) => {
+          const group = pending.filter((s) => s.suggestion_type === type);
+          if (!group.length) return null;
+          return (
+            <div key={type} className="fb-onboarding-suggestion-group">
+              <h3 className="fb-onboarding-group-title">{label}</h3>
+              <div className="fb-onboarding-suggestion-list">
+                {group.map((suggestion) => (
+                  <div key={suggestion.id} className="fb-onboarding-suggestion-card">
+                    <div className="fb-onboarding-suggestion-main">
+                      <p className="fb-onboarding-suggestion-value">
+                        {suggestion.suggested_value}
+                      </p>
+                      {suggestion.confidence != null && (
+                        <span className="fb-onboarding-confidence">
+                          {Math.round(suggestion.confidence * 100)}% match
+                        </span>
+                      )}
+                    </div>
+                    {renamingSuggestionId === suggestion.id ? (
+                      <div className="fb-onboarding-rename-form">
+                        <input
+                          type="text"
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          placeholder={suggestion.suggested_value}
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") void confirmRenameSuggestion(suggestion);
+                            if (e.key === "Escape") {
+                              setRenamingSuggestionId(null);
+                              setRenameValue("");
+                            }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="fb-primary-btn"
+                          disabled={
+                            !renameValue.trim() ||
+                            suggestionWorking === suggestion.id
+                          }
+                          onClick={() => void confirmRenameSuggestion(suggestion)}
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          className="fb-secondary-btn"
+                          onClick={() => {
+                            setRenamingSuggestionId(null);
+                            setRenameValue("");
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="fb-onboarding-suggestion-actions">
+                        <button
+                          type="button"
+                          className="fb-primary-btn"
+                          disabled={suggestionWorking === suggestion.id}
+                          onClick={() => void acceptSuggestion(suggestion)}
+                        >
+                          Accept
+                        </button>
+                        <button
+                          type="button"
+                          className="fb-secondary-btn"
+                          disabled={suggestionWorking === suggestion.id}
+                          onClick={() => {
+                            setRenamingSuggestionId(suggestion.id);
+                            setRenameValue(suggestion.suggested_value);
+                          }}
+                        >
+                          Rename
+                        </button>
+                        <button
+                          type="button"
+                          className="link-button"
+                          disabled={suggestionWorking === suggestion.id}
+                          onClick={() => void ignoreSuggestion(suggestion.id)}
+                        >
+                          Ignore
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+
+        {resolved.length > 0 && (
+          <details className="fb-onboarding-reviewed">
+            <summary className="fb-onboarding-reviewed-toggle">
+              {resolved.length} reviewed suggestion{resolved.length !== 1 ? "s" : ""}
+            </summary>
+            <div className="fb-onboarding-suggestion-list fb-onboarding-suggestion-list--resolved">
+              {resolved.map((suggestion) => (
+                <div
+                  key={suggestion.id}
+                  className="fb-onboarding-suggestion-card fb-onboarding-suggestion-card--resolved"
+                >
+                  <div className="fb-onboarding-suggestion-main">
+                    <p className="fb-onboarding-suggestion-value">
+                      {suggestion.accepted_value || suggestion.suggested_value}
+                    </p>
+                    {suggestion.accepted_value &&
+                      suggestion.accepted_value !== suggestion.suggested_value && (
+                        <span className="muted fb-onboarding-original">
+                          (was: {suggestion.suggested_value})
+                        </span>
+                      )}
+                  </div>
+                  <SettingsStatusPill
+                    tone={
+                      suggestion.status === "accepted" || suggestion.status === "renamed"
+                        ? "success"
+                        : "neutral"
+                    }
+                  >
+                    {suggestion.status === "accepted"
+                      ? "Accepted"
+                      : suggestion.status === "renamed"
+                        ? "Renamed"
+                        : "Ignored"}
+                  </SettingsStatusPill>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+
+        <div className="fb-onboarding-step-footer">
+          <button
+            type="button"
+            className="fb-secondary-btn"
+            onClick={() => setOnboardingStep(2)}
+          >
+            Back
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  function renderOnboardingSection() {
+    const STEP_LABELS: [string, string, string] = [
+      "Beginning Balances",
+      "Upload Prior Records",
+      "Review Suggestions",
+    ];
+    return (
+      <div className="fb-onboarding-page">
+        <nav className="card fb-onboarding-steps" aria-label="Onboarding steps">
+          {([1, 2, 3] as const).map((step) => (
+            <button
+              key={step}
+              type="button"
+              className={`fb-onboarding-step-btn${onboardingStep === step ? " fb-onboarding-step-btn--active" : ""}`}
+              onClick={() => {
+                setOnboardingStep(step);
+                void loadOnboardingData();
+              }}
+            >
+              <span className="fb-onboarding-step-num">{step}</span>
+              <span className="fb-onboarding-step-label">{STEP_LABELS[step - 1]}</span>
+            </button>
+          ))}
+        </nav>
+        {onboardingStep === 1 && renderBeginningBalancesStep()}
+        {onboardingStep === 2 && renderUploadPriorRecordsStep()}
+        {onboardingStep === 3 && renderReviewSuggestionsStep()}
+      </div>
+    );
+  }
+
   function renderSummaryCards() {
     return (
       <div className="fb-settings-summary-grid">
@@ -3563,7 +4840,7 @@ function Settings({
                 </thead>
                 <tbody>
                   {previewRows.map((row) => {
-                    const meta = getOverviewRowMeta(row, expenses, plaidSyncedAt, hasPlaidConnection);
+                    const meta = getOverviewRowMeta(row, expenses, plaidSyncedAt, hasPlaidConnection, beginningBalances);
                     return (
                       <tr key={meta.id}>
                         <td className="fb-settings-account-cell">
@@ -3618,7 +4895,7 @@ function Settings({
             </div>
             <div className="fb-settings-overview-cards">
               {previewRows.map((row) => {
-                const meta = getOverviewRowMeta(row, expenses, plaidSyncedAt, hasPlaidConnection);
+                const meta = getOverviewRowMeta(row, expenses, plaidSyncedAt, hasPlaidConnection, beginningBalances);
                 return (
                   <div key={meta.id} className="fb-settings-preview-account-card">
                     <div className="fb-settings-account-card-head">
@@ -3709,6 +4986,24 @@ function Settings({
   function renderOverview() {
     return (
       <div className="fb-settings-overview">
+        <section className="card fb-settings-panel-card fb-onboarding-callout">
+          <div className="fb-onboarding-callout-body">
+            <div>
+              <h2 className="fb-settings-panel-title">Finish setup</h2>
+              <p className="fb-settings-panel-subtitle">
+                Add beginning balances and upload prior records so Firebook can learn your
+                accounts and categories.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="fb-primary-btn"
+              onClick={() => onSectionChange("onboarding")}
+            >
+              Start onboarding
+            </button>
+          </div>
+        </section>
         {renderSummaryCards()}
         {renderOverviewBankAccountsPreview()}
         {renderOverviewManagementCards()}
@@ -3724,9 +5019,9 @@ function Settings({
     const isDefault = row.source === "bank" && row.bank.is_default;
     const plaidMatch = row.source === "bank" ? row.plaid : row.plaid;
     const plaidConnected = Boolean(plaidMatch);
-    const balance = latestBalanceForAccount(expenses, name);
-    const lastSynced = plaidConnected ? plaidSyncedAt || plaidMatch?.created_at : null;
     const bankId = row.source === "bank" ? row.bank.id : null;
+    const balance = latestBalanceForAccount(expenses, name, beginningBalances, bankId ?? undefined);
+    const lastSynced = plaidConnected ? plaidSyncedAt || plaidMatch?.created_at : null;
 
     return (
       <div key={row.source === "bank" ? row.bank.id : row.plaid.id} className="fb-settings-account-card">
@@ -3853,9 +5148,9 @@ function Settings({
                     const isDefault = row.source === "bank" && row.bank.is_default;
                     const plaidMatch = row.source === "bank" ? row.plaid : row.plaid;
                     const plaidConnected = Boolean(plaidMatch);
-                    const balance = latestBalanceForAccount(expenses, name);
-                    const lastSynced = plaidConnected ? plaidSyncedAt || plaidMatch?.created_at : null;
                     const bankId = row.source === "bank" ? row.bank.id : null;
+                    const balance = latestBalanceForAccount(expenses, name, beginningBalances, bankId ?? undefined);
+                    const lastSynced = plaidConnected ? plaidSyncedAt || plaidMatch?.created_at : null;
                     return (
                       <tr key={row.source === "bank" ? row.bank.id : row.plaid.id}>
                         <td>
@@ -3935,6 +5230,8 @@ function Settings({
     switch (activeSection) {
       case "overview":
         return renderOverview();
+      case "onboarding":
+        return renderOnboardingSection();
       case "bank_accounts":
         return renderBankAccountsSection();
       case "members":

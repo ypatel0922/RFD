@@ -178,3 +178,77 @@ export type ReconciliationReport = {
   newTotal: number;
   endingRegisterBalance: string | number | null;
 };
+
+export type OnboardingProfile = {
+  id: string;
+  department_id: string;
+  status: "not_started" | "in_progress" | "completed";
+  started_at: string | null;
+  completed_at: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type OnboardingBeginningBalance = {
+  id: string;
+  department_id: string;
+  account_id: string | null;
+  account_name: string;
+  account_type: string;
+  institution: string | null;
+  mask: string | null;
+  beginning_balance: number;
+  balance_date: string;
+  is_default: boolean;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type OnboardingPriorRecordUpload = {
+  id: string;
+  department_id: string;
+  file_path: string;
+  file_name: string;
+  file_mime_type: string | null;
+  status: "uploaded" | "processing" | "reviewed" | "failed";
+  extracted_data: Record<string, unknown> | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type OnboardingSuggestion = {
+  id: string;
+  department_id: string;
+  suggestion_type: "account" | "category" | "vendor" | "income_type";
+  suggested_value: string;
+  confidence: number | null;
+  source_upload_id: string | null;
+  status: "pending" | "accepted" | "renamed" | "ignored";
+  accepted_value: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DepartmentCategory = {
+  id: string;
+  department_id: string;
+  name: string;
+  normalized_name: string;
+  created_from: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DepartmentVendor = {
+  id: string;
+  department_id: string;
+  name: string;
+  normalized_name: string;
+  default_category: string | null;
+  created_from: string | null;
+  created_at: string;
+  updated_at: string;
+};
