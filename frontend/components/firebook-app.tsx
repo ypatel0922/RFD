@@ -31,6 +31,8 @@ import {
 import { buildReconciliationReport, reconciliationReportCsv } from "../lib/reports";
 import { ReconciliationInboxSection } from "./reconciliation-inbox";
 import { TransactionsLedger } from "./TransactionsLedger";
+import { NysFFReportPage } from "./nys-foreign-fire-report";
+import { TaxFormFilingsSection } from "./tax-form-filings";
 
 type AuthMode = "login" | "signup";
 type AppView =
@@ -1442,7 +1444,7 @@ export default function Home() {
               showSuccessMessage={showSuccessMessage}
             />
           ) : view === "tax_forms" ? (
-            <TaxFormsSection />
+            <TaxFormsSection membership={membership} expenses={expenses} />
           ) : view === "vendors" ? (
             <VendorsSection expenses={expenses} />
           ) : view === "settings" ? (
@@ -1819,24 +1821,69 @@ function DepartmentSetupBanner({
   );
 }
 
-function TaxFormsSection() {
-  const placeholders = [
-    { title: "NYS 2% Report", desc: "Sales tax and NYS filing summaries will be generated here." },
+function TaxFormsSection({
+  membership,
+  expenses,
+}: {
+  membership: DepartmentMembership;
+  expenses: ExpenseRecord[];
+}) {
+  const [mode, setMode] = useState<"hub" | "nys_foreign_fire">("hub");
+  // Bump when returning from the report builder so the filings list refreshes
+  const [filingsKey, setFilingsKey] = useState(0);
+
+  if (mode === "nys_foreign_fire") {
+    return (
+      <NysFFReportPage
+        membership={membership}
+        expenses={expenses}
+        onBack={() => {
+          setMode("hub");
+          setFilingsKey((k) => k + 1);
+        }}
+      />
+    );
+  }
+
+  const comingSoon = [
     { title: "IRS Form 990", desc: "Nonprofit disclosure package preparation (coming soon)." },
     { title: "Year-end tax package", desc: "Exportable binder for your accountant (coming soon)." },
   ];
+
   return (
     <div className="fb-tab-stack">
       <section className="card fb-dash-welcome">
         <p className="eyebrow">Compliance</p>
         <h1 className="fb-dash-title">Tax Forms</h1>
         <p className="fb-dash-subtitle">
-          Central place for New York and federal filings. Report generation is being prepared; nothing here changes your
-          data yet.
+          Generate New York State filings directly from your Firebook transaction data. Select a report to get started.
         </p>
       </section>
+
       <div className="fb-doc-hub-grid">
-        {placeholders.map((item) => (
+        {/* NYS Foreign Fire Insurance Report — live */}
+        <div className="fb-doc-hub-card fb-doc-hub-card--primary">
+          <div className="nys-card-badge">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+              <path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+            </svg>
+            Ready
+          </div>
+          <h2>NYS Foreign Fire Insurance Report (2%)</h2>
+          <p className="muted">
+            Generate the Annual Report of Foreign Fire Insurance Premiums using your Firebook transaction data. Includes OCR extraction from prior year filings.
+          </p>
+          <button
+            type="button"
+            className="fb-primary-btn nys-card-btn"
+            onClick={() => setMode("nys_foreign_fire")}
+          >
+            Open Report Builder
+          </button>
+        </div>
+
+        {/* Coming-soon cards */}
+        {comingSoon.map((item) => (
           <div key={item.title} className="fb-doc-hub-card">
             <h2>{item.title}</h2>
             <p className="muted">{item.desc}</p>
@@ -1846,6 +1893,9 @@ function TaxFormsSection() {
           </div>
         ))}
       </div>
+
+      {/* Previous filings */}
+      <TaxFormFilingsSection membership={membership} refreshKey={filingsKey} />
     </div>
   );
 }
