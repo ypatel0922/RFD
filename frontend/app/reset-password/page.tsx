@@ -1,56 +1,192 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 
 import { supabase } from "../../lib/supabase";
 
 type PageState = "loading" | "ready" | "success" | "invalid";
 
+function getAuthParamsFromUrl() {
+  if (typeof window === "undefined") {
+    return {
+      error: null,
+      errorDescription: null,
+      code: null,
+      tokenHash: null,
+      accessToken: null,
+      refreshToken: null,
+      type: null,
+      hasAuthParams: false,
+    };
+  }
+
+  const search = new URLSearchParams(window.location.search);
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+
+  const error = search.get("error") || hash.get("error");
+  const errorDescription = search.get("error_description") || hash.get("error_description");
+  const code = search.get("code");
+  const tokenHash = search.get("token_hash");
+  const accessToken = hash.get("access_token") || search.get("access_token");
+  const refreshToken = hash.get("refresh_token") || search.get("refresh_token");
+  const type = hash.get("type") || search.get("type");
+
+  return {
+    error,
+    errorDescription,
+    code,
+    tokenHash,
+    accessToken,
+    refreshToken,
+    type,
+    hasAuthParams: Boolean(
+      error ||
+        errorDescription ||
+        code ||
+        tokenHash ||
+        accessToken ||
+        refreshToken ||
+        type === "recovery",
+    ),
+  };
+}
+
+function clearSensitiveAuthParamsFromUrl() {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  url.hash = "";
+  url.searchParams.delete("token_hash");
+  url.searchParams.delete("type");
+  url.searchParams.delete("code");
+  url.searchParams.delete("access_token");
+  url.searchParams.delete("refresh_token");
+  window.history.replaceState(window.history.state, "", url.toString());
+}
+
 export default function ResetPasswordPage() {
   const [pageState, setPageState] = useState<PageState>("loading");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const resolvedRef = useRef(false);
 
   useEffect(() => {
     let mounted = true;
+
+    function markReady() {
+      if (!mounted || resolvedRef.current) return;
+      resolvedRef.current = true;
+      setPageState("ready");
+      setError(null);
+    }
+
+    function markInvalid(message: string) {
+      if (!mounted || resolvedRef.current) return;
+      resolvedRef.current = true;
+      setPageState("invalid");
+      setError(message);
+    }
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       if (!mounted) return;
-      if (session && (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN" || event === "INITIAL_SESSION")) {
-        setPageState("ready");
-        setError(null);
+      if (event === "PASSWORD_RECOVERY" || (session && event === "SIGNED_IN")) {
+        markReady();
       }
     });
 
-    async function checkSession() {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!mounted) return;
-      if (session) {
-        setPageState("ready");
+    async function establishRecoverySession() {
+      const authParams = getAuthParamsFromUrl();
+
+      if (authParams.error || authParams.errorDescription) {
+        markInvalid(authParams.errorDescription || authParams.error || "This reset link is invalid or has expired.");
         return;
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 400));
+      if (authParams.tokenHash && authParams.type === "recovery") {
+        const { data, error: verifyError } = await supabase.auth.verifyOtp({
+          token_hash: authParams.tokenHash,
+          type: "recovery",
+        });
+        if (!mounted || resolvedRef.current) return;
+        if (verifyError) {
+          markInvalid(verifyError.message);
+          return;
+        }
+        if (data.session) {
+          clearSensitiveAuthParamsFromUrl();
+          markReady();
+          return;
+        }
+      }
+
+      if (authParams.code) {
+        const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(authParams.code);
+        if (!mounted || resolvedRef.current) return;
+        if (exchangeError) {
+          markInvalid(
+            exchangeError.message.includes("code verifier")
+              ? "Open this reset link in the same browser where you requested it, or request a new reset email from the login page."
+              : exchangeError.message,
+          );
+          return;
+        }
+        if (data.session) {
+          clearSensitiveAuthParamsFromUrl();
+          markReady();
+          return;
+        }
+      }
+
+      if (authParams.accessToken && authParams.refreshToken) {
+        const { data, error: sessionError } = await supabase.auth.setSession({
+          access_token: authParams.accessToken,
+          refresh_token: authParams.refreshToken,
+        });
+        if (!mounted || resolvedRef.current) return;
+        if (sessionError) {
+          markInvalid(sessionError.message);
+          return;
+        }
+        if (data.session) {
+          clearSensitiveAuthParamsFromUrl();
+          markReady();
+          return;
+        }
+      }
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!mounted || resolvedRef.current) return;
+      if (session) {
+        markReady();
+        return;
+      }
+
+      if (!authParams.hasAuthParams) {
+        markInvalid(
+          "No reset token was found in this link. Request a new password reset email from the login page. If the problem continues, the Supabase reset-password email template may need to be updated (see project docs).",
+        );
+        return;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 1500));
 
       const {
         data: { session: retrySession },
       } = await supabase.auth.getSession();
-      if (!mounted) return;
+      if (!mounted || resolvedRef.current) return;
       if (retrySession) {
-        setPageState("ready");
+        markReady();
         return;
       }
 
-      setPageState("invalid");
-      setError("This reset link is invalid or has expired. Request a new one from the login page.");
+      markInvalid("This reset link is invalid or has expired. Request a new one from the login page.");
     }
 
-    void checkSession();
+    void establishRecoverySession();
 
     return () => {
       mounted = false;
