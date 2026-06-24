@@ -28,9 +28,20 @@ import {
   ROLE_OPTIONS,
   ReviewForm,
 } from "../lib/types";
+import {
+  evaluateTwoPercentStatus,
+  categoryTwoPercentStatus,
+  TWO_PERCENT_STATUS_LABELS,
+  TWO_PERCENT_STATUS_CLASS,
+  TWO_PERCENT_DISCLAIMER,
+  TWO_PERCENT_SUGGESTED_CATEGORIES,
+  type TwoPercentStatus,
+} from "../lib/two-percent-rules";
 import { buildReconciliationReport, reconciliationReportCsv } from "../lib/reports";
 import { ReconciliationInboxSection } from "./reconciliation-inbox";
 import { TransactionsLedger } from "./TransactionsLedger";
+import { NysFFReportPage } from "./nys-foreign-fire-report";
+import { TaxFormFilingsSection } from "./tax-form-filings";
 
 type AuthMode = "login" | "signup";
 type AppView =
@@ -44,7 +55,7 @@ type AppView =
   | "settings"
   | "new_expense";
 
-type ReportsDocumentsMode = "hub" | "reconciliation" | "statements";
+type ReportsDocumentsMode = "hub" | "reconciliation" | "statements" | "two_percent_activity";
 type MessageVariant = "success" | "error";
 
 type ExpenseEntryLaunch = { tab: "receipt" | "manual" } | null;
@@ -152,6 +163,80 @@ function isExpenseInCurrentMonth(expense: ExpenseRecord) {
   const y = Number(yStr);
   const m = Number(mStr);
   return y === now.getFullYear() && m === now.getMonth() + 1;
+}
+
+function buildTwoPercentSnapshot(
+  expenses: ExpenseRecord[],
+  bankAccounts: BankAccount[],
+) {
+  const twoPercentAccounts = bankAccounts.filter((a) => a.is_two_percent_account);
+  if (!twoPercentAccounts.length) return null;
+
+  const twoPercentAccountNames = new Set(twoPercentAccounts.map((a) => a.name.toLowerCase()));
+
+  const twoPercentExpenses = expenses.filter(
+    (expense) =>
+      expense.uses_two_percent_funds ||
+      (expense.bank_account_name &&
+        twoPercentAccountNames.has(expense.bank_account_name.toLowerCase())),
+  );
+
+  const currentYear = new Date().getFullYear();
+  let yearExpenses = 0;
+  let itemsNeedingSupport = 0;
+
+  for (const expense of twoPercentExpenses) {
+    const dateStr =
+      expense.transaction_date?.slice(0, 4) || expense.created_at?.slice(0, 4);
+    if (dateStr === String(currentYear)) {
+      const amount =
+        typeof expense.total_amount === "number"
+          ? expense.total_amount
+          : Number(String(expense.total_amount || "0").replace(/[$,]/g, "")) || 0;
+      if (amount > 0) yearExpenses += amount;
+    }
+    const missingSupport =
+      !expense.category ||
+      (!expense.receipt_path ||
+        expense.receipt_path.includes("no-receipt") ||
+        expense.receipt_path.includes("/manual/")) ||
+      !expense.support_note;
+    if (missingSupport) itemsNeedingSupport += 1;
+  }
+
+  // Balance: use the most recent balance_after_transaction for the primary 2% account
+  const primaryAccount = twoPercentAccounts[0];
+  let latestBalance: number | null = null;
+  if (primaryAccount) {
+    const accountMatches = expenses
+      .filter(
+        (e) =>
+          e.bank_account_name?.toLowerCase() === primaryAccount.name.toLowerCase() &&
+          e.balance_after_transaction != null,
+      )
+      .sort((a, b) => {
+        const da =
+          a.transaction_date?.slice(0, 10) || a.created_at?.slice(0, 10) || "";
+        const db =
+          b.transaction_date?.slice(0, 10) || b.created_at?.slice(0, 10) || "";
+        return db.localeCompare(da);
+      });
+    if (accountMatches.length) {
+      const raw = accountMatches[0].balance_after_transaction;
+      const parsed =
+        typeof raw === "number" ? raw : Number(String(raw).replace(/[$,]/g, ""));
+      if (Number.isFinite(parsed)) latestBalance = parsed;
+    }
+  }
+
+  return {
+    accounts: twoPercentAccounts,
+    totalExpenses: twoPercentExpenses.length,
+    yearExpenses,
+    itemsNeedingSupport,
+    latestBalance,
+    reportYear: currentYear,
+  };
 }
 
 function buildDashboardMetrics(expenses: ExpenseRecord[]) {
@@ -392,6 +477,9 @@ type ManualExpenseFormValues = {
   category: string;
   bank_account_name: string;
   description: string;
+  member_vote_recorded: boolean;
+  meeting_date: string;
+  support_note: string;
 };
 
 function VendorAutocompleteField({
@@ -549,6 +637,90 @@ function CategoryComboboxField({
   );
 }
 
+function TwoPercentFundBadge({ className }: { className?: string }) {
+  return (
+    <span className={`fb-2pct-badge fb-2pct-badge--fund ${className ?? ""}`} title="NYS Foreign Fire Insurance / 2% Funds Account">
+      2% Funds
+    </span>
+  );
+}
+
+function TwoPercentStatusBadge({ status }: { status: TwoPercentStatus }) {
+  return (
+    <span className={`fb-2pct-badge ${TWO_PERCENT_STATUS_CLASS[status]}`}>
+      {TWO_PERCENT_STATUS_LABELS[status]}
+    </span>
+  );
+}
+
+function TwoPercentGuidancePanel({
+  vendor,
+  category,
+  description,
+  memberVoteRecorded,
+  meetingDate,
+  supportNote,
+  onMemberVoteChange,
+  onMeetingDateChange,
+  onSupportNoteChange,
+}: {
+  vendor: string;
+  category: string;
+  description: string;
+  memberVoteRecorded: boolean;
+  meetingDate: string;
+  supportNote: string;
+  onMemberVoteChange: (value: boolean) => void;
+  onMeetingDateChange: (value: string) => void;
+  onSupportNoteChange: (value: string) => void;
+}) {
+  const evaluation = useMemo(
+    () => evaluateTwoPercentStatus({ vendor, category, description }),
+    [vendor, category, description],
+  );
+
+  return (
+    <div className="fb-2pct-panel">
+      <div className="fb-2pct-panel-head">
+        <TwoPercentFundBadge />
+        {evaluation && <TwoPercentStatusBadge status={evaluation.status} />}
+      </div>
+      {evaluation ? (
+        <p className="fb-2pct-reason">{evaluation.reason}</p>
+      ) : (
+        <p className="fb-2pct-reason muted">Enter vendor, category, or description to get guidance.</p>
+      )}
+      <p className="fb-2pct-disclaimer">{TWO_PERCENT_DISCLAIMER}</p>
+      <div className="fb-2pct-support">
+        <p className="fb-2pct-support-label">2% Fund Documentation (optional)</p>
+        <div className="fb-2pct-support-grid">
+          <label className="fb-settings-checkbox">
+            <input
+              type="checkbox"
+              checked={memberVoteRecorded}
+              onChange={(e) => onMemberVoteChange(e.target.checked)}
+            />
+            <span>Member vote recorded in minutes</span>
+          </label>
+          <label>
+            Meeting date
+            <input type="date" value={meetingDate} onChange={(e) => onMeetingDateChange(e.target.value)} />
+          </label>
+          <label>
+            Support note / reference
+            <input
+              type="text"
+              value={supportNote}
+              onChange={(e) => onSupportNoteChange(e.target.value)}
+              placeholder="Minutes reference, resolution #, etc."
+            />
+          </label>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CentsMoneyInput({
   label,
   value,
@@ -634,6 +806,7 @@ function BankAccountSelect({
             <option key={account.id} value={account.name}>
               {formatBankAccountLabel(account)}
               {account.is_default ? " (default)" : ""}
+              {account.is_two_percent_account ? " · 2% Funds" : ""}
             </option>
           ))}
         </select>
@@ -650,12 +823,14 @@ function ManualExpenseForm({
   defaultBankAccount,
   disabled,
   onSubmit,
+  showTwoPercentPanel,
 }: {
   expenses: ExpenseRecord[];
   bankAccounts: BankAccount[];
   defaultBankAccount: string;
   disabled: boolean;
   onSubmit: (values: ManualExpenseFormValues) => Promise<void>;
+  showTwoPercentPanel?: boolean;
 }) {
   const [payee, setPayee] = useState("");
   const [totalAmount, setTotalAmount] = useState("");
@@ -663,6 +838,16 @@ function ManualExpenseForm({
   const [paymentMethod, setPaymentMethod] = useState("");
   const [bankAccount, setBankAccount] = useState(defaultBankAccount);
   const [description, setDescription] = useState("");
+  const [memberVoteRecorded, setMemberVoteRecorded] = useState(false);
+  const [meetingDate, setMeetingDate] = useState("");
+  const [supportNote, setSupportNote] = useState("");
+  const [showMoreDetails, setShowMoreDetails] = useState(false);
+
+  const selectedAccount = useMemo(
+    () => bankAccounts.find((a) => a.name.toLowerCase() === (bankAccount || "").toLowerCase()),
+    [bankAccounts, bankAccount],
+  );
+  const isTwoPct = Boolean(selectedAccount?.is_two_percent_account);
 
   function handleVendorChange(nextVendor: string) {
     const suggestion = suggestCategoryForVendor(nextVendor, expenses);
@@ -681,11 +866,15 @@ function ManualExpenseForm({
       category: category.trim(),
       bank_account_name: bankAccount.trim(),
       description: description.trim(),
+      member_vote_recorded: memberVoteRecorded,
+      meeting_date: meetingDate,
+      support_note: supportNote,
     });
   }
 
   return (
     <form className="upload-form fb-expense-form fb-new-expense-manual-form" onSubmit={handleSubmit}>
+      {/* Core fields always visible */}
       <div className="form-grid two-column">
         <label>
           Date
@@ -700,21 +889,51 @@ function ManualExpenseForm({
           onVendorChange={handleVendorChange}
         />
         <CentsMoneyInput label="Amount" value={totalAmount} onChange={setTotalAmount} required />
-        <PaymentMethodSelect label="Payment type" value={paymentMethod} onChange={setPaymentMethod} required />
-        <CategoryComboboxField label="Category" value={category} onChange={setCategory} expenses={expenses} />
         <BankAccountSelect
-          label="Bank/Credit account"
+          label="Bank / Credit account"
           value={bankAccount}
           onChange={setBankAccount}
           bankAccounts={bankAccounts}
           required
           emptyMessage="Add an account in Settings before logging manual expenses."
         />
+        <CategoryComboboxField label="Category" value={category} onChange={setCategory} expenses={expenses} />
       </div>
       <label>
         Description
         <textarea rows={2} value={description} onChange={(event) => setDescription(event.target.value)} />
       </label>
+
+      {/* More details toggle */}
+      <button
+        type="button"
+        className="fb-more-details-toggle link-button"
+        onClick={() => setShowMoreDetails((v) => !v)}
+      >
+        {showMoreDetails ? "▲ Fewer details" : "▼ More details"}
+      </button>
+
+      {showMoreDetails && (
+        <div className="fb-more-details form-grid two-column">
+          <PaymentMethodSelect label="Payment type" value={paymentMethod} onChange={setPaymentMethod} />
+          {isTwoPct && showTwoPercentPanel && (
+            <div className="form-grid-full">
+              <TwoPercentGuidancePanel
+                vendor={payee}
+                category={category}
+                description={description}
+                memberVoteRecorded={memberVoteRecorded}
+                meetingDate={meetingDate}
+                supportNote={supportNote}
+                onMemberVoteChange={setMemberVoteRecorded}
+                onMeetingDateChange={setMeetingDate}
+                onSupportNoteChange={setSupportNote}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
       <button
         type="submit"
         className="fb-primary-btn fb-new-expense-submit"
@@ -758,6 +977,10 @@ export default function Home() {
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>("overview");
   const transactionsPanelRef = useRef<HTMLDivElement | null>(null);
   const [useCompactAppHeader, setUseCompactAppHeader] = useState(false);
+  const [showTwoPercentPanel, setShowTwoPercentPanel] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("fb_show_two_percent_panel") === "true";
+  });
 
   const clearExpenseEntryLaunch = useCallback(() => setExpenseEntryLaunch(null), []);
 
@@ -1365,6 +1588,7 @@ export default function Home() {
               setMessage={setMessage}
               showSuccessMessage={showSuccessMessage}
               showErrorMessage={showErrorMessage}
+              showTwoPercentPanel={showTwoPercentPanel}
             />
           ) : view === "transactions" ? (
             <div ref={transactionsPanelRef} className="fb-tab-stack">
@@ -1442,7 +1666,7 @@ export default function Home() {
               showSuccessMessage={showSuccessMessage}
             />
           ) : view === "tax_forms" ? (
-            <TaxFormsSection />
+            <TaxFormsSection membership={membership} expenses={expenses} bankAccounts={bankAccounts} />
           ) : view === "vendors" ? (
             <VendorsSection expenses={expenses} />
           ) : view === "settings" ? (
@@ -1459,6 +1683,13 @@ export default function Home() {
               onDepartmentSettingsChanged={() => loadDepartmentSettings(membership.department_id)}
               showErrorMessage={showErrorMessage}
               showSuccessMessage={showSuccessMessage}
+              showTwoPercentPanel={showTwoPercentPanel}
+              onTwoPercentPanelToggle={(v) => {
+                setShowTwoPercentPanel(v);
+                if (typeof window !== "undefined") {
+                  localStorage.setItem("fb_show_two_percent_panel", String(v));
+                }
+              }}
             />
           ) : null}
         </div>
@@ -1819,24 +2050,72 @@ function DepartmentSetupBanner({
   );
 }
 
-function TaxFormsSection() {
-  const placeholders = [
-    { title: "NYS 2% Report", desc: "Sales tax and NYS filing summaries will be generated here." },
+function TaxFormsSection({
+  membership,
+  expenses,
+  bankAccounts,
+}: {
+  membership: DepartmentMembership;
+  expenses: ExpenseRecord[];
+  bankAccounts: BankAccount[];
+}) {
+  const [mode, setMode] = useState<"hub" | "nys_foreign_fire">("hub");
+  const [filingsKey, setFilingsKey] = useState(0);
+
+  if (mode === "nys_foreign_fire") {
+    return (
+      <NysFFReportPage
+        membership={membership}
+        expenses={expenses}
+        bankAccounts={bankAccounts}
+        onBack={() => {
+          setMode("hub");
+          setFilingsKey((k) => k + 1);
+        }}
+      />
+    );
+  }
+
+  const comingSoon = [
     { title: "IRS Form 990", desc: "Nonprofit disclosure package preparation (coming soon)." },
     { title: "Year-end tax package", desc: "Exportable binder for your accountant (coming soon)." },
   ];
+
   return (
     <div className="fb-tab-stack">
       <section className="card fb-dash-welcome">
         <p className="eyebrow">Compliance</p>
         <h1 className="fb-dash-title">Tax Forms</h1>
         <p className="fb-dash-subtitle">
-          Central place for New York and federal filings. Report generation is being prepared; nothing here changes your
-          data yet.
+          Generate New York State filings directly from your Firebook transaction data. Select a report to get started.
         </p>
       </section>
+
       <div className="fb-doc-hub-grid">
-        {placeholders.map((item) => (
+        <div className="fb-doc-hub-card fb-doc-hub-card--primary">
+          <div className="nys-card-badge">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+              <path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+            </svg>
+            Ready
+          </div>
+          <h2>NYS Foreign Fire Insurance Report (2%)</h2>
+          <p className="muted">
+            Generate the Annual Report of Foreign Fire Insurance Premiums using your Firebook transaction data.
+            {bankAccounts.some((a) => a.is_two_percent_account)
+              ? " Financial figures auto-populate from your tagged 2% account."
+              : " Tag a 2% account in Settings → Bank Accounts to enable auto-population."}
+          </p>
+          <button
+            type="button"
+            className="fb-primary-btn nys-card-btn"
+            onClick={() => setMode("nys_foreign_fire")}
+          >
+            Open Report Builder
+          </button>
+        </div>
+
+        {comingSoon.map((item) => (
           <div key={item.title} className="fb-doc-hub-card">
             <h2>{item.title}</h2>
             <p className="muted">{item.desc}</p>
@@ -1846,6 +2125,8 @@ function TaxFormsSection() {
           </div>
         ))}
       </div>
+
+      <TaxFormFilingsSection membership={membership} refreshKey={filingsKey} />
     </div>
   );
 }
@@ -1961,6 +2242,7 @@ function AccountsTabSection({
               <div className="fb-account-pill-top">
                 <strong>{snapshot.account.name}</strong>
                 {snapshot.account.is_default ? <span className="fb-pill">Default</span> : null}
+                {snapshot.account.is_two_percent_account ? <TwoPercentFundBadge /> : null}
               </div>
               <p className="fb-account-meta">
                 {[snapshot.account.institution_name, snapshot.account.account_mask].filter(Boolean).join(" · ") ||
@@ -2006,6 +2288,7 @@ function NewExpensePage({
   setMessage,
   showSuccessMessage,
   showErrorMessage,
+  showTwoPercentPanel,
 }: {
   membership: DepartmentMembership;
   user: User;
@@ -2017,6 +2300,7 @@ function NewExpensePage({
   setMessage: (message: string | null) => void;
   showSuccessMessage: (message: string | null) => void;
   showErrorMessage: (message: string) => void;
+  showTwoPercentPanel?: boolean;
 }) {
   const [entryTab, setEntryTab] = useState<"receipt" | "manual">("receipt");
   const [draft, setDraft] = useState<ExpenseDraft | null>(null);
@@ -2110,6 +2394,9 @@ function NewExpensePage({
       balance_after_transaction: extracted.balance_after_transaction || "",
       category: extracted.category || "",
       payment_method: matchPaymentMethod(extracted.payment_method || ""),
+      member_vote_recorded: false,
+      meeting_date: "",
+      support_note: "",
     });
     setWorking(false);
   }
@@ -2136,6 +2423,18 @@ function NewExpensePage({
           return;
         }
       }
+
+      const selectedAccount = bankAccounts.find(
+        (a) => a.name.toLowerCase() === (reviewForm.bank_account_name || "").toLowerCase(),
+      );
+      const isTwoPct = Boolean(selectedAccount?.is_two_percent_account);
+      const twoPctEval = isTwoPct
+        ? evaluateTwoPercentStatus({
+            vendor: reviewForm.payee,
+            category: reviewForm.category,
+            description: reviewForm.description,
+          })
+        : null;
 
       const expensePayload: Record<string, unknown> = {
         id: draft.id,
@@ -2165,6 +2464,12 @@ function NewExpensePage({
         extraction_notes: draft.extracted.notes,
         reconciliation_status: "pending_bank_match",
         bank_match_confidence: 0,
+        uses_two_percent_funds: isTwoPct,
+        two_percent_review_status: twoPctEval?.status ?? null,
+        two_percent_warning_reason: twoPctEval?.reason ?? null,
+        member_vote_recorded: isTwoPct && reviewForm.member_vote_recorded ? true : null,
+        meeting_date: isTwoPct ? optionalValue(reviewForm.meeting_date) : null,
+        support_note: isTwoPct ? optionalValue(reviewForm.support_note) : null,
       };
 
       const insert = await withTimeout(
@@ -2196,6 +2501,18 @@ function NewExpensePage({
 
   async function submitManualExpense(values: ManualExpenseFormValues) {
     setManualWorking(true);
+    const selectedAccount = bankAccounts.find(
+      (a) => a.name.toLowerCase() === (values.bank_account_name || "").toLowerCase(),
+    );
+    const isTwoPct = Boolean(selectedAccount?.is_two_percent_account);
+    const twoPctEval = isTwoPct
+      ? evaluateTwoPercentStatus({
+          vendor: values.payee,
+          category: values.category,
+          description: values.description,
+        })
+      : null;
+
     const payload: Record<string, unknown> = {
       id: crypto.randomUUID(),
       department_id: membership.department_id,
@@ -2220,6 +2537,12 @@ function NewExpensePage({
       extraction_notes: "Manual entry without receipt",
       reconciliation_status: "pending_bank_match",
       bank_match_confidence: 0,
+      uses_two_percent_funds: isTwoPct,
+      two_percent_review_status: twoPctEval?.status ?? null,
+      two_percent_warning_reason: twoPctEval?.reason ?? null,
+      member_vote_recorded: isTwoPct && values.member_vote_recorded ? true : null,
+      meeting_date: isTwoPct ? optionalValue(values.meeting_date) : null,
+      support_note: isTwoPct ? optionalValue(values.support_note) : null,
     };
     const result = await supabase.from("expenses").insert(payload);
     if (result.error) {
@@ -2278,6 +2601,7 @@ function NewExpensePage({
               setDraft(null);
               setReviewForm(null);
             }}
+            showTwoPercentPanel={showTwoPercentPanel}
           />
         ) : entryTab === "receipt" ? (
           <>
@@ -2310,6 +2634,7 @@ function NewExpensePage({
               defaultBankAccount={defaultBankAccount}
               disabled={manualWorking}
               onSubmit={submitManualExpense}
+              showTwoPercentPanel={showTwoPercentPanel}
             />
           </>
         )}
@@ -2392,12 +2717,25 @@ function ReportsDocumentsSection({
     );
   }
 
+  if (mode === "two_percent_activity") {
+    return (
+      <div className="fb-tab-stack">
+        <button type="button" className="fb-back-link link-button" onClick={() => setMode("hub")}>
+          ← Back to reports & documents
+        </button>
+        <TwoPercentActivityReport expenses={expenses} bankAccounts={bankAccounts} />
+      </div>
+    );
+  }
+
   const placeholders = [
     { title: "Expense report", desc: "Roll-up of expenses by period (coming soon)." },
     { title: "Vendor report", desc: "Spend concentration by vendor (coming soon)." },
     { title: "Category report", desc: "Budget lines vs actuals (coming soon)." },
     { title: "Year-end report", desc: "Annual close package (coming soon)." },
   ];
+
+  const hasTwoPctAccounts = bankAccounts.some((a) => a.is_two_percent_account);
 
   return (
     <div className="fb-tab-stack">
@@ -2421,6 +2759,21 @@ function ReportsDocumentsSection({
             Open statements
           </button>
         </div>
+        {hasTwoPctAccounts && (
+          <div className="fb-doc-hub-card fb-doc-hub-card--primary">
+            <div className="nys-card-badge" style={{ background: "var(--fb-navy)", color: "#fff" }}>
+              2% Funds
+            </div>
+            <h2>2% Funds Activity Report</h2>
+            <p className="muted">
+              Review income, expenditures, and flagged transactions from your Foreign Fire Insurance Fund account.
+              Export a supporting report alongside the NYS annual filing.
+            </p>
+            <button type="button" className="fb-primary-btn" onClick={() => setMode("two_percent_activity")}>
+              Open activity report
+            </button>
+          </div>
+        )}
         {placeholders.map((p) => (
           <div key={p.title} className="fb-doc-hub-card">
             <h2>{p.title}</h2>
@@ -2431,6 +2784,207 @@ function ReportsDocumentsSection({
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function TwoPercentActivityReport({
+  expenses,
+  bankAccounts,
+}: {
+  expenses: ExpenseRecord[];
+  bankAccounts: BankAccount[];
+}) {
+  const currentYear = new Date().getFullYear();
+  const [reportYear, setReportYear] = useState(String(currentYear));
+  const yearInt = Number(reportYear) || currentYear;
+
+  const twoPercentAccounts = useMemo(
+    () => bankAccounts.filter((a) => a.is_two_percent_account),
+    [bankAccounts],
+  );
+
+  const twoPercentExpenses = useMemo(() => {
+    const names = new Set(twoPercentAccounts.map((a) => a.name.toLowerCase()));
+    return expenses.filter((e) => {
+      const inYear =
+        (e.transaction_date?.slice(0, 4) || e.created_at?.slice(0, 4)) === String(yearInt);
+      const isTwoPct =
+        e.uses_two_percent_funds ||
+        (e.bank_account_name && names.has(e.bank_account_name.toLowerCase()));
+      return inYear && isTwoPct;
+    });
+  }, [expenses, twoPercentAccounts, yearInt]);
+
+  const byCategory = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const e of twoPercentExpenses) {
+      const cat = e.category || "Uncategorized";
+      const amt =
+        typeof e.total_amount === "number"
+          ? e.total_amount
+          : Number(String(e.total_amount || "0").replace(/[$,]/g, "")) || 0;
+      if (amt > 0) map.set(cat, (map.get(cat) ?? 0) + amt);
+    }
+    return Array.from(map.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([category, total]) => ({ category, total }));
+  }, [twoPercentExpenses]);
+
+  const totalExpenses = byCategory.reduce((sum, row) => sum + row.total, 0);
+
+  const flaggedExpenses = useMemo(
+    () =>
+      twoPercentExpenses.filter(
+        (e) =>
+          e.two_percent_review_status === "potentially_not_allowed" ||
+          e.two_percent_review_status === "needs_review",
+      ),
+    [twoPercentExpenses],
+  );
+
+  const unsupportedCount = useMemo(
+    () =>
+      twoPercentExpenses.filter(
+        (e) =>
+          !e.receipt_path ||
+          e.receipt_path.includes("no-receipt") ||
+          e.receipt_path.includes("/manual/"),
+      ).length,
+    [twoPercentExpenses],
+  );
+
+  return (
+    <div className="fb-tab-stack">
+      <section className="card fb-dash-welcome">
+        <p className="eyebrow">2% Funds</p>
+        <h1 className="fb-dash-title">2% Funds Activity Report</h1>
+        <p className="fb-dash-subtitle">
+          Review Foreign Fire Insurance Fund income, expenditures by category, and flagged transactions.
+          Use this as a supporting document alongside the official NYS annual filing.
+        </p>
+      </section>
+
+      <section className="card">
+        <div className="fb-2pct-report-controls" style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span className="muted">Report year</span>
+            <select
+              value={reportYear}
+              onChange={(e) => setReportYear(e.target.value)}
+              className="fb-input-sm"
+            >
+              {[currentYear, currentYear - 1, currentYear - 2].map((y) => (
+                <option key={y} value={String(y)}>{y}</option>
+              ))}
+            </select>
+          </label>
+          <span className="muted" style={{ fontSize: 13 }}>
+            Accounts: {twoPercentAccounts.length > 0 ? twoPercentAccounts.map((a) => a.name).join(", ") : "None tagged"}
+          </span>
+        </div>
+
+        {unsupportedCount > 0 && (
+          <div className="notice notice-warn" style={{ marginBottom: 12 }}>
+            <strong>{unsupportedCount} transaction{unsupportedCount > 1 ? "s" : ""}</strong> missing a receipt. Review before filing.
+          </div>
+        )}
+        {flaggedExpenses.length > 0 && (
+          <div className="notice notice-warn" style={{ marginBottom: 12 }}>
+            <strong>{flaggedExpenses.length} transaction{flaggedExpenses.length > 1 ? "s" : ""}</strong> flagged Needs Review or Potentially Not Allowed. Confirm before finalizing.
+          </div>
+        )}
+
+        <div className="fb-metric-grid" style={{ marginBottom: 20 }}>
+          <div className="fb-metric-card">
+            <p className="fb-metric-label">Total 2% expenditures {yearInt}</p>
+            <p className="fb-metric-value fb-metric-value--out">{formatUsd(totalExpenses)}</p>
+          </div>
+          <div className="fb-metric-card">
+            <p className="fb-metric-label">Transactions</p>
+            <p className="fb-metric-value">{twoPercentExpenses.length}</p>
+          </div>
+          <div className="fb-metric-card">
+            <p className="fb-metric-label">Flagged for review</p>
+            <p className={`fb-metric-value ${flaggedExpenses.length > 0 ? "fb-metric-value--warn" : ""}`}>
+              {flaggedExpenses.length}
+            </p>
+          </div>
+        </div>
+
+        {byCategory.length > 0 ? (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Category / Purpose</th>
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {byCategory.map((row) => (
+                  <tr key={row.category}>
+                    <td>{row.category}</td>
+                    <td>{formatUsd(row.total)}</td>
+                  </tr>
+                ))}
+                <tr style={{ fontWeight: 600 }}>
+                  <td>Total</td>
+                  <td>{formatUsd(totalExpenses)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="empty-state">No 2% fund transactions found for {yearInt}.</p>
+        )}
+
+        {twoPercentExpenses.length > 0 && (
+          <details style={{ marginTop: 16 }}>
+            <summary style={{ cursor: "pointer", color: "var(--fb-navy)", fontWeight: 500 }}>
+              View all {twoPercentExpenses.length} transactions
+            </summary>
+            <div className="table-wrap" style={{ marginTop: 8 }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Payee</th>
+                    <th>Category</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {twoPercentExpenses.map((e) => {
+                    const amt =
+                      typeof e.total_amount === "number"
+                        ? e.total_amount
+                        : Number(String(e.total_amount || "0").replace(/[$,]/g, "")) || 0;
+                    return (
+                      <tr key={e.id}>
+                        <td>{e.transaction_date || "—"}</td>
+                        <td>{e.payee || e.merchant_name || "—"}</td>
+                        <td>{e.category || "—"}</td>
+                        <td>{amt > 0 ? formatUsd(amt) : "—"}</td>
+                        <td>
+                          {e.two_percent_review_status ? (
+                            <TwoPercentStatusBadge status={e.two_percent_review_status} />
+                          ) : (
+                            <span className="muted">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        )}
+
+        <p className="muted" style={{ marginTop: 16, fontSize: 12 }}>{TWO_PERCENT_DISCLAIMER}</p>
+      </section>
     </div>
   );
 }
@@ -2454,6 +3008,10 @@ function Dashboard({
 }) {
   const welcomeName = membership.role?.trim() || "member";
   const metrics = useMemo(() => buildDashboardMetrics(expenses), [expenses]);
+  const twoPercentSnapshot = useMemo(
+    () => buildTwoPercentSnapshot(expenses, bankAccounts),
+    [expenses, bankAccounts],
+  );
 
   return (
     <>
@@ -2522,6 +3080,69 @@ function Dashboard({
           </button>
         </div>
       </section>
+
+      {twoPercentSnapshot ? (
+        <section className="card fb-2pct-snapshot">
+          <div className="fb-section-head">
+            <div>
+              <p className="eyebrow">NYS Foreign Fire Insurance</p>
+              <h2>
+                2% Funds
+                <TwoPercentFundBadge className="fb-2pct-snapshot-badge" />
+              </h2>
+            </div>
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => onNavigateView("tax_forms")}
+            >
+              Annual report →
+            </button>
+          </div>
+          <div className="fb-metric-grid fb-2pct-metric-grid">
+            <div className="fb-metric-card">
+              <p className="fb-metric-label">Account balance</p>
+              <p className="fb-metric-value">
+                {twoPercentSnapshot.latestBalance != null
+                  ? formatUsd(twoPercentSnapshot.latestBalance)
+                  : "—"}
+              </p>
+              <p className="fb-metric-hint">
+                {twoPercentSnapshot.accounts[0]?.name ?? "2% account"} · latest recorded
+              </p>
+            </div>
+            <div className="fb-metric-card">
+              <p className="fb-metric-label">2% expenses {twoPercentSnapshot.reportYear}</p>
+              <p className="fb-metric-value fb-metric-value--out">
+                {formatUsd(twoPercentSnapshot.yearExpenses)}
+              </p>
+              <p className="fb-metric-hint">From tagged 2% fund transactions this year</p>
+            </div>
+            <div className="fb-metric-card">
+              <p className="fb-metric-label">Need support docs</p>
+              <p
+                className={`fb-metric-value ${twoPercentSnapshot.itemsNeedingSupport > 0 ? "fb-metric-value--warn" : ""}`}
+              >
+                {twoPercentSnapshot.itemsNeedingSupport}
+              </p>
+              <p className="fb-metric-hint">2% transactions missing receipt or support note</p>
+            </div>
+            <div className="fb-metric-card">
+              <p className="fb-metric-label">Annual report</p>
+              <p className="fb-metric-value">{twoPercentSnapshot.reportYear}</p>
+              <p className="fb-metric-hint">
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => onNavigateView("tax_forms")}
+                >
+                  Prepare in Tax Forms →
+                </button>
+              </p>
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       <section className="card fb-search-hint">
         <div className="fb-section-head">
@@ -2592,6 +3213,7 @@ function ReviewExpenseForm({
   disabled,
   onSubmit,
   onCancel,
+  showTwoPercentPanel,
 }: {
   draft: ExpenseDraft;
   form: ReviewForm;
@@ -2602,8 +3224,11 @@ function ReviewExpenseForm({
   disabled: boolean;
   onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onCancel: () => void;
+  showTwoPercentPanel?: boolean;
 }) {
-  function update(field: keyof ReviewForm, value: string) {
+  const [showMoreDetails, setShowMoreDetails] = useState(false);
+
+  function update(field: keyof ReviewForm, value: string | boolean) {
     setForm({ ...form, [field]: value });
   }
 
@@ -2611,6 +3236,12 @@ function ReviewExpenseForm({
     const suggestion = suggestCategoryForVendor(vendor, expenses);
     if (suggestion) update("category", suggestion);
   }
+
+  const selectedAccount = useMemo(
+    () => bankAccounts.find((a) => a.name.toLowerCase() === (form.bank_account_name || "").toLowerCase()),
+    [bankAccounts, form.bank_account_name],
+  );
+  const isTwoPct = Boolean(selectedAccount?.is_two_percent_account);
 
   return (
     <>
@@ -2623,9 +3254,9 @@ function ReviewExpenseForm({
       )}
       {draft.extracted.notes && <div className="integration-note">{draft.extracted.notes}</div>}
       <form onSubmit={onSubmit} className="upload-form fb-expense-form">
+        {/* Core fields — always visible */}
         <div className="form-grid two-column">
           <TextField label="Date" type="date" value={form.transaction_date} onChange={(v) => update("transaction_date", v)} required />
-          <TextField label="Check / payment ref" value={form.payment_reference} onChange={(v) => update("payment_reference", v)} placeholder="Check #, debit, ACH, card..." />
           <VendorAutocompleteField
             label="Paid to / vendor"
             value={form.payee}
@@ -2635,16 +3266,12 @@ function ReviewExpenseForm({
             onVendorChange={handleVendorChange}
           />
           <CentsMoneyInput label="Payment amount" value={form.total_amount} onChange={(v) => update("total_amount", v)} required />
-          <CentsMoneyInput label="Tax" value={form.tax_amount} onChange={(v) => update("tax_amount", v)} />
-          <TextField label="Balance after transaction" value={form.balance_after_transaction} onChange={(v) => update("balance_after_transaction", v)} />
           <BankAccountSelect
             label="Bank account"
             value={form.bank_account_name}
             onChange={(v) => update("bank_account_name", v)}
             bankAccounts={bankAccounts}
           />
-          <PaymentMethodSelect label="Payment method" value={form.payment_method} onChange={(v) => update("payment_method", v)} />
-          <TextField label="Fund / budget line" value={form.fund} onChange={(v) => update("fund", v)} placeholder="General, equipment, fuel..." />
           <CategoryComboboxField
             label="Category / purpose"
             value={form.category}
@@ -2660,6 +3287,41 @@ function ReviewExpenseForm({
             onChange={(event) => update("description", event.target.value)}
           />
         </label>
+
+        {/* More details toggle */}
+        <button
+          type="button"
+          className="fb-more-details-toggle link-button"
+          onClick={() => setShowMoreDetails((v) => !v)}
+        >
+          {showMoreDetails ? "▲ Fewer details" : "▼ More details"}
+        </button>
+
+        {showMoreDetails && (
+          <div className="fb-more-details form-grid two-column">
+            <TextField label="Check / payment ref" value={form.payment_reference} onChange={(v) => update("payment_reference", v)} placeholder="Check #, debit, ACH, card..." />
+            <PaymentMethodSelect label="Payment method" value={form.payment_method} onChange={(v) => update("payment_method", v)} />
+            <CentsMoneyInput label="Tax" value={form.tax_amount} onChange={(v) => update("tax_amount", v)} />
+            <TextField label="Balance after transaction" value={form.balance_after_transaction} onChange={(v) => update("balance_after_transaction", v)} />
+            <TextField label="Fund / budget line" value={form.fund} onChange={(v) => update("fund", v)} placeholder="General, equipment, fuel..." />
+            {isTwoPct && showTwoPercentPanel && (
+              <div className="form-grid-full">
+                <TwoPercentGuidancePanel
+                  vendor={form.payee}
+                  category={form.category}
+                  description={form.description}
+                  memberVoteRecorded={form.member_vote_recorded}
+                  meetingDate={form.meeting_date}
+                  supportNote={form.support_note}
+                  onMemberVoteChange={(v) => update("member_vote_recorded", v)}
+                  onMeetingDateChange={(v) => update("meeting_date", v)}
+                  onSupportNoteChange={(v) => update("support_note", v)}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="integration-note">Logged by: {loggedBy}</div>
         <div className="button-row">
           <button type="submit" disabled={disabled}>
@@ -3306,6 +3968,8 @@ function Settings({
   onDepartmentSettingsChanged,
   showErrorMessage,
   showSuccessMessage,
+  showTwoPercentPanel,
+  onTwoPercentPanelToggle,
 }: {
   membership: DepartmentMembership;
   session: Session;
@@ -3319,6 +3983,8 @@ function Settings({
   onDepartmentSettingsChanged: () => Promise<void>;
   showErrorMessage: (message: string) => void;
   showSuccessMessage: (message: string | null) => void;
+  showTwoPercentPanel: boolean;
+  onTwoPercentPanelToggle: (value: boolean) => void;
 }) {
   const [showAddAccount, setShowAddAccount] = useState(false);
   const [plaidLinkToken, setPlaidLinkToken] = useState<string | null>(null);
@@ -3441,7 +4107,17 @@ function Settings({
     const institution = String(form.get("institution_name") || "").trim();
     const accountMask = String(form.get("account_mask") || "").trim();
     const isDefault = String(form.get("is_default") || "") === "on";
+    const isTwoPct = String(form.get("is_two_percent_account") || "") === "on";
     if (!name) return;
+    if (isTwoPct) {
+      const existingCount = bankAccounts.filter((a) => a.is_two_percent_account).length;
+      if (existingCount > 0) {
+        const confirmed = window.confirm(
+          "Most departments use a separate account for 2% funds. Are you sure you want more than one 2% account?",
+        );
+        if (!confirmed) return;
+      }
+    }
     if (isDefault) {
       await supabase
         .from("bank_accounts")
@@ -3454,6 +4130,8 @@ function Settings({
       institution_name: institution || null,
       account_mask: accountMask || null,
       is_default: isDefault,
+      is_two_percent_account: isTwoPct,
+      fund_type: isTwoPct ? "nys_2_percent" : null,
     });
     if (error) {
       showErrorMessage(error.message);
@@ -3489,6 +4167,28 @@ function Settings({
     }
     await onBankAccountsChanged();
     showSuccessMessage("Default account updated.");
+  }
+
+  async function setTwoPercentAccount(accountId: string, value: boolean) {
+    if (value) {
+      const existingCount = bankAccounts.filter((a) => a.is_two_percent_account && a.id !== accountId).length;
+      if (existingCount > 0) {
+        const confirmed = window.confirm(
+          "Most departments use a separate account for 2% funds. Are you sure you want more than one 2% account?",
+        );
+        if (!confirmed) return;
+      }
+    }
+    const { error } = await supabase
+      .from("bank_accounts")
+      .update({ is_two_percent_account: value, fund_type: value ? "nys_2_percent" : null })
+      .eq("id", accountId);
+    if (error) {
+      showErrorMessage(error.message);
+      return;
+    }
+    await onBankAccountsChanged();
+    showSuccessMessage(value ? "Account tagged as 2% Funds account." : "2% Funds tag removed.");
   }
 
   async function toggleAutoLog(autoLog: boolean) {
@@ -3722,6 +4422,7 @@ function Settings({
       row.source === "bank" ? row.bank.institution_name || "Manual account" : `Plaid · ${row.plaid.type}`;
     const mask = row.source === "bank" ? row.bank.account_mask : row.plaid.mask;
     const isDefault = row.source === "bank" && row.bank.is_default;
+    const isTwoPct = row.source === "bank" && row.bank.is_two_percent_account;
     const plaidMatch = row.source === "bank" ? row.plaid : row.plaid;
     const plaidConnected = Boolean(plaidMatch);
     const balance = latestBalanceForAccount(expenses, name);
@@ -3737,6 +4438,7 @@ function Settings({
           </div>
           <div className="fb-settings-account-badges">
             {isDefault ? <SettingsStatusPill tone="primary">Default</SettingsStatusPill> : null}
+            {isTwoPct ? <TwoPercentFundBadge /> : null}
             <SettingsStatusPill tone={plaidConnected ? "success" : "neutral"}>
               {plaidConnected ? "Connected" : "Not connected"}
             </SettingsStatusPill>
@@ -3756,6 +4458,21 @@ function Settings({
             <dd>{formatSettingsDate(lastSynced)}</dd>
           </div>
         </dl>
+        {bankId ? (
+          <div className="fb-settings-2pct-row">
+            <label className="fb-settings-checkbox">
+              <input
+                type="checkbox"
+                checked={isTwoPct}
+                onChange={(e) => void setTwoPercentAccount(bankId, e.target.checked)}
+              />
+              <span>
+                <strong>2% Funds Account</strong>
+                <span className="fb-settings-helper-text"> — Firebook will treat money here as NYS Foreign Fire Insurance / 2% funds.</span>
+              </span>
+            </label>
+          </div>
+        ) : null}
         <div className="fb-settings-account-actions">
           {plaidConnected ? (
             <button
@@ -3821,6 +4538,15 @@ function Settings({
               <input type="checkbox" name="is_default" />
               <span>Set as default account</span>
             </label>
+            <label className="fb-settings-checkbox">
+              <input type="checkbox" name="is_two_percent_account" />
+              <span>
+                <strong>2% Funds Account</strong>
+                <span className="fb-settings-helper-text">
+                  {" "}Firebook will treat money in this account as NYS Foreign Fire Insurance / 2% funds and apply additional tracking and warnings.
+                </span>
+              </span>
+            </label>
             <button type="submit" className="fb-primary-btn">
               Save account
             </button>
@@ -3838,6 +4564,7 @@ function Settings({
                     <th>Last four</th>
                     <th>Balance</th>
                     <th>Last synced</th>
+                    <th>2% Fund</th>
                     <th>Status</th>
                     <th>Actions</th>
                   </tr>
@@ -3851,6 +4578,7 @@ function Settings({
                         : `Plaid · ${row.plaid.type}`;
                     const mask = row.source === "bank" ? row.bank.account_mask : row.plaid.mask;
                     const isDefault = row.source === "bank" && row.bank.is_default;
+                    const isTwoPct = row.source === "bank" && row.bank.is_two_percent_account;
                     const plaidMatch = row.source === "bank" ? row.plaid : row.plaid;
                     const plaidConnected = Boolean(plaidMatch);
                     const balance = latestBalanceForAccount(expenses, name);
@@ -3863,11 +4591,24 @@ function Settings({
                           {isDefault ? (
                             <span className="fb-settings-inline-pill">Default</span>
                           ) : null}
+                          {isTwoPct ? <TwoPercentFundBadge /> : null}
                         </td>
                         <td>{institution}</td>
                         <td>{mask ? `•••• ${mask}` : "—"}</td>
                         <td>{balance != null ? formatUsd(balance) : "—"}</td>
                         <td>{formatSettingsDate(lastSynced)}</td>
+                        <td>
+                          {bankId ? (
+                            <button
+                              type="button"
+                              className={`link-button fb-2pct-toggle ${isTwoPct ? "fb-2pct-toggle--on" : ""}`}
+                              onClick={() => void setTwoPercentAccount(bankId, !isTwoPct)}
+                              title={isTwoPct ? "Remove 2% Funds tag" : "Tag as 2% Funds account"}
+                            >
+                              {isTwoPct ? "✓ 2% Funds" : "Tag as 2%"}
+                            </button>
+                          ) : "—"}
+                        </td>
                         <td>
                           <SettingsStatusPill tone={plaidConnected ? "success" : "neutral"}>
                             {plaidConnected ? "Connected" : "Not connected"}
@@ -3968,23 +4709,47 @@ function Settings({
         return renderPlaceholderCard(
           "Categories",
           "Create and organize categories for transactions and new expense entries.",
-          categories.length ? (
-            <>
-              <p>
-                <strong>{categories.length}</strong> categories in use from your expense ledger.
-              </p>
-              <div className="fb-settings-tag-list">
-                {categories.slice(0, 12).map((category) => (
-                  <span key={category} className="fb-settings-tag">
-                    {category}
+          <>
+            {categories.length ? (
+              <>
+                <p>
+                  <strong>{categories.length}</strong> categories in use from your expense ledger.
+                  Firebook shows a 2% eligibility indicator based on the NYS 2% Fund Manual.
+                </p>
+                <div className="fb-settings-tag-list">
+                  {categories.map((category) => {
+                    const status = categoryTwoPercentStatus(category);
+                    return (
+                      <span key={category} className="fb-settings-tag fb-settings-tag--with-status">
+                        {category}
+                        {status ? (
+                          <span className={`fb-2pct-cat-dot fb-2pct-cat-dot--${status}`} title={TWO_PERCENT_STATUS_LABELS[status]} />
+                        ) : null}
+                      </span>
+                    );
+                  })}
+                </div>
+                <div className="fb-2pct-cat-legend">
+                  <span><span className="fb-2pct-cat-dot fb-2pct-cat-dot--likely_eligible" /> Likely 2% eligible</span>
+                  <span><span className="fb-2pct-cat-dot fb-2pct-cat-dot--needs_review" /> Needs review</span>
+                  <span><span className="fb-2pct-cat-dot fb-2pct-cat-dot--potentially_not_allowed" /> Potentially not allowed</span>
+                </div>
+              </>
+            ) : (
+              <p className="muted">Categories will appear as you log expenses with a category field.</p>
+            )}
+            <details className="fb-2pct-suggested-cats">
+              <summary>Suggested 2% fund categories from the NYS manual</summary>
+              <div className="fb-settings-tag-list" style={{ marginTop: 12 }}>
+                {TWO_PERCENT_SUGGESTED_CATEGORIES.map((item) => (
+                  <span key={item.name} className="fb-settings-tag fb-settings-tag--with-status">
+                    {item.name}
+                    <span className={`fb-2pct-cat-dot fb-2pct-cat-dot--${item.status}`} title={TWO_PERCENT_STATUS_LABELS[item.status]} />
                   </span>
                 ))}
-                {categories.length > 12 ? <span className="fb-settings-tag muted">+{categories.length - 12} more</span> : null}
               </div>
-            </>
-          ) : (
-            <p className="muted">Categories will appear as you log expenses with a category field.</p>
-          ),
+            </details>
+          </>,
           <button type="button" className="fb-secondary-btn" disabled>
             Manage categories (soon)
           </button>,
@@ -3999,16 +4764,54 @@ function Settings({
             <li>Report export permissions (coming soon)</li>
           </ul>,
         );
-      case "compliance":
+      case "compliance": {
+        const twoPctAccounts = bankAccounts.filter((a) => a.is_two_percent_account);
+        const twoPctExpensesNeedingSupport = expenses.filter(
+          (e) =>
+            e.uses_two_percent_funds &&
+            !e.support_note &&
+            (!e.receipt_path ||
+              e.receipt_path.includes("no-receipt") ||
+              e.receipt_path.includes("/manual/")),
+        ).length;
         return renderPlaceholderCard(
           "Compliance",
           "NYS 2% reporting, IRS 990 support, and audit readiness.",
-          <ul className="fb-settings-checklist muted">
-            <li>NYS 2% sales tax reporting — see Tax Forms tab</li>
-            <li>IRS Form 990 package — in preparation</li>
-            <li>Audit trail via Transactions and Reports</li>
-          </ul>,
+          <>
+            <ul className="fb-settings-checklist">
+              <li className={twoPctAccounts.length > 0 ? "fb-checklist-ok" : "fb-checklist-warn"}>
+                {twoPctAccounts.length > 0
+                  ? `✓ ${twoPctAccounts.length} 2% Funds account${twoPctAccounts.length > 1 ? "s" : ""} tagged (${twoPctAccounts.map((a) => a.name).join(", ")})`
+                  : "No 2% Funds account tagged — go to Settings → Bank Accounts to tag your NYS Foreign Fire Insurance account."}
+              </li>
+              <li className={twoPctExpensesNeedingSupport === 0 ? "fb-checklist-ok" : "fb-checklist-warn"}>
+                {twoPctExpensesNeedingSupport === 0
+                  ? "✓ All 2% transactions have receipt or support note"
+                  : `${twoPctExpensesNeedingSupport} 2% transaction${twoPctExpensesNeedingSupport > 1 ? "s" : ""} missing receipt or support note`}
+              </li>
+              <li className="muted">NYS 2% annual report — see Tax Forms tab</li>
+              <li className="muted">IRS Form 990 package — in preparation</li>
+              <li className="muted">Audit trail via Transactions and Reports</li>
+            </ul>
+            <div style={{ marginTop: 16, borderTop: "1px solid var(--fb-border)", paddingTop: 14 }}>
+              <p className="eyebrow" style={{ marginBottom: 8 }}>2% Expense Guidance</p>
+              <label className="fb-settings-toggle">
+                <input
+                  type="checkbox"
+                  checked={showTwoPercentPanel}
+                  onChange={(e) => onTwoPercentPanelToggle(e.target.checked)}
+                />
+                <span>
+                  Show 2% guidance panel while logging expenses
+                  <span className="fb-settings-helper-text">
+                    {" "}When on, a guidance panel appears for 2% account transactions with optional fields for member vote, meeting date, and support note.
+                  </span>
+                </span>
+              </label>
+            </div>
+          </>,
         );
+      }
       case "notifications":
         return renderPlaceholderCard(
           "Notifications",

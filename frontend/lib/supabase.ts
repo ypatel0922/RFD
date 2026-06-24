@@ -20,3 +20,6 @@ export const receiptsBucket =
 
 export const bankStatementsBucket =
   process.env.NEXT_PUBLIC_SUPABASE_BANK_STATEMENTS_BUCKET || "bank-statements";
+
+export const taxFormsBucket =
+  process.env.NEXT_PUBLIC_SUPABASE_TAX_FORMS_BUCKET || "tax-forms";
