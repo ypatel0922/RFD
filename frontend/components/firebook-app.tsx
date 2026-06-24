@@ -1927,9 +1927,16 @@ function LoginForm({
   onSignedIn: (session: Session) => Promise<void>;
   setMessage: (message: string | null) => void;
 }) {
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotMessage, setForgotMessage] = useState<string | null>(null);
+  const [forgotIsError, setForgotIsError] = useState(false);
+  const [loginLoading, setLoginLoading] = useState(false);
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setMessage(null);
+    setLoginLoading(true);
     const form = new FormData(event.currentTarget);
     const email = String(form.get("email") || "").trim();
     const password = String(form.get("password") || "");
@@ -1944,20 +1951,104 @@ function LoginForm({
       const message =
         error instanceof Error ? error.message : "Could not complete sign-in for this account.";
       setMessage(message);
+    } finally {
+      setLoginLoading(false);
     }
+  }
+
+  async function handleForgotSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setForgotMessage(null);
+    setForgotLoading(true);
+    const form = new FormData(event.currentTarget);
+    const email = String(form.get("reset_email") || "").trim();
+    if (!email) {
+      setForgotIsError(true);
+      setForgotMessage("Enter your email address.");
+      setForgotLoading(false);
+      return;
+    }
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      if (error) {
+        setForgotIsError(true);
+        setForgotMessage(error.message);
+        return;
+      }
+      setForgotIsError(false);
+      setForgotMessage("Check your email for a password reset link.");
+    } catch (error) {
+      setForgotIsError(true);
+      setForgotMessage(
+        error instanceof Error ? error.message : "Could not send password reset email.",
+      );
+    } finally {
+      setForgotLoading(false);
+    }
+  }
+
+  if (showForgotPassword) {
+    return (
+      <form onSubmit={handleForgotSubmit} className="upload-form">
+        <p className="muted">Enter the email for your account and we will send a reset link.</p>
+        {forgotMessage ? (
+          <div className={forgotIsError ? "notice notice-error" : "notice"} role={forgotIsError ? "alert" : "status"}>
+            {forgotMessage}
+          </div>
+        ) : null}
+        <label>
+          Email
+          <input type="email" name="reset_email" autoComplete="email" required disabled={forgotLoading} />
+        </label>
+        <button type="submit" disabled={forgotLoading}>
+          {forgotLoading ? "Sending…" : "Send reset link"}
+        </button>
+        <p className="auth-switch">
+          <button
+            className="link-button auth-switch-button"
+            type="button"
+            disabled={forgotLoading}
+            onClick={() => {
+              setShowForgotPassword(false);
+              setForgotMessage(null);
+            }}
+          >
+            Back to log in
+          </button>
+        </p>
+      </form>
+    );
   }
 
   return (
     <form onSubmit={handleSubmit} className="upload-form">
       <label>
         Email
-        <input type="email" name="email" autoComplete="email" required />
+        <input type="email" name="email" autoComplete="email" required disabled={loginLoading} />
       </label>
       <label>
         Password
-        <input type="password" name="password" autoComplete="current-password" required />
+        <input type="password" name="password" autoComplete="current-password" required disabled={loginLoading} />
       </label>
-      <button type="submit">Log in</button>
+      <p className="muted" style={{ margin: "-8px 0 0", textAlign: "right" }}>
+        <button
+          className="link-button"
+          type="button"
+          disabled={loginLoading}
+          onClick={() => {
+            setMessage(null);
+            setForgotMessage(null);
+            setShowForgotPassword(true);
+          }}
+        >
+          Forgot password?
+        </button>
+      </p>
+      <button type="submit" disabled={loginLoading}>
+        {loginLoading ? "Logging in…" : "Log in"}
+      </button>
     </form>
   );
 }
