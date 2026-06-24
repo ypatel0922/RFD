@@ -5866,6 +5866,34 @@ button.fb-receipt-opt-btn:hover {
   grid-column: 1 / -1;
 }
 
+/* 2% Funds tag checkbox row — shown in ManualExpenseForm and ReviewExpenseForm */
+.fb-2pct-tag-row {
+  margin: 6px 0 2px;
+}
+
+.fb-2pct-tag-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text);
+  user-select: none;
+}
+
+.fb-2pct-tag-label input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  accent-color: var(--primary);
+  flex-shrink: 0;
+}
+
+.fb-2pct-tag-badge {
+  margin-left: 2px;
+}
+
 .fb-input-sm {
   padding: 5px 10px;
   border: 1.5px solid var(--border);
@@ -6753,5 +6781,4 @@ button.fb-onboarding-step-btn.fb-onboarding-step-btn--active:hover {
   .fb-onboarding-upload-inner {
     padding: 28px 16px;
   }
-}
 }

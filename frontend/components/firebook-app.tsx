@@ -35,6 +35,7 @@ import {
 } from "../lib/types";
 import {
   evaluateTwoPercentStatus,
+  suggestTwoPctCategory,
   categoryTwoPercentStatus,
   TWO_PERCENT_STATUS_LABELS,
   TWO_PERCENT_STATUS_CLASS,
@@ -188,7 +189,6 @@ function buildTwoPercentSnapshot(
 
   const currentYear = new Date().getFullYear();
   let yearExpenses = 0;
-  let itemsNeedingSupport = 0;
 
   for (const expense of twoPercentExpenses) {
     const dateStr =
@@ -200,13 +200,6 @@ function buildTwoPercentSnapshot(
           : Number(String(expense.total_amount || "0").replace(/[$,]/g, "")) || 0;
       if (amount > 0) yearExpenses += amount;
     }
-    const missingSupport =
-      !expense.category ||
-      (!expense.receipt_path ||
-        expense.receipt_path.includes("no-receipt") ||
-        expense.receipt_path.includes("/manual/")) ||
-      !expense.support_note;
-    if (missingSupport) itemsNeedingSupport += 1;
   }
 
   // Balance: use the most recent balance_after_transaction for the primary 2% account
@@ -238,7 +231,6 @@ function buildTwoPercentSnapshot(
     accounts: twoPercentAccounts,
     totalExpenses: twoPercentExpenses.length,
     yearExpenses,
-    itemsNeedingSupport,
     latestBalance,
     reportYear: currentYear,
   };
@@ -544,6 +536,7 @@ type ManualExpenseFormValues = {
   category: string;
   bank_account_name: string;
   description: string;
+  uses_two_percent_funds: boolean;
   member_vote_recorded: boolean;
   meeting_date: string;
   support_note: string;
@@ -647,6 +640,19 @@ function VendorAutocompleteField({
   );
 }
 
+/** Put 2% eligible categories at the top of the dropdown list. */
+function reorderFor2Pct(options: string[]): string[] {
+  const eligibleSet = new Set(
+    TWO_PERCENT_SUGGESTED_CATEGORIES.filter((c) => c.status === "likely_eligible").map((c) => c.name.toLowerCase()),
+  );
+  const seedNames = TWO_PERCENT_SUGGESTED_CATEGORIES.filter((c) => c.status === "likely_eligible").map((c) => c.name);
+  const existingLower = new Set(options.map((o) => o.toLowerCase()));
+  const missing = seedNames.filter((n) => !existingLower.has(n.toLowerCase()));
+  const twoFirst = options.filter((o) => eligibleSet.has(o.toLowerCase()));
+  const rest = options.filter((o) => !eligibleSet.has(o.toLowerCase()));
+  return [...missing, ...twoFirst, ...rest];
+}
+
 function CategoryComboboxField({
   label,
   value,
@@ -654,6 +660,7 @@ function CategoryComboboxField({
   expenses,
   departmentCategories,
   placeholder = "Fuel, supplies, food, training...",
+  twoPctMode = false,
 }: {
   label: string;
   value: string;
@@ -661,6 +668,7 @@ function CategoryComboboxField({
   expenses: ExpenseRecord[];
   departmentCategories?: DepartmentCategory[];
   placeholder?: string;
+  twoPctMode?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -669,10 +677,11 @@ function CategoryComboboxField({
     [expenses, departmentCategories],
   );
   const filteredCategories = useMemo(() => {
+    const allOpts = twoPctMode ? reorderFor2Pct(categoryOptions) : categoryOptions;
     const q = value.trim().toLowerCase();
-    if (!q) return categoryOptions.slice(0, 12);
-    return categoryOptions.filter((option) => option.toLowerCase().includes(q)).slice(0, 12);
-  }, [value, categoryOptions]);
+    if (!q) return allOpts.slice(0, 12);
+    return allOpts.filter((option) => option.toLowerCase().includes(q)).slice(0, 12);
+  }, [value, categoryOptions, twoPctMode]);
 
   useDismissOnOutsideClick(wrapRef, () => setOpen(false), open);
 
@@ -923,16 +932,44 @@ function ManualExpenseForm({
   const [meetingDate, setMeetingDate] = useState("");
   const [supportNote, setSupportNote] = useState("");
   const [showMoreDetails, setShowMoreDetails] = useState(false);
+  const [isTwoPctTagged, setIsTwoPctTagged] = useState(() => {
+    const acct = bankAccounts.find((a) => a.name.toLowerCase() === defaultBankAccount.toLowerCase());
+    return Boolean(acct?.is_two_percent_account);
+  });
 
   const selectedAccount = useMemo(
     () => bankAccounts.find((a) => a.name.toLowerCase() === (bankAccount || "").toLowerCase()),
     [bankAccounts, bankAccount],
   );
-  const isTwoPct = Boolean(selectedAccount?.is_two_percent_account);
+
+  function handleBankAccountChange(newAccount: string) {
+    setBankAccount(newAccount);
+    const acct = bankAccounts.find((a) => a.name.toLowerCase() === newAccount.toLowerCase());
+    setIsTwoPctTagged(Boolean(acct?.is_two_percent_account));
+  }
+
+  function handleTwoPctToggle(checked: boolean) {
+    setIsTwoPctTagged(checked);
+    if (checked) {
+      const twoPctAcct = bankAccounts.find((a) => a.is_two_percent_account);
+      if (twoPctAcct && bankAccount.toLowerCase() !== twoPctAcct.name.toLowerCase()) {
+        setBankAccount(twoPctAcct.name);
+      }
+      if (!category) {
+        const suggestion = suggestTwoPctCategory(payee) ?? suggestCategoryForVendor(payee, expenses, departmentVendors);
+        if (suggestion) setCategory(suggestion);
+      }
+    }
+  }
 
   function handleVendorChange(nextVendor: string) {
-    const suggestion = suggestCategoryForVendor(nextVendor, expenses, departmentVendors);
-    if (suggestion) setCategory(suggestion);
+    const historySuggestion = suggestCategoryForVendor(nextVendor, expenses, departmentVendors);
+    if (historySuggestion) {
+      setCategory(historySuggestion);
+    } else if (isTwoPctTagged) {
+      const twoPctSuggestion = suggestTwoPctCategory(nextVendor);
+      if (twoPctSuggestion) setCategory(twoPctSuggestion);
+    }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -947,6 +984,7 @@ function ManualExpenseForm({
       category: category.trim(),
       bank_account_name: bankAccount.trim(),
       description: description.trim(),
+      uses_two_percent_funds: isTwoPctTagged,
       member_vote_recorded: memberVoteRecorded,
       meeting_date: meetingDate,
       support_note: supportNote,
@@ -974,12 +1012,19 @@ function ManualExpenseForm({
         <BankAccountSelect
           label="Bank / Credit account"
           value={bankAccount}
-          onChange={setBankAccount}
+          onChange={handleBankAccountChange}
           bankAccounts={bankAccounts}
           required
           emptyMessage="Add an account in Settings before logging manual expenses."
         />
-        <CategoryComboboxField label="Category" value={category} onChange={setCategory} expenses={expenses} departmentCategories={departmentCategories} />
+        <CategoryComboboxField label="Category" value={category} onChange={setCategory} expenses={expenses} departmentCategories={departmentCategories} twoPctMode={isTwoPctTagged} />
+      </div>
+      <div className="fb-2pct-tag-row">
+        <label className="fb-2pct-tag-label">
+          <input type="checkbox" checked={isTwoPctTagged} onChange={(e) => handleTwoPctToggle(e.target.checked)} />
+          <span>Tag as 2% Funds expense</span>
+          {isTwoPctTagged && <TwoPercentFundBadge className="fb-2pct-tag-badge" />}
+        </label>
       </div>
       <label>
         Description
@@ -998,7 +1043,7 @@ function ManualExpenseForm({
       {showMoreDetails && (
         <div className="fb-more-details form-grid two-column">
           <PaymentMethodSelect label="Payment type" value={paymentMethod} onChange={setPaymentMethod} />
-          {isTwoPct && showTwoPercentPanel && (
+          {isTwoPctTagged && showTwoPercentPanel && (
             <div className="form-grid-full">
               <TwoPercentGuidancePanel
                 vendor={payee}
@@ -2523,19 +2568,21 @@ function NewExpensePage({
     };
 
     setDraft(nextDraft);
+    const resolvedBankAccount = extracted.bank_account_name || guessBankAccount(extracted.payee || extracted.merchant_name || "");
+    const resolvedAccount = bankAccounts.find((a) => a.name.toLowerCase() === resolvedBankAccount.toLowerCase());
     setReviewForm({
       fund: nextDraft.fund,
       payment_reference: extracted.payment_reference || "",
       payee: extracted.payee || extracted.merchant_name || "",
       description: extracted.description || "",
-      bank_account_name:
-        extracted.bank_account_name || guessBankAccount(extracted.payee || extracted.merchant_name || ""),
+      bank_account_name: resolvedBankAccount,
       transaction_date: extracted.transaction_date || "",
       total_amount: extracted.total_amount || "",
       tax_amount: extracted.tax_amount || "",
       balance_after_transaction: extracted.balance_after_transaction || "",
       category: extracted.category || "",
       payment_method: matchPaymentMethod(extracted.payment_method || ""),
+      uses_two_percent_funds: Boolean(resolvedAccount?.is_two_percent_account),
       member_vote_recorded: false,
       meeting_date: "",
       support_note: "",
@@ -2566,17 +2613,16 @@ function NewExpensePage({
         }
       }
 
-      const selectedAccount = bankAccounts.find(
-        (a) => a.name.toLowerCase() === (reviewForm.bank_account_name || "").toLowerCase(),
-      );
-      const isTwoPct = Boolean(selectedAccount?.is_two_percent_account);
-      const twoPctEval = isTwoPct
+      const isTwoPct = Boolean(reviewForm.uses_two_percent_funds);
+      const twoPctEvalRaw = isTwoPct
         ? evaluateTwoPercentStatus({
             vendor: reviewForm.payee,
             category: reviewForm.category,
             description: reviewForm.description,
           })
         : null;
+      // Only persist potentially_not_allowed — "needs_review" is guidance noise, not a real flag.
+      const twoPctEval = twoPctEvalRaw?.status === "needs_review" ? null : twoPctEvalRaw;
 
       const expensePayload: Record<string, unknown> = {
         id: draft.id,
@@ -2643,17 +2689,16 @@ function NewExpensePage({
 
   async function submitManualExpense(values: ManualExpenseFormValues) {
     setManualWorking(true);
-    const selectedAccount = bankAccounts.find(
-      (a) => a.name.toLowerCase() === (values.bank_account_name || "").toLowerCase(),
-    );
-    const isTwoPct = Boolean(selectedAccount?.is_two_percent_account);
-    const twoPctEval = isTwoPct
+    const isTwoPct = values.uses_two_percent_funds;
+    const twoPctEvalRaw = isTwoPct
       ? evaluateTwoPercentStatus({
           vendor: values.payee,
           category: values.category,
           description: values.description,
         })
       : null;
+    // Only persist potentially_not_allowed — "needs_review" is guidance noise, not a real flag.
+    const twoPctEval = twoPctEvalRaw?.status === "needs_review" ? null : twoPctEvalRaw;
 
     const payload: Record<string, unknown> = {
       id: crypto.randomUUID(),
@@ -2982,9 +3027,7 @@ function TwoPercentActivityReport({
   const flaggedExpenses = useMemo(
     () =>
       twoPercentExpenses.filter(
-        (e) =>
-          e.two_percent_review_status === "potentially_not_allowed" ||
-          e.two_percent_review_status === "needs_review",
+        (e) => e.two_percent_review_status === "potentially_not_allowed",
       ),
     [twoPercentExpenses],
   );
@@ -3265,15 +3308,6 @@ function Dashboard({
               <p className="fb-metric-hint">From tagged 2% fund transactions this year</p>
             </div>
             <div className="fb-metric-card">
-              <p className="fb-metric-label">Need support docs</p>
-              <p
-                className={`fb-metric-value ${twoPercentSnapshot.itemsNeedingSupport > 0 ? "fb-metric-value--warn" : ""}`}
-              >
-                {twoPercentSnapshot.itemsNeedingSupport}
-              </p>
-              <p className="fb-metric-hint">2% transactions missing receipt or support note</p>
-            </div>
-            <div className="fb-metric-card">
               <p className="fb-metric-label">Annual report</p>
               <p className="fb-metric-value">{twoPercentSnapshot.reportYear}</p>
               <p className="fb-metric-hint">
@@ -3382,16 +3416,33 @@ function ReviewExpenseForm({
     setForm({ ...form, [field]: value });
   }
 
-  function handleVendorChange(vendor: string) {
-    const suggestion = suggestCategoryForVendor(vendor, expenses, departmentVendors);
-    if (suggestion) update("category", suggestion);
+  function handleBankAccountChange(newAcct: string) {
+    const acct = bankAccounts.find((a) => a.name.toLowerCase() === newAcct.toLowerCase());
+    setForm({ ...form, bank_account_name: newAcct, uses_two_percent_funds: Boolean(acct?.is_two_percent_account) || form.uses_two_percent_funds });
   }
 
-  const selectedAccount = useMemo(
-    () => bankAccounts.find((a) => a.name.toLowerCase() === (form.bank_account_name || "").toLowerCase()),
-    [bankAccounts, form.bank_account_name],
-  );
-  const isTwoPct = Boolean(selectedAccount?.is_two_percent_account);
+  function handleTwoPctToggle(checked: boolean) {
+    if (checked) {
+      const twoPctAcct = bankAccounts.find((a) => a.is_two_percent_account);
+      const newAcct = twoPctAcct && form.bank_account_name.toLowerCase() !== twoPctAcct.name.toLowerCase() ? twoPctAcct.name : form.bank_account_name;
+      const newCategory = !form.category ? (suggestTwoPctCategory(form.payee) ?? suggestCategoryForVendor(form.payee, expenses, departmentVendors) ?? form.category) : form.category;
+      setForm({ ...form, uses_two_percent_funds: true, bank_account_name: newAcct, category: newCategory });
+    } else {
+      update("uses_two_percent_funds", false);
+    }
+  }
+
+  function handleVendorChange(vendor: string) {
+    const historySuggestion = suggestCategoryForVendor(vendor, expenses, departmentVendors);
+    if (historySuggestion) {
+      update("category", historySuggestion);
+    } else if (form.uses_two_percent_funds) {
+      const twoPctSuggestion = suggestTwoPctCategory(vendor);
+      if (twoPctSuggestion) update("category", twoPctSuggestion);
+    }
+  }
+
+  const isTwoPct = Boolean(form.uses_two_percent_funds);
 
   return (
     <>
@@ -3420,7 +3471,7 @@ function ReviewExpenseForm({
           <BankAccountSelect
             label="Bank account"
             value={form.bank_account_name}
-            onChange={(v) => update("bank_account_name", v)}
+            onChange={handleBankAccountChange}
             bankAccounts={bankAccounts}
           />
           <CategoryComboboxField
@@ -3429,7 +3480,15 @@ function ReviewExpenseForm({
             onChange={(v) => update("category", v)}
             expenses={expenses}
             departmentCategories={departmentCategories}
+            twoPctMode={isTwoPct}
           />
+        </div>
+        <div className="fb-2pct-tag-row">
+          <label className="fb-2pct-tag-label">
+            <input type="checkbox" checked={isTwoPct} onChange={(e) => handleTwoPctToggle(e.target.checked)} />
+            <span>Tag as 2% Funds expense</span>
+            {isTwoPct && <TwoPercentFundBadge className="fb-2pct-tag-badge" />}
+          </label>
         </div>
         <label>
           Description / memo

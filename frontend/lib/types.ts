@@ -166,6 +166,7 @@ export type ReviewForm = {
   balance_after_transaction: string;
   category: string;
   payment_method: string;
+  uses_two_percent_funds: boolean;
   member_vote_recorded: boolean;
   meeting_date: string;
   support_note: string;
