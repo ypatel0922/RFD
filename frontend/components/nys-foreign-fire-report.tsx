@@ -4,12 +4,13 @@ import {
   ChangeEvent,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { supabase, taxFormsBucket } from "../lib/supabase";
-import type { DepartmentMembership, ExpenseRecord } from "../lib/types";
+import type { BankAccount, DepartmentMembership, ExpenseRecord } from "../lib/types";
 
 // ─────────────────────────────────────────────────────────
 // Constants
@@ -117,6 +118,16 @@ const ENTITY_TO_BOX: Record<string, string> = {
 // ─────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────
+
+/** A single extra revenue or expenditure line beyond the NYS form's built-in slots */
+type ExtraLine = { desc: string; amt: string };
+
+type EffectiveTotals = {
+  revenueTotal: number;
+  totalBalRev: number;
+  expenseTotal: number;
+  endingBalance: number;
+};
 
 type NysFormFields = {
   // Entity info
@@ -239,13 +250,113 @@ function rawToNum(total: ExpenseRecord["total_amount"]): number {
   return Number.isNaN(n) ? 0 : n;
 }
 
+function expenseYear(exp: ExpenseRecord): string {
+  return (
+    String(exp.transaction_date ?? "").slice(0, 4) ||
+    String(exp.created_at ?? "").slice(0, 4)
+  );
+}
+
+/** Returns true for revenue / deposit entries (money IN to the fund) */
 function isIncomeRecord(exp: ExpenseRecord): boolean {
   const amount = rawToNum(exp.total_amount);
-  const category = (exp.category ?? "").toLowerCase();
-  if (category.includes("income")) return true;
+  // Negative stored amount means money came in
   if (amount < 0) return true;
+  const cat = (exp.category ?? "").toLowerCase();
+  const desc = (exp.description ?? "").toLowerCase();
   const fund = (exp.fund ?? "").toLowerCase();
-  return fund.includes("2%") || fund.includes("deposit");
+  // Explicit income/deposit patterns
+  if (cat.includes("income") || cat.includes("deposit") || cat.includes("revenue")) return true;
+  if (cat.includes("nys 2%") || cat.includes("foreign fire") || cat.includes("premium")) return true;
+  if (desc.includes("foreign fire insurance") || desc.includes("state deposit") || desc.includes("nys deposit")) return true;
+  if (fund.includes("2%") || fund.includes("deposit") || fund.includes("income")) return true;
+  return false;
+}
+
+/**
+ * Compute auto-populated financial fields from Firebook expenses.
+ * Returns:
+ *   - fields: patches for NysFormFields (top 3 exp categories, top 4 rev sources)
+ *   - extraExpLines: any expenditure categories beyond the 3 form slots
+ *   - extraRevLines: any revenue sources beyond the 4 form slots
+ */
+function computeAutoFields(
+  expenses: ExpenseRecord[],
+  bankAccounts: BankAccount[],
+  taxYear: number,
+): { fields: Partial<NysFormFields>; extraExpLines: ExtraLine[]; extraRevLines: ExtraLine[] } {
+  const yearStr = String(taxYear);
+
+  const twoPercentAccountNames = new Set(
+    bankAccounts
+      .filter((a) => a.is_two_percent_account)
+      .map((a) => a.name.toLowerCase()),
+  );
+
+  const yearly = expenses.filter((exp) => expenseYear(exp) === yearStr);
+
+  const twoPctYearly = twoPercentAccountNames.size > 0
+    ? yearly.filter(
+        (exp) =>
+          exp.uses_two_percent_funds ||
+          (exp.bank_account_name &&
+            twoPercentAccountNames.has(exp.bank_account_name.toLowerCase())),
+      )
+    : [];
+
+  const source = twoPctYearly.length > 0 ? twoPctYearly : yearly;
+
+  const incomeExpenses = source.filter(isIncomeRecord);
+  const outExpenses    = source.filter((e) => !isIncomeRecord(e));
+
+  // Revenue — group non-interest by source/category, top 4 on form, rest as extras
+  const revCatMap = new Map<string, number>();
+  for (const e of incomeExpenses.filter((e) => !(e.category ?? "").toLowerCase().includes("interest"))) {
+    const cat = e.category?.trim() || "Foreign Fire Insurance Premiums";
+    revCatMap.set(cat, (revCatMap.get(cat) ?? 0) + Math.abs(rawToNum(e.total_amount)));
+  }
+  if (revCatMap.size === 0) {
+    const totalIncome = incomeExpenses
+      .filter((e) => !(e.category ?? "").toLowerCase().includes("interest"))
+      .reduce((s, e) => s + Math.abs(rawToNum(e.total_amount)), 0);
+    if (totalIncome > 0) revCatMap.set("Foreign Fire Insurance Premiums", totalIncome);
+  }
+  const allRevCats = [...revCatMap.entries()].sort((a, b) => b[1] - a[1]);
+
+  const interestAmt = incomeExpenses
+    .filter((e) => (e.category ?? "").toLowerCase().includes("interest"))
+    .reduce((s, e) => s + Math.abs(rawToNum(e.total_amount)), 0);
+
+  // Expenditures — group by category, top 3 on form, rest as extras
+  const expCatMap = new Map<string, number>();
+  for (const e of outExpenses) {
+    const cat = e.category?.trim() || "Operating Expenditures";
+    expCatMap.set(cat, (expCatMap.get(cat) ?? 0) + Math.abs(rawToNum(e.total_amount)));
+  }
+  const allExpCats = [...expCatMap.entries()].sort((a, b) => b[1] - a[1]);
+
+  const formRevCats  = allRevCats.slice(0, 4);
+  const extraRevCats = allRevCats.slice(4);
+  const formExpCats  = allExpCats.slice(0, 3);
+  const extraExpCats = allExpCats.slice(3);
+
+  const result: Partial<NysFormFields> = {};
+
+  if (formRevCats[0]) { result.rev_src1_desc = formRevCats[0][0]; result.rev_src1_amt = toMoneyStr(formRevCats[0][1]); }
+  if (formRevCats[1]) { result.rev_src2_desc = formRevCats[1][0]; result.rev_src2_amt = toMoneyStr(formRevCats[1][1]); }
+  if (formRevCats[2]) { result.rev_src3_desc = formRevCats[2][0]; result.rev_src3_amt = toMoneyStr(formRevCats[2][1]); }
+  if (formRevCats[3]) { result.rev_src4_desc = formRevCats[3][0]; result.rev_src4_amt = toMoneyStr(formRevCats[3][1]); }
+  if (interestAmt > 0) result.interest_amt1 = toMoneyStr(interestAmt);
+
+  if (formExpCats[0]) { result.exp1_desc = formExpCats[0][0]; result.exp1_amt = toMoneyStr(formExpCats[0][1]); }
+  if (formExpCats[1]) { result.exp2_desc = formExpCats[1][0]; result.exp2_amt = toMoneyStr(formExpCats[1][1]); }
+  if (formExpCats[2]) { result.exp3_desc = formExpCats[2][0]; result.exp3_amt = toMoneyStr(formExpCats[2][1]); }
+
+  return {
+    fields: result,
+    extraRevLines: extraRevCats.map(([desc, amt]) => ({ desc, amt: toMoneyStr(amt) })),
+    extraExpLines: extraExpCats.map(([desc, amt]) => ({ desc, amt: toMoneyStr(amt) })),
+  };
 }
 
 /** Recalculate all derived totals from current fields */
@@ -274,6 +385,38 @@ function recalcTotals(f: NysFormFields): NysFormFields {
   };
 }
 
+/** Compute totals that include both form-slot lines AND extra lines */
+function computeEffectiveTotals(
+  f: NysFormFields,
+  extraRev: ExtraLine[],
+  extraExp: ExtraLine[],
+): EffectiveTotals {
+  const beginning = parseNum(f.beginning_balance);
+  const revFromForm =
+    parseNum(f.rev_src1_amt) +
+    parseNum(f.rev_src2_amt) +
+    parseNum(f.rev_src3_amt) +
+    parseNum(f.rev_src4_amt) +
+    parseNum(f.interest_amt1) +
+    parseNum(f.interest_amt2);
+  const revFromExtra = extraRev.reduce((s, l) => s + parseNum(l.amt), 0);
+  const revenueTotal = revFromForm + revFromExtra;
+
+  const expFromForm =
+    parseNum(f.exp1_amt) +
+    parseNum(f.exp2_amt) +
+    parseNum(f.exp3_amt);
+  const expFromExtra = extraExp.reduce((s, l) => s + parseNum(l.amt), 0);
+  const expenseTotal = expFromForm + expFromExtra;
+
+  return {
+    revenueTotal,
+    totalBalRev:   beginning + revenueTotal,
+    expenseTotal,
+    endingBalance: beginning + revenueTotal - expenseTotal,
+  };
+}
+
 // ─────────────────────────────────────────────────────────
 // PDF generation (client-side, uses pdf-lib)
 // ─────────────────────────────────────────────────────────
@@ -290,7 +433,22 @@ function pdfToBlob(bytes: Uint8Array): Blob {
 async function fillNysPdf(
   templateBytes: ArrayBuffer,
   fields: NysFormFields,
+  opts: {
+    signElectronically?: boolean;
+    effectiveTotals?: EffectiveTotals;
+    extraRevLines?: ExtraLine[];
+    extraExpLines?: ExtraLine[];
+    taxYear?: number;
+  } = {},
 ): Promise<Uint8Array> {
+  const {
+    signElectronically = false,
+    effectiveTotals,
+    extraRevLines = [],
+    extraExpLines = [],
+  taxYear,
+  } = opts;
+
   const pdfDoc = await PDFDocument.load(templateBytes);
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const page = pdfDoc.getPage(0);
@@ -370,8 +528,10 @@ async function fillNysPdf(
   drawMoney("interest_amt1", fields.interest_amt1);
   drawMoney("interest_amt2", fields.interest_amt2);
 
-  drawMoney("total_revenues", fields.revenue_total);
-  drawMoney("total_bal_rev",  fields.total_bal_rev);
+  // Use effective totals when available (they include extra lines)
+  const et = effectiveTotals ?? computeEffectiveTotals(fields, extraRevLines, extraExpLines);
+  drawMoney("total_revenues", toMoneyStr(et.revenueTotal));
+  drawMoney("total_bal_rev",  toMoneyStr(et.totalBalRev));
 
   drawAt("exp1_desc",  fields.exp1_desc);
   drawMoney("exp1_amt", fields.exp1_amt);
@@ -380,18 +540,143 @@ async function fillNysPdf(
   drawAt("exp3_desc",  fields.exp3_desc);
   drawMoney("exp3_amt", fields.exp3_amt);
 
-  drawMoney("total_expenditures", fields.expense_total);
-  drawMoney("balance_dec31",      fields.ending_balance);
+  // Note on form if extra lines spill to attachment
+  if (extraExpLines.length > 0 || extraRevLines.length > 0) {
+    page.drawText("* See attached schedule for additional detail lines.", {
+      x: 32, y: 242, size: 6, font, color: rgb(0.4, 0.4, 0.4),
+    });
+  }
 
-  // ── Certification ─────────────────────────────────────
+  drawMoney("total_expenditures", toMoneyStr(et.expenseTotal));
+  drawMoney("balance_dec31",      toMoneyStr(et.endingBalance));
+
+  // ── Certification — signature blank unless user opts in ───────────────
   drawAt("certifier_name", fields.certifier_name || fields.treasurer_name);
   drawAt("print_name",     fields.treasurer_name);
-  drawAt("signature",      fields.treasurer_name);
-  drawAt("title",          fields.title);
-  drawAt("telephone",      fields.treasurer_phone);
-  drawAt("email",          fields.treasurer_email);
+  if (signElectronically && fields.treasurer_name) {
+    drawAt("signature", fields.treasurer_name);
+  }
+  drawAt("title",     fields.title);
+  drawAt("telephone", fields.treasurer_phone);
+  drawAt("email",     fields.treasurer_email);
+
+  // ── Attachment page — extra lines and full summary ─────────────────────
+  const hasExtras = extraRevLines.length > 0 || extraExpLines.length > 0;
+  if (hasExtras) {
+    // taxYear is embedded in the "balance_jan1" label area; pass via opts
+    await addAttachmentPage(pdfDoc, fields, et, extraRevLines, extraExpLines, opts.taxYear);
+  }
 
   return pdfDoc.save();
+}
+
+async function addAttachmentPage(
+  pdfDoc: PDFDocument,
+  fields: NysFormFields,
+  et: EffectiveTotals,
+  extraRevLines: ExtraLine[],
+  extraExpLines: ExtraLine[],
+  taxYear?: number,
+) {
+  const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const bold      = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const page = pdfDoc.addPage([612, 792]);
+  const black = rgb(0, 0, 0);
+  const gray  = rgb(0.45, 0.45, 0.45);
+  const L = 50, R = 562;
+  let y = 742;
+
+  function txt(s: string, x: number, yPos: number, sz: number, f = helvetica, c = black) {
+    if (!s) return;
+    page.drawText(s, { x, y: yPos, size: sz, font: f, color: c });
+  }
+  function rtxt(s: string, yPos: number, sz: number, f = helvetica) {
+    const w = f.widthOfTextAtSize(s, sz);
+    txt(s, R - w, yPos, sz, f);
+  }
+  function hline(yPos: number) {
+    page.drawLine({ start: { x: L, y: yPos }, end: { x: R, y: yPos }, thickness: 0.5, color: gray });
+  }
+  function money(n: number) { return n === 0 ? "—" : `$${fmtMoney(n)}`; }
+
+  // Title
+  txt("SCHEDULE OF REVENUES AND EXPENDITURES", L, y, 11, bold);
+  y -= 13;
+  txt("Attachment to NYS Annual Report of Foreign Fire Insurance Premiums", L, y, 8, helvetica, gray);
+  y -= 12;
+  txt(fields.entity_name || "Department", L, y, 9);
+  const yearLabel = taxYear ? `Tax Year: ${taxYear}` : "Tax Year: (see form)";
+  const yw = bold.widthOfTextAtSize(yearLabel, 9);
+  page.drawText(yearLabel, { x: R - yw, y, size: 9, font: bold, color: black });
+  y -= 6;
+  hline(y); y -= 16;
+
+  // ── Revenues ──────────────────────────────────────────────────────────
+  txt("REVENUES", L, y, 10, bold); y -= 14;
+
+  type LineRow = { desc: string; amt: string; extra: boolean };
+  const revRows: LineRow[] = [];
+  if (fields.rev_src1_amt || fields.rev_src1_desc) revRows.push({ desc: fields.rev_src1_desc || "Revenue 1", amt: fields.rev_src1_amt, extra: false });
+  if (fields.rev_src2_amt || fields.rev_src2_desc) revRows.push({ desc: fields.rev_src2_desc || "Revenue 2", amt: fields.rev_src2_amt, extra: false });
+  if (fields.rev_src3_amt || fields.rev_src3_desc) revRows.push({ desc: fields.rev_src3_desc || "Revenue 3", amt: fields.rev_src3_amt, extra: false });
+  if (fields.rev_src4_amt || fields.rev_src4_desc) revRows.push({ desc: fields.rev_src4_desc || "Revenue 4", amt: fields.rev_src4_amt, extra: false });
+  for (const l of extraRevLines) revRows.push({ desc: l.desc || "Additional Revenue", amt: l.amt, extra: true });
+  if (fields.interest_amt1) revRows.push({ desc: "Interest on Investment (1)", amt: fields.interest_amt1, extra: false });
+  if (fields.interest_amt2) revRows.push({ desc: "Interest on Investment (2)", amt: fields.interest_amt2, extra: false });
+
+  for (const row of revRows) {
+    const label = row.extra ? `${row.desc} *` : row.desc;
+    txt(label, L + 10, y, 9);
+    rtxt(money(parseNum(row.amt)), y, 9);
+    y -= 13;
+  }
+  hline(y + 4); y -= 4;
+  txt("Total Revenues:", L + 10, y, 9, bold);
+  rtxt(money(et.revenueTotal), y, 9, bold);
+  y -= 20;
+
+  // ── Expenditures ──────────────────────────────────────────────────────
+  txt("EXPENDITURES", L, y, 10, bold); y -= 14;
+
+  const expRows: LineRow[] = [];
+  if (fields.exp1_amt || fields.exp1_desc) expRows.push({ desc: fields.exp1_desc || "Expenditure 1", amt: fields.exp1_amt, extra: false });
+  if (fields.exp2_amt || fields.exp2_desc) expRows.push({ desc: fields.exp2_desc || "Expenditure 2", amt: fields.exp2_amt, extra: false });
+  if (fields.exp3_amt || fields.exp3_desc) expRows.push({ desc: fields.exp3_desc || "Expenditure 3", amt: fields.exp3_amt, extra: false });
+  for (const l of extraExpLines) expRows.push({ desc: l.desc || "Additional Expenditure", amt: l.amt, extra: true });
+
+  for (const row of expRows) {
+    const label = row.extra ? `${row.desc} *` : row.desc;
+    txt(label, L + 10, y, 9);
+    rtxt(money(parseNum(row.amt)), y, 9);
+    y -= 13;
+  }
+  hline(y + 4); y -= 4;
+  txt("Total Expenditures:", L + 10, y, 9, bold);
+  rtxt(money(et.expenseTotal), y, 9, bold);
+  y -= 24;
+
+  // ── Summary ───────────────────────────────────────────────────────────
+  hline(y + 8); y -= 4;
+  txt("SUMMARY", L, y, 10, bold); y -= 14;
+  const summaryRows = [
+    { label: "Balance January 1 (Beginning):", val: money(parseNum(fields.beginning_balance)) },
+    { label: "+ Total Revenues:", val: money(et.revenueTotal) },
+    { label: "- Total Expenditures:", val: money(et.expenseTotal) },
+  ];
+  for (const r of summaryRows) {
+    txt(r.label, L + 10, y, 9);
+    rtxt(r.val, y, 9);
+    y -= 13;
+  }
+  hline(y + 4); y -= 8;
+  txt("= Balance December 31 (Ending):", L + 10, y, 9, bold);
+  rtxt(money(et.endingBalance), y, 9, bold);
+  y -= 28;
+
+  // Footer note
+  if (extraRevLines.length > 0 || extraExpLines.length > 0) {
+    txt("* Lines marked with * are additional detail beyond NYS form space. They are included in the totals on the official form.", L, y, 7, helvetica, gray);
+  }
 }
 
 // ─────────────────────────────────────────────────────────
@@ -401,24 +686,51 @@ async function fillNysPdf(
 export function NysFFReportPage({
   membership,
   expenses,
+  bankAccounts,
   onBack,
 }: {
   membership: DepartmentMembership;
   expenses: ExpenseRecord[];
+  bankAccounts: BankAccount[];
   onBack: () => void;
 }) {
   const currentYear = new Date().getFullYear();
-  const yearOptions = Array.from({ length: 6 }, (_, i) => currentYear - 1 - i);
+  // Include current year and 5 prior years
+  const yearOptions = Array.from({ length: 6 }, (_, i) => currentYear - i);
 
-  const [taxYear, setTaxYear] = useState(currentYear - 1);
+  // Default to current year since that's where active transactions live.
+  // Falls back to prior year only if there are no current-year 2% transactions.
+  const defaultTaxYear = useMemo(() => {
+    const curYearStr = String(currentYear);
+    const twoPercentAccountNames = new Set(
+      bankAccounts.filter((a) => a.is_two_percent_account).map((a) => a.name.toLowerCase()),
+    );
+    const hasCurYear = expenses.some(
+      (e) =>
+        expenseYear(e) === curYearStr &&
+        (e.uses_two_percent_funds ||
+          (e.bank_account_name && twoPercentAccountNames.has(e.bank_account_name.toLowerCase()))),
+    );
+    return hasCurYear ? currentYear : currentYear - 1;
+  }, []); // intentionally only on mount
+
+  const [taxYear, setTaxYear] = useState(defaultTaxYear);
   const [fields, setFields] = useState<NysFormFields>({ ...EMPTY_FIELDS });
   const [formRunId, setFormRunId] = useState<string | null>(null);
+  const [extraRevLines, setExtraRevLines] = useState<ExtraLine[]>([]);
+  const [extraExpLines, setExtraExpLines] = useState<ExtraLine[]>([]);
+  const [signElectronically, setSignElectronically] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"saved" | "error" | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string>(TEMPLATE_PATH);
   const [isGenerating, setIsGenerating] = useState(false);
+
+  const effectiveTotals = useMemo(
+    () => computeEffectiveTotals(fields, extraRevLines, extraExpLines),
+    [fields, extraRevLines, extraExpLines],
+  );
 
   // Replace-confirmation state for prior-year uploads
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -429,9 +741,13 @@ export function NysFFReportPage({
   const templateRef = useRef<ArrayBuffer | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const blobUrlRef = useRef<string | null>(null);
+  const taxYearRef = useRef<number>(defaultTaxYear);
 
   const departmentId = membership.department_id;
   const departmentName = membership.departments?.name ?? "";
+
+  // Keep taxYearRef current so the debounced preview can read it without stale closure
+  useEffect(() => { taxYearRef.current = taxYear; }, [taxYear]);
 
   // ── Fetch and cache the template PDF ─────────────────
   useEffect(() => {
@@ -472,7 +788,7 @@ export function NysFFReportPage({
     return () => { cancelled = true; };
   }, [departmentId, departmentName]);
 
-  // ── Load form run when year changes ──────────────────
+  // ── Load form run + apply auto-calc (single effect avoids race) ──────────
   useEffect(() => {
     let cancelled = false;
     setSaveStatus(null);
@@ -484,56 +800,58 @@ export function NysFFReportPage({
       .maybeSingle()
       .then(({ data }) => {
         if (cancelled) return;
+
+        const auto = computeAutoFields(expenses, bankAccounts, taxYear);
+
         if (data) {
           setFormRunId(data.id as string);
-          const saved = data.form_data as Partial<NysFormFields> | null;
+          const saved = (data.form_data as Record<string, unknown>) ?? {};
+
+          // Restore extra lines saved in the draft
+          const savedExtraRev = (saved.extra_rev_lines as ExtraLine[] | undefined) ?? [];
+          const savedExtraExp = (saved.extra_exp_lines as ExtraLine[] | undefined) ?? [];
+          setExtraRevLines(savedExtraRev.length > 0 ? savedExtraRev : auto.extraRevLines);
+          setExtraExpLines(savedExtraExp.length > 0 ? savedExtraExp : auto.extraExpLines);
+
+          // Core form fields: auto-calc base, then non-blank saved values win
+          const coreFields = Object.fromEntries(
+            Object.entries(saved).filter(
+              ([k, v]) => k !== "extra_rev_lines" && k !== "extra_exp_lines" && v !== "" && v !== null && v !== undefined,
+            ),
+          );
           setFields((prev) =>
-            recalcTotals({
-              ...prev,
-              ...(saved ?? {}),
-              beginning_balance: String(data.starting_balance ?? "0.00"),
-            }),
+            recalcTotals({ ...prev, ...auto.fields, ...coreFields, beginning_balance: String(data.starting_balance ?? "0.00") }),
           );
         } else {
           setFormRunId(null);
-          setFields((prev) =>
-            recalcTotals({ ...prev, beginning_balance: "0.00" }),
-          );
+          setExtraRevLines(auto.extraRevLines);
+          setExtraExpLines(auto.extraExpLines);
+          setFields((prev) => recalcTotals({ ...prev, ...auto.fields, beginning_balance: "0.00" }));
         }
       });
     return () => { cancelled = true; };
-  }, [taxYear, departmentId]);
-
-  // ── Auto-calc from Firebook transactions ─────────────
-  useEffect(() => {
-    const yearStr = String(taxYear);
-    const yearly = expenses.filter((exp) =>
-      String(exp.transaction_date ?? "").startsWith(yearStr),
-    );
-    const incomeAmt = yearly
-      .filter(isIncomeRecord)
-      .reduce((s, e) => s + Math.abs(rawToNum(e.total_amount)), 0);
-    const expAmt = yearly
-      .filter((e) => !isIncomeRecord(e))
-      .reduce((s, e) => s + Math.abs(rawToNum(e.total_amount)), 0);
-
-    setFields((prev) =>
-      recalcTotals({
-        ...prev,
-        rev_src1_amt: incomeAmt > 0 ? toMoneyStr(incomeAmt) : prev.rev_src1_amt,
-        exp1_amt:     expAmt > 0    ? toMoneyStr(expAmt)    : prev.exp1_amt,
-      }),
-    );
-  }, [taxYear, expenses]);
+  }, [taxYear, departmentId, expenses, bankAccounts]);
 
   // ── Debounced PDF preview generation ─────────────────
-  const schedulePreview = useCallback((f: NysFormFields) => {
+  const schedulePreview = useCallback((
+    f: NysFormFields,
+    extraRev: ExtraLine[],
+    extraExp: ExtraLine[],
+    sign: boolean,
+  ) => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
       if (!templateRef.current) return;
       setIsGenerating(true);
       try {
-        const bytes = await fillNysPdf(templateRef.current, f);
+        const et = computeEffectiveTotals(f, extraRev, extraExp);
+        const bytes = await fillNysPdf(templateRef.current, f, {
+          signElectronically: sign,
+          effectiveTotals: et,
+          extraRevLines: extraRev,
+          extraExpLines: extraExp,
+          taxYear: taxYearRef.current,
+        });
         const blob = pdfToBlob(bytes);
         const url = URL.createObjectURL(blob);
         if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
@@ -547,10 +865,10 @@ export function NysFFReportPage({
     }, 450);
   }, []);
 
-  // Re-generate preview whenever fields change
+  // Re-generate preview whenever fields or extra lines change
   useEffect(() => {
-    schedulePreview(fields);
-  }, [fields, schedulePreview]);
+    schedulePreview(fields, extraRevLines, extraExpLines, signElectronically);
+  }, [fields, extraRevLines, extraExpLines, signElectronically, schedulePreview]);
 
   // Cleanup blob URL on unmount
   useEffect(() => {
@@ -734,12 +1052,16 @@ export function NysFFReportPage({
         department_id:    departmentId,
         tax_year:         taxYear,
         starting_balance: parseNum(fields.beginning_balance),
-        revenue_total:    parseNum(fields.revenue_total),
-        expense_total:    parseNum(fields.expense_total),
-        ending_balance:   parseNum(fields.ending_balance),
+        revenue_total:    effectiveTotals.revenueTotal,
+        expense_total:    effectiveTotals.expenseTotal,
+        ending_balance:   effectiveTotals.endingBalance,
         status:           "draft",
-        form_data:        fields as unknown as Record<string, unknown>,
-        updated_at:       new Date().toISOString(),
+        form_data: {
+          ...(fields as unknown as Record<string, unknown>),
+          extra_rev_lines: extraRevLines,
+          extra_exp_lines: extraExpLines,
+        },
+        updated_at: new Date().toISOString(),
       };
       if (formRunId) {
         await supabase.from("tax_form_runs").update(payload).eq("id", formRunId);
@@ -773,13 +1095,19 @@ export function NysFFReportPage({
     } finally {
       setIsSaving(false);
     }
-  }, [departmentId, departmentName, fields, formRunId, taxYear]);
+  }, [departmentId, departmentName, effectiveTotals, extraExpLines, extraRevLines, fields, formRunId, taxYear]);
 
   // ── Download filled PDF ───────────────────────────────
   const handleDownload = useCallback(async () => {
     if (!templateRef.current) return;
     try {
-      const bytes = await fillNysPdf(templateRef.current, fields);
+      const bytes = await fillNysPdf(templateRef.current, fields, {
+        signElectronically,
+        effectiveTotals,
+        extraRevLines,
+        extraExpLines,
+        taxYear,
+      });
       const blob = pdfToBlob(bytes);
 
       // Trigger browser download
@@ -816,13 +1144,19 @@ export function NysFFReportPage({
     } catch {
       /* download failed silently */
     }
-  }, [departmentId, fields, taxYear]);
+  }, [departmentId, effectiveTotals, extraExpLines, extraRevLines, fields, signElectronically, taxYear]);
 
   // ── Print filled PDF ──────────────────────────────────
   const handlePrint = useCallback(async () => {
     if (!templateRef.current) return;
     try {
-      const bytes = await fillNysPdf(templateRef.current, fields);
+      const bytes = await fillNysPdf(templateRef.current, fields, {
+        signElectronically,
+        effectiveTotals,
+        extraRevLines,
+        extraExpLines,
+        taxYear,
+      });
       const blob = pdfToBlob(bytes);
       const url = URL.createObjectURL(blob);
       const win = window.open(url, "_blank");
@@ -835,7 +1169,7 @@ export function NysFFReportPage({
     } catch {
       /* print failed silently */
     }
-  }, [fields]);
+  }, [effectiveTotals, extraExpLines, extraRevLines, fields, signElectronically]);
 
   return (
     <div className="fb-tab-stack nys-report-root">
@@ -975,7 +1309,25 @@ export function NysFFReportPage({
         {/* Right: editable fields */}
         <div className="nys-fields-col">
           <p className="eyebrow nys-col-label">Edit Fields</p>
-          <NysFieldsPanel fields={fields} onChange={handleFieldChange} />
+          <NysFieldsPanel
+            fields={fields}
+            onChange={handleFieldChange}
+            extraRevLines={extraRevLines}
+            extraExpLines={extraExpLines}
+            onExtraRevChange={(i, key, val) =>
+              setExtraRevLines((prev) => prev.map((l, idx) => idx === i ? { ...l, [key]: val } : l))
+            }
+            onExtraExpChange={(i, key, val) =>
+              setExtraExpLines((prev) => prev.map((l, idx) => idx === i ? { ...l, [key]: val } : l))
+            }
+            onAddRevLine={() => setExtraRevLines((prev) => [...prev, { desc: "", amt: "" }])}
+            onAddExpLine={() => setExtraExpLines((prev) => [...prev, { desc: "", amt: "" }])}
+            onRemoveRevLine={(i) => setExtraRevLines((prev) => prev.filter((_, idx) => idx !== i))}
+            onRemoveExpLine={(i) => setExtraExpLines((prev) => prev.filter((_, idx) => idx !== i))}
+            signElectronically={signElectronically}
+            onSignToggle={setSignElectronically}
+            effectiveTotals={effectiveTotals}
+          />
         </div>
       </div>
     </div>
@@ -983,157 +1335,329 @@ export function NysFFReportPage({
 }
 
 // ─────────────────────────────────────────────────────────
-// Fields Panel
+// Accordion section wrapper
+// ─────────────────────────────────────────────────────────
+
+function NysAccordion({
+  title,
+  open,
+  onToggle,
+  badge,
+  children,
+}: {
+  title: string;
+  open: boolean;
+  onToggle: () => void;
+  badge?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={`nys-accordion${open ? " nys-accordion--open" : ""}`}>
+      <button type="button" className="nys-accordion-header" onClick={onToggle}>
+        <span className="nys-accordion-title">{title}</span>
+        {badge && <span className="nys-accordion-badge">{badge}</span>}
+        <svg
+          className="nys-accordion-chevron"
+          width="14" height="14"
+          viewBox="0 0 24 24"
+          fill="none" stroke="currentColor" strokeWidth="2.5"
+          aria-hidden="true"
+        >
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
+      {open && <div className="nys-accordion-body">{children}</div>}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────
+// Fields Panel — 4 collapsible sections
 // ─────────────────────────────────────────────────────────
 
 function NysFieldsPanel({
   fields,
   onChange,
+  extraRevLines,
+  extraExpLines,
+  onExtraRevChange,
+  onExtraExpChange,
+  onAddRevLine,
+  onAddExpLine,
+  onRemoveRevLine,
+  onRemoveExpLine,
+  signElectronically,
+  onSignToggle,
+  effectiveTotals,
 }: {
   fields: NysFormFields;
   onChange: (key: keyof NysFormFields, value: string) => void;
+  extraRevLines: ExtraLine[];
+  extraExpLines: ExtraLine[];
+  onExtraRevChange: (i: number, key: keyof ExtraLine, value: string) => void;
+  onExtraExpChange: (i: number, key: keyof ExtraLine, value: string) => void;
+  onAddRevLine: () => void;
+  onAddExpLine: () => void;
+  onRemoveRevLine: (i: number) => void;
+  onRemoveExpLine: (i: number) => void;
+  signElectronically: boolean;
+  onSignToggle: (v: boolean) => void;
+  effectiveTotals: EffectiveTotals;
 }) {
-  return (
-    <div className="nys-fields-stack">
-      {/* ── Organization ── */}
-      <div className="nys-fields-group">
-        <p className="eyebrow nys-fields-group-title">Organization Information</p>
-        <NysField id="entity_name"  label="Name of Entity"      value={fields.entity_name}  onChange={(v) => onChange("entity_name",  v)} />
-        <div className="nys-field-row">
-          <NysField id="fire_district" label="Fire District # (if known)" value={fields.fire_district} onChange={(v) => onChange("fire_district", v)} />
-          <NysField id="county"        label="County"                     value={fields.county}        onChange={(v) => onChange("county",        v)} />
-        </div>
-        <NysField id="address"   label="Address"            value={fields.address}   onChange={(v) => onChange("address",   v)} />
-        <div className="nys-field-row">
-          <NysField id="city_town" label="City / Town / Village" value={fields.city_town} onChange={(v) => onChange("city_town", v)} />
-          <NysField id="zip"       label="ZIP"                   value={fields.zip}       onChange={(v) => onChange("zip",       v)} placeholder="00000" />
-        </div>
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const toggle = (id: string) => setOpen((p) => ({ ...p, [id]: !p[id] }));
 
+  const revBadge = extraRevLines.length > 0 ? `+${extraRevLines.length} extra` : undefined;
+  const expBadge = extraExpLines.length > 0 ? `+${extraExpLines.length} extra` : undefined;
+
+  return (
+    <div className="nys-accordion-stack">
+
+      {/* ── 1. Organization ─────────────────────────────── */}
+      <NysAccordion title="Organization Information" open={!!open.org} onToggle={() => toggle("org")}>
+        <NysField id="entity_name" label="Name of Entity" value={fields.entity_name} onChange={(v) => onChange("entity_name", v)} />
+        <div className="nys-field-row">
+          <NysField id="fire_district" label="Fire District #" value={fields.fire_district} onChange={(v) => onChange("fire_district", v)} />
+          <NysField id="county"        label="County"          value={fields.county}        onChange={(v) => onChange("county", v)} />
+        </div>
+        <NysField id="address" label="Address" value={fields.address} onChange={(v) => onChange("address", v)} />
+        <div className="nys-field-row">
+          <NysField id="city_town" label="City / Town"  value={fields.city_town} onChange={(v) => onChange("city_town", v)} />
+          <NysField id="zip"       label="ZIP"          value={fields.zip}       onChange={(v) => onChange("zip", v)} placeholder="00000" />
+        </div>
         <div className="nys-field">
-          <span className="nys-field-label">Type</span>
+          <span className="nys-field-label">Entity Type</span>
           <div className="nys-type-picker">
             {["Fire Department", "Fire Company", "Benevolent Association"].map((t) => {
-              const entityBox = ENTITY_TO_BOX[fields.entity_type];
-              const active = entityBox === t;
+              const active = ENTITY_TO_BOX[fields.entity_type] === t;
               return (
                 <button
                   key={t}
                   type="button"
                   className={`nys-type-btn${active ? " nys-type-btn--active" : ""}`}
                   onClick={() => {
-                    const match = Object.keys(ENTITY_TO_BOX).find(
-                      (k) => ENTITY_TO_BOX[k] === t,
-                    );
+                    const match = Object.keys(ENTITY_TO_BOX).find((k) => ENTITY_TO_BOX[k] === t);
                     if (match) onChange("entity_type", match);
                   }}
-                >
-                  {t}
-                </button>
+                >{t}</button>
               );
             })}
           </div>
         </div>
-
-        <NysField id="town_or_city"     label="Town or City Where Located"                 value={fields.town_or_city}     onChange={(v) => onChange("town_or_city",     v)} />
-        <NysField id="village"          label="Village Where Located (if applicable)"       value={fields.village}          onChange={(v) => onChange("village",          v)} />
-        <NysField id="fire_prot_dist"   label="Fire Protection District (if applicable)"    value={fields.fire_prot_dist}   onChange={(v) => onChange("fire_prot_dist",   v)} />
+        <NysField id="town_or_city"      label="Town or City Where Located"                value={fields.town_or_city}      onChange={(v) => onChange("town_or_city", v)} />
+        <NysField id="village"           label="Village (if applicable)"                   value={fields.village}           onChange={(v) => onChange("village", v)} />
+        <NysField id="fire_prot_dist"    label="Fire Protection District (if applicable)"  value={fields.fire_prot_dist}    onChange={(v) => onChange("fire_prot_dist", v)} />
         <NysField id="fire_dist_located" label="Fire District Where Located (if applicable)" value={fields.fire_dist_located} onChange={(v) => onChange("fire_dist_located", v)} />
-      </div>
+      </NysAccordion>
 
-      {/* ── Treasurer ── */}
-      <div className="nys-fields-group">
-        <p className="eyebrow nys-fields-group-title">Certifying Officer (Treasurer)</p>
-        <NysField id="treasurer_name"  label="Print Name"   value={fields.treasurer_name}  onChange={(v) => { onChange("treasurer_name", v); onChange("certifier_name", v); }} />
-        <NysField id="title"           label="Title"         value={fields.title}           onChange={(v) => onChange("title",          v)} />
-        <NysField id="treasurer_phone" label="Telephone"     value={fields.treasurer_phone} onChange={(v) => onChange("treasurer_phone", v)} type="tel" />
-        <NysField id="treasurer_email" label="E-mail"        value={fields.treasurer_email} onChange={(v) => onChange("treasurer_email", v)} type="email" />
-      </div>
-
-      {/* ── Financial ── */}
-      <div className="nys-fields-group nys-fields-group--fin">
-        <p className="eyebrow nys-fields-group-title">Financial Summary</p>
-
+      {/* ── 2. Revenues ─────────────────────────────────── */}
+      <NysAccordion title="Revenues" open={!!open.rev} onToggle={() => toggle("rev")} badge={revBadge}>
         <NysField
           id="beginning_balance"
-          label="Balance as of 1/1 (Beginning Balance)"
+          label="Balance as of Jan 1 (Beginning Balance)"
           value={fields.beginning_balance}
           onChange={(v) => onChange("beginning_balance", v)}
           type="money"
-          hint="Prior year ending balance or user override"
+          hint="Prior year ending balance"
         />
 
-        <div className="nys-fin-sub-title">Revenues — Foreign Fire Insurance Premiums Only</div>
+        <div className="nys-fin-sub-title">Foreign Fire Insurance Premiums</div>
+        <p className="nys-fin-sub-note muted">Up to 4 sources appear on the form. Additional sources print on the attachment.</p>
         <NysSourceRow
-          descId="rev_src1_desc" descLabel="Source 1 Description"
-          amtId="rev_src1_amt"   amtLabel="Amount"
+          descId="rev_src1_desc" descLabel="Source 1" amtId="rev_src1_amt" amtLabel="Amount"
           descVal={fields.rev_src1_desc} amtVal={fields.rev_src1_amt}
           onChangeDesc={(v) => onChange("rev_src1_desc", v)}
           onChangeAmt={(v)  => onChange("rev_src1_amt",  v)}
-          autoHint="Auto-filled from Firebook income"
+          autoHint="Auto-filled from Firebook"
         />
         <NysSourceRow
-          descId="rev_src2_desc" descLabel="Source 2 Description"
-          amtId="rev_src2_amt"   amtLabel="Amount"
+          descId="rev_src2_desc" descLabel="Source 2" amtId="rev_src2_amt" amtLabel="Amount"
           descVal={fields.rev_src2_desc} amtVal={fields.rev_src2_amt}
           onChangeDesc={(v) => onChange("rev_src2_desc", v)}
           onChangeAmt={(v)  => onChange("rev_src2_amt",  v)}
         />
         <NysSourceRow
-          descId="rev_src3_desc" descLabel="Source 3 Description"
-          amtId="rev_src3_amt"   amtLabel="Amount"
+          descId="rev_src3_desc" descLabel="Source 3" amtId="rev_src3_amt" amtLabel="Amount"
           descVal={fields.rev_src3_desc} amtVal={fields.rev_src3_amt}
           onChangeDesc={(v) => onChange("rev_src3_desc", v)}
           onChangeAmt={(v)  => onChange("rev_src3_amt",  v)}
         />
         <NysSourceRow
-          descId="rev_src4_desc" descLabel="Source 4 Description"
-          amtId="rev_src4_amt"   amtLabel="Amount"
+          descId="rev_src4_desc" descLabel="Source 4" amtId="rev_src4_amt" amtLabel="Amount"
           descVal={fields.rev_src4_desc} amtVal={fields.rev_src4_amt}
           onChangeDesc={(v) => onChange("rev_src4_desc", v)}
           onChangeAmt={(v)  => onChange("rev_src4_amt",  v)}
         />
 
-        <div className="nys-fin-sub-title">Interest on Investment of Foreign Fire</div>
+        {/* Extra revenue lines — attachment only */}
+        {extraRevLines.length > 0 && (
+          <div className="nys-extra-lines">
+            <p className="nys-extra-lines-label">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+              Additional sources — print on attachment
+            </p>
+            {extraRevLines.map((l, i) => (
+              <NysExtraLineRow
+                key={i}
+                index={i}
+                desc={l.desc}
+                amt={l.amt}
+                onChange={(key, val) => onExtraRevChange(i, key, val)}
+                onRemove={() => onRemoveRevLine(i)}
+              />
+            ))}
+          </div>
+        )}
+        <button type="button" className="nys-add-line-btn" onClick={onAddRevLine}>
+          + Add revenue source
+        </button>
+
+        <div className="nys-fin-sub-title">Interest on Investment</div>
         <div className="nys-field-row">
           <NysField id="interest_amt1" label="Interest Line 1" value={fields.interest_amt1} onChange={(v) => onChange("interest_amt1", v)} type="money" />
           <NysField id="interest_amt2" label="Interest Line 2" value={fields.interest_amt2} onChange={(v) => onChange("interest_amt2", v)} type="money" />
         </div>
 
-        <NysTotalRow label="Total Revenues" value={fields.revenue_total} />
-        <NysTotalRow label="Total Balance and Revenues" value={fields.total_bal_rev} accent />
+        <NysEffTotalRow label="Total Revenues" value={effectiveTotals.revenueTotal} />
+        <NysEffTotalRow label="Balance + Revenues" value={effectiveTotals.totalBalRev} accent />
+      </NysAccordion>
 
-        <div className="nys-fin-sub-title">Expenditures</div>
+      {/* ── 3. Expenditures ─────────────────────────────── */}
+      <NysAccordion title="Expenditures" open={!!open.exp} onToggle={() => toggle("exp")} badge={expBadge}>
+        <p className="nys-fin-sub-note muted">Up to 3 lines appear on the form. Additional lines print on the attachment.</p>
         <NysSourceRow
-          descId="exp1_desc" descLabel="Expenditure 1 Description"
-          amtId="exp1_amt"   amtLabel="Amount"
+          descId="exp1_desc" descLabel="Line 1" amtId="exp1_amt" amtLabel="Amount"
           descVal={fields.exp1_desc} amtVal={fields.exp1_amt}
           onChangeDesc={(v) => onChange("exp1_desc", v)}
           onChangeAmt={(v)  => onChange("exp1_amt",  v)}
-          autoHint="Auto-filled from Firebook expenses"
+          autoHint="Auto-filled from Firebook"
         />
         <NysSourceRow
-          descId="exp2_desc" descLabel="Expenditure 2 Description"
-          amtId="exp2_amt"   amtLabel="Amount"
+          descId="exp2_desc" descLabel="Line 2" amtId="exp2_amt" amtLabel="Amount"
           descVal={fields.exp2_desc} amtVal={fields.exp2_amt}
           onChangeDesc={(v) => onChange("exp2_desc", v)}
           onChangeAmt={(v)  => onChange("exp2_amt",  v)}
         />
         <NysSourceRow
-          descId="exp3_desc" descLabel="Expenditure 3 Description"
-          amtId="exp3_amt"   amtLabel="Amount"
+          descId="exp3_desc" descLabel="Line 3" amtId="exp3_amt" amtLabel="Amount"
           descVal={fields.exp3_desc} amtVal={fields.exp3_amt}
           onChangeDesc={(v) => onChange("exp3_desc", v)}
           onChangeAmt={(v)  => onChange("exp3_amt",  v)}
         />
 
-        <NysTotalRow label="Total Expenditures" value={fields.expense_total} />
+        {/* Extra expenditure lines — attachment only */}
+        {extraExpLines.length > 0 && (
+          <div className="nys-extra-lines">
+            <p className="nys-extra-lines-label">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+              Additional lines — print on attachment
+            </p>
+            {extraExpLines.map((l, i) => (
+              <NysExtraLineRow
+                key={i}
+                index={i}
+                desc={l.desc}
+                amt={l.amt}
+                onChange={(key, val) => onExtraExpChange(i, key, val)}
+                onRemove={() => onRemoveExpLine(i)}
+              />
+            ))}
+          </div>
+        )}
+        <button type="button" className="nys-add-line-btn" onClick={onAddExpLine}>
+          + Add expenditure line
+        </button>
+
+        <NysEffTotalRow label="Total Expenditures" value={effectiveTotals.expenseTotal} />
 
         <div className="nys-ending-balance-display">
           <p className="eyebrow nys-ending-balance-label">Balance as of 12/31 (Ending)</p>
-          <p className="nys-ending-balance-value">${fmtMoney(parseNum(fields.ending_balance))}</p>
+          <p className="nys-ending-balance-value">${fmtMoney(effectiveTotals.endingBalance)}</p>
           <p className="muted nys-ending-balance-formula">= Beginning + Revenues &minus; Expenditures</p>
         </div>
+      </NysAccordion>
+
+      {/* ── 4. Certification & Contact ───────────────────── */}
+      <NysAccordion title="Certification &amp; Contact" open={!!open.cert} onToggle={() => toggle("cert")}>
+        <NysField
+          id="treasurer_name"
+          label="Print Name (Certifying Officer)"
+          value={fields.treasurer_name}
+          onChange={(v) => { onChange("treasurer_name", v); onChange("certifier_name", v); }}
+        />
+        <NysField id="title"           label="Title"     value={fields.title}           onChange={(v) => onChange("title", v)} />
+        <NysField id="treasurer_phone" label="Telephone" value={fields.treasurer_phone} onChange={(v) => onChange("treasurer_phone", v)} type="tel" />
+        <NysField id="treasurer_email" label="E-mail"    value={fields.treasurer_email} onChange={(v) => onChange("treasurer_email", v)} type="email" />
+
+        <div className="nys-sign-toggle-row">
+          <label className="nys-sign-toggle">
+            <input
+              type="checkbox"
+              checked={signElectronically}
+              onChange={(e) => onSignToggle(e.target.checked)}
+            />
+            <span>
+              Print name as electronic signature
+              <span className="nys-sign-toggle-hint">
+                When checked, your printed name appears in the signature line on the PDF.
+                Leave unchecked to sign by hand after printing.
+              </span>
+            </span>
+          </label>
+          {signElectronically && (
+            <p className="nys-sign-preview muted">
+              Signature will read: <strong>{fields.treasurer_name || "(name not set)"}</strong>
+            </p>
+          )}
+          {!signElectronically && (
+            <p className="nys-sign-preview muted">Signature line left blank — sign by hand after printing.</p>
+          )}
+        </div>
+      </NysAccordion>
+
+    </div>
+  );
+}
+
+function NysExtraLineRow({
+  index, desc, amt, onChange, onRemove,
+}: {
+  index: number;
+  desc: string;
+  amt: string;
+  onChange: (key: keyof ExtraLine, val: string) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="nys-extra-line-row">
+      <div className="nys-field nys-source-desc">
+        <label htmlFor={`extra-desc-${index}`} className="nys-field-label sr-only">Description</label>
+        <input
+          id={`extra-desc-${index}`}
+          type="text"
+          value={desc}
+          placeholder="Description"
+          onChange={(e) => onChange("desc", e.target.value)}
+          className="nys-field-input"
+        />
       </div>
+      <div className="nys-field nys-source-amt">
+        <label htmlFor={`extra-amt-${index}`} className="nys-field-label sr-only">Amount</label>
+        <input
+          id={`extra-amt-${index}`}
+          type="text"
+          inputMode="decimal"
+          value={amt}
+          placeholder="0.00"
+          onChange={(e) => onChange("amt", e.target.value)}
+          className="nys-field-input nys-field-input--amount"
+        />
+      </div>
+      <button type="button" className="nys-remove-line-btn" onClick={onRemove} title="Remove line">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+          <path d="M18 6 6 18M6 6l12 12" />
+        </svg>
+      </button>
     </div>
   );
 }
@@ -1166,11 +1690,12 @@ function NysSourceRow({
   );
 }
 
-function NysTotalRow({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+/** Displays an effective (all-lines-included) calculated total */
+function NysEffTotalRow({ label, value, accent }: { label: string; value: number; accent?: boolean }) {
   return (
     <div className={`nys-total-row${accent ? " nys-total-row--accent" : ""}`}>
       <span className="nys-total-label">{label}</span>
-      <span className="nys-total-value">${fmtMoney(parseNum(value))}</span>
+      <span className="nys-total-value">${fmtMoney(value)}</span>
     </div>
   );
 }

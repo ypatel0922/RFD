@@ -35,6 +35,8 @@ export type BankAccount = {
   institution_name: string | null;
   account_mask: string | null;
   is_default: boolean;
+  is_two_percent_account: boolean;
+  fund_type: string | null;
   created_at: string;
 };
 
@@ -116,6 +118,12 @@ export type ExpenseRecord = {
   last_manual_edit_reason: string | null;
   last_manual_edit_at: string | null;
   last_manual_edit_by: string | null;
+  uses_two_percent_funds: boolean | null;
+  two_percent_review_status: "likely_eligible" | "needs_review" | "potentially_not_allowed" | null;
+  two_percent_warning_reason: string | null;
+  member_vote_recorded: boolean | null;
+  meeting_date: string | null;
+  support_note: string | null;
 };
 
 export type ExtractedReceiptData = {
@@ -158,6 +166,25 @@ export type ReviewForm = {
   balance_after_transaction: string;
   category: string;
   payment_method: string;
+  member_vote_recorded: boolean;
+  meeting_date: string;
+  support_note: string;
+};
+
+export type TaxFormFiling = {
+  id: string;
+  department_id: string;
+  tax_form_type: string;
+  tax_year: number;
+  source: "generated_firebook" | "uploaded_prior_filing";
+  status: "draft" | "saved" | "uploaded" | "archived";
+  file_path: string | null;
+  file_name: string | null;
+  file_mime_type: string | null;
+  extracted_data: Record<string, unknown> | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type ReconciliationReportRow = {
@@ -280,22 +307,6 @@ export type DepartmentVendor = {
   normalized_name: string;
   default_category: string | null;
   created_from: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-export type TaxFormFiling = {
-  id: string;
-  department_id: string;
-  tax_form_type: string;
-  tax_year: number;
-  source: "generated_firebook" | "uploaded_prior_filing";
-  status: "draft" | "saved" | "uploaded" | "archived";
-  file_path: string | null;
-  file_name: string | null;
-  file_mime_type: string | null;
-  extracted_data: Record<string, unknown> | null;
-  created_by: string | null;
   created_at: string;
   updated_at: string;
 };

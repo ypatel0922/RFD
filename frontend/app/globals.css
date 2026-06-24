@@ -459,6 +459,12 @@ th {
   color: var(--danger);
 }
 
+.notice-warn {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
 .note {
   border-radius: 16px;
   border: 1px solid var(--border);
@@ -5547,8 +5553,601 @@ button.fb-receipt-opt-btn:hover {
   }
 }
 
+/* ── Tax Forms hub card enhancements + NYS Form Filler + Filing History ─── */
+/* (Restored from cursor/9d6ef615) */
+
+.nys-card-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #dcfae6;
+  color: var(--success);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  width: fit-content;
+}
+
+.nys-card-btn {
+  margin-top: auto;
+  max-width: none;
+  width: 100%;
+}
+
+.nys-replace-confirm {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  background: #fffbeb;
+  border: 1.5px solid #f59e0b;
+  border-radius: 12px;
+  font-size: 0.875rem;
+}
+
+.nys-replace-confirm-msg { flex: 1; min-width: 200px; color: #92400e; }
+.nys-replace-confirm-actions { display: flex; gap: 8px; }
+.nys-replace-btn { background: #f59e0b !important; border-color: #f59e0b !important; }
+.nys-replace-btn:hover { background: #d97706 !important; border-color: #d97706 !important; }
+
+/* ── Tax Form Filings section ── */
+
+.tf-section { padding: 0; overflow: hidden; }
+.tf-section-hdr { display: flex; align-items: center; justify-content: space-between; padding: 18px 20px 14px; border-bottom: 1px solid var(--border); }
+.tf-section-title { margin: 0; font-size: 1.05rem; font-weight: 800; color: var(--ink); }
+.tf-loading { display: flex; align-items: center; gap: 8px; padding: 28px 20px; color: var(--muted); font-size: 0.9rem; }
+.tf-empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; padding: 40px 24px; }
+.tf-empty-icon { color: var(--muted); opacity: 0.5; margin-bottom: 4px; }
+.tf-empty-msg { font-weight: 700; color: var(--ink-soft); margin: 0; }
+.tf-empty-sub { margin: 0; max-width: 360px; font-size: 0.85rem; }
+.tf-table-wrap { overflow-x: auto; }
+.tf-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+.tf-table thead { background: var(--surface-muted); }
+.tf-table th { padding: 10px 14px; text-align: left; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); white-space: nowrap; border-bottom: 1px solid var(--border); }
+.tf-table td { padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.tf-row:last-child td { border-bottom: none; }
+.tf-cell-year { font-weight: 800; font-size: 0.95rem; color: var(--ink); }
+.tf-cell-file { max-width: 200px; }
+.tf-filename { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; max-width: 190px; font-size: 0.8rem; color: var(--ink-soft); }
+.tf-source-badge { display: inline-block; padding: 3px 9px; border-radius: 20px; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.03em; white-space: nowrap; }
+.tf-source-badge--gen { background: #e8f0fe; color: #1a56db; }
+.tf-source-badge--up { background: #f0fdf4; color: #166534; }
+.tf-status-badge { display: inline-block; padding: 3px 9px; border-radius: 20px; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.03em; white-space: nowrap; }
+.tf-status-badge--draft { background: #f3f4f6; color: #6b7280; }
+.tf-status-badge--saved { background: #dcfce7; color: #166534; }
+.tf-status-badge--uploaded { background: #dbeafe; color: #1e40af; }
+.tf-status-badge--archived { background: #f3f4f6; color: #9ca3af; }
+.tf-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.tf-action-btn { padding: 5px 11px; border-radius: 8px; border: 1.5px solid var(--border); background: var(--surface-muted); color: var(--ink-soft); font-size: 0.78rem; font-weight: 700; cursor: pointer; min-height: auto; transition: all 0.15s; white-space: nowrap; }
+.tf-action-btn:hover:not(:disabled) { background: var(--primary); border-color: var(--primary); color: #ffffff; }
+.tf-action-btn--warn { border-color: #f59e0b; color: #92400e; }
+.tf-action-btn--warn:hover:not(:disabled) { background: #f59e0b; border-color: #f59e0b; color: #ffffff; }
+.tf-action-btn--muted:hover:not(:disabled) { background: var(--surface-muted); border-color: var(--border); color: var(--muted); }
+.tf-action-btn:disabled { opacity: 0.5; cursor: default; }
+.tf-cards { display: none; flex-direction: column; gap: 12px; padding: 14px 16px; }
+.tf-card { background: var(--surface-muted); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; }
+.tf-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tf-card-year { font-weight: 800; font-size: 1.05rem; color: var(--ink); }
+.tf-card-source { margin: 0; font-size: 0.875rem; font-weight: 700; color: var(--ink-soft); }
+.tf-card-file, .tf-card-date { margin: 0; font-size: 0.8rem; }
+.tf-card-actions { margin-top: 6px; }
+
+.tf-modal-backdrop { position: fixed; inset: 0; background: rgb(0 0 0 / 55%); z-index: 1000; display: flex; align-items: stretch; justify-content: flex-end; }
+.tf-modal { background: var(--card); width: min(680px, 100vw); display: flex; flex-direction: column; overflow: hidden; animation: tf-slide-in 0.2s ease-out; }
+@keyframes tf-slide-in { from { transform: translateX(40px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+.tf-modal-hdr { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 20px 20px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.tf-modal-eyebrow { margin: 0 0 4px; }
+.tf-modal-title { margin: 0 0 4px; font-size: 1.15rem; font-weight: 900; color: var(--ink); }
+.tf-modal-meta { margin: 0; font-size: 0.82rem; }
+.tf-modal-close { flex-shrink: 0; padding: 6px; border: none; background: none; color: var(--muted); cursor: pointer; border-radius: 8px; transition: all 0.15s; min-height: auto; }
+.tf-modal-close:hover { background: var(--surface-muted); color: var(--ink); }
+.tf-modal-preview { flex: 1; overflow: auto; background: #525659; display: flex; align-items: center; justify-content: center; min-height: 200px; }
+.tf-modal-loading, .tf-modal-no-file { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 40px; color: #c0c8d0; font-size: 0.9rem; }
+.tf-modal-loading { flex-direction: row; }
+.tf-modal-iframe { display: block; width: 100%; height: 100%; min-height: 560px; border: none; }
+.tf-modal-img { max-width: 100%; max-height: 70vh; object-fit: contain; }
+.tf-modal-footer { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; flex-shrink: 0; }
+
+@media (max-width: 600px) {
+  .tf-table-wrap { display: none; }
+  .tf-cards { display: flex; }
+}
+
+/* ── NYS Report Form ── */
+
+.nys-report-root { padding-bottom: 48px; }
+.nys-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border-width: 0; }
+
+.nys-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 6px 0 12px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.nys-toolbar-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.nys-back-btn { display: flex; align-items: center; gap: 6px; }
+.nys-year-picker { display: flex; align-items: center; gap: 6px; }
+.nys-year-picker-label { color: var(--muted); }
+.nys-year-select { padding: 6px 10px; border: 1.5px solid var(--border); border-radius: 8px; background: var(--card); font-size: 0.88rem; font-weight: 700; cursor: pointer; }
+.nys-upload-btn { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.nys-upload-btn--busy { opacity: 0.6; pointer-events: none; }
+.nys-upload-btn input[type="file"] { display: none; }
+
+.nys-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px 0 8px;
+}
+
+.nys-report-heading { margin: 0 0 4px; font-size: 1.25rem; font-weight: 900; color: var(--ink); }
+.nys-report-subhead { margin: 0; }
+.nys-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.nys-print-btn { display: flex; align-items: center; gap: 6px; }
+
+.nys-save-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 4px 10px;
+  border-radius: 20px;
+}
+
+.nys-save-badge--ok { background: #dcfce7; color: #166534; }
+.nys-save-badge--err { background: #fee2e2; color: #991b1b; }
+
+.nys-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(300px, 0.9fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.nys-col-label { margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+
+.nys-preview-col {
+  position: sticky;
+  top: 80px;
+}
+
+.nys-fields-col { min-width: 0; }
+
+.nys-iframe-wrap {
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 4px 24px rgb(15 23 42 / 10%);
+  background: #525659;
+  height: 860px;
+}
+
+.nys-pdf-iframe { display: block; width: 100%; height: 100%; border: none; background: #525659; }
+
+.nys-source-row { display: grid; grid-template-columns: 1fr 130px; gap: 8px; align-items: start; }
+.nys-source-desc { min-width: 0; }
+.nys-source-amt { flex-shrink: 0; }
+.nys-field-input--amount { text-align: right; font-variant-numeric: tabular-nums; }
+
+.nys-fin-sub-title { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); padding: 4px 0 2px; border-bottom: 1px solid var(--border); margin-top: 4px; }
+
+.nys-total-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 6px 10px; background: var(--surface-muted); border-radius: 8px; font-weight: 800; font-size: 0.88rem; }
+.nys-total-row--accent { background: var(--primary); color: #fff; border-radius: 10px; }
+
+.nys-ending-balance-display { background: var(--surface-muted); border-radius: 12px; padding: 16px; text-align: center; margin-top: 8px; }
+.nys-ending-balance-label { margin-bottom: 4px; }
+.nys-ending-balance-value { font-size: 2rem; font-weight: 900; color: var(--ink); margin: 0; }
+.nys-ending-balance-formula { margin-top: 4px; font-size: 0.8rem; }
+
+.nys-fields-stack { display: flex; flex-direction: column; gap: 20px; }
+/* Legacy group wrappers kept for compatibility */
+.nys-fields-group { display: flex; flex-direction: column; gap: 10px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
+.nys-fields-group--fin { gap: 8px; }
+.nys-fields-group-title { margin: 0 0 4px; }
+
+/* ── Accordion ──────────────────────────────────────── */
+.nys-accordion-stack { display: flex; flex-direction: column; gap: 8px; }
+.nys-accordion { border: 1.5px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--card); }
+.nys-accordion--open { border-color: var(--primary); }
+.nys-accordion-header {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 12px 14px; background: none; border: none; cursor: pointer;
+  text-align: left; font-size: 0.88rem; font-weight: 700; color: var(--ink);
+  transition: background 0.12s;
+}
+.nys-accordion-header:hover { background: var(--surface-muted); }
+.nys-accordion-title { flex: 1; }
+.nys-accordion-badge {
+  font-size: 0.7rem; font-weight: 700; padding: 2px 7px; border-radius: 10px;
+  background: var(--primary); color: #fff; letter-spacing: 0.02em;
+}
+.nys-accordion-chevron { flex-shrink: 0; transition: transform 0.2s; color: var(--ink-soft); }
+.nys-accordion--open .nys-accordion-chevron { transform: rotate(180deg); }
+.nys-accordion-body {
+  padding: 4px 14px 14px; display: flex; flex-direction: column; gap: 10px;
+  border-top: 1.5px solid var(--border);
+}
+
+/* ── Extra lines (attachment) ───────────────────────── */
+.nys-extra-lines { display: flex; flex-direction: column; gap: 6px; }
+.nys-extra-lines-label {
+  display: flex; align-items: center; gap: 5px; font-size: 0.74rem; font-weight: 700;
+  color: var(--primary); margin: 4px 0 2px;
+}
+.nys-extra-line-row {
+  display: grid; grid-template-columns: 1fr 110px 28px; gap: 6px; align-items: center;
+}
+.nys-add-line-btn {
+  align-self: flex-start; background: none; border: 1.5px dashed var(--border);
+  border-radius: 8px; padding: 5px 12px; font-size: 0.8rem; font-weight: 700;
+  color: var(--primary); cursor: pointer; margin-top: 2px; transition: all 0.15s;
+}
+.nys-add-line-btn:hover { background: var(--surface-muted); border-color: var(--primary); }
+.nys-remove-line-btn {
+  display: flex; align-items: center; justify-content: center;
+  background: none; border: none; cursor: pointer; color: var(--ink-soft);
+  border-radius: 6px; padding: 4px; transition: color 0.15s;
+  width: 28px; height: 28px;
+}
+.nys-remove-line-btn:hover { color: var(--danger, #c0392b); background: rgba(192,57,43,0.07); }
+
+/* ── Signature toggle ───────────────────────────────── */
+.nys-sign-toggle-row { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; padding: 10px 12px; background: var(--surface-muted); border-radius: 10px; border: 1.5px solid var(--border); }
+.nys-sign-toggle { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; font-size: 0.88rem; font-weight: 700; }
+.nys-sign-toggle input[type="checkbox"] { margin-top: 2px; flex-shrink: 0; accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer; }
+.nys-sign-toggle-hint { display: block; font-size: 0.76rem; font-weight: 400; color: var(--ink-soft); margin-top: 3px; }
+.nys-sign-preview { font-size: 0.78rem; margin: 0; padding-left: 26px; }
+
+/* ── Sub-section labels ─────────────────────────────── */
+.nys-fin-sub-note { font-size: 0.75rem; margin: 0; }
+
+/* ── sr-only for extra-line labels ─────────────────── */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+.nys-field { display: flex; flex-direction: column; gap: 4px; }
+.nys-field-label { font-size: 0.78rem; font-weight: 700; color: var(--ink-soft); }
+.nys-field-input { border: 1.5px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 0.9rem; background: var(--input-bg, var(--card)); color: var(--ink); transition: border-color 0.15s; width: 100%; box-sizing: border-box; }
+.nys-field-input:focus { outline: none; border-color: var(--primary); }
+.nys-field-hint { margin: 2px 0 0; font-size: 0.74rem; color: var(--muted); }
+.nys-field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+.nys-type-picker { display: flex; gap: 6px; flex-wrap: wrap; }
+.nys-type-btn { padding: 5px 12px; border-radius: 20px; border: 1.5px solid var(--border); background: var(--surface-muted); color: var(--ink-soft); font-size: 0.78rem; font-weight: 700; cursor: pointer; transition: all 0.15s; }
+.nys-type-btn--active { background: var(--primary); border-color: var(--primary); color: #fff; }
+.nys-type-btn:hover:not(.nys-type-btn--active) { border-color: var(--primary); color: var(--primary); }
+
+@keyframes nys-spin { to { transform: rotate(360deg); } }
+.nys-spinner { animation: nys-spin 0.8s linear infinite; display: inline-block; flex-shrink: 0; }
+
+@media (max-width: 880px) {
+  .nys-split { grid-template-columns: 1fr; }
+  .nys-preview-col { position: static; }
+  .nys-iframe-wrap { height: 500px; }
+}
+
+/* ── More details toggle (New Expense form) ─────────────────────────────── */
+
+.fb-more-details-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--muted);
+  padding: 4px 0;
+  margin: 4px 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.fb-more-details-toggle:hover {
+  color: var(--primary);
+}
+
+.fb-more-details {
+  padding: 12px 0 4px;
+  border-top: 1px dashed var(--border);
+  margin-top: 4px;
+}
+
+.form-grid-full {
+  grid-column: 1 / -1;
+}
+
+.fb-input-sm {
+  padding: 5px 10px;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.875rem;
+  background: var(--card);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+/* ── NYS 2% Fund Badges & Guidance ───────────────────────────────────────── */
+
+.fb-2pct-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 4px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 2px 7px;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.fb-2pct-badge--fund {
+  background: #1e3a5f;
+  color: #e8f0fb;
+  margin-left: 6px;
+}
+
+.fb-2pct-badge--eligible {
+  background: #e4f4eb;
+  color: #155724;
+}
+
+.fb-2pct-badge--review {
+  background: #fff3cd;
+  color: #664d03;
+}
+
+.fb-2pct-badge--warn {
+  background: #f8e8e8;
+  color: #651717;
+}
+
+/* Inline transaction 2% badges (compact in table rows) */
+.fb-2pct-tx-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+/* ── 2% Guidance Panel (expense entry form) ─────────────────────────────── */
+
+.fb-2pct-panel {
+  border: 1px solid #2a4a7a;
+  border-radius: 8px;
+  background: #f0f5ff;
+  padding: 16px 20px;
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fb-2pct-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.fb-2pct-reason {
+  font-size: 0.88rem;
+  color: #1e3a5f;
+  font-weight: 600;
+  margin: 0;
+}
+
+.fb-2pct-disclaimer {
+  font-size: 0.75rem;
+  color: #666;
+  margin: 0;
+  font-style: italic;
+}
+
+.fb-2pct-support {
+  border-top: 1px solid #ccd8f0;
+  padding-top: 12px;
+}
+
+.fb-2pct-support-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #1e3a5f;
+  margin: 0 0 10px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.fb-2pct-support-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+@media (max-width: 600px) {
+  .fb-2pct-support-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Dashboard 2% Snapshot ──────────────────────────────────────────────── */
+
+.fb-2pct-snapshot {
+  border-top: 3px solid #1e3a5f;
+}
+
+.fb-2pct-snapshot-badge {
+  margin-left: 10px;
+  vertical-align: middle;
+}
+
+.fb-2pct-metric-grid {
+  margin-top: 16px;
+}
+
+/* ── Settings: 2% toggle / helper text ─────────────────────────────────── */
+
+.fb-settings-helper-text {
+  font-weight: 400;
+  color: var(--text-muted, #888);
+  font-size: 0.82rem;
+}
+
+.fb-settings-2pct-row {
+  padding: 12px 0 8px 0;
+  border-top: 1px solid var(--border);
+}
+
+.fb-2pct-toggle {
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--surface-muted);
+  color: #555;
+  text-decoration: none;
+}
+
+.fb-2pct-toggle--on {
+  background: #1e3a5f;
+  color: #e8f0fb;
+}
+
+/* ── Settings: Categories 2% dot indicators ─────────────────────────────── */
+
+.fb-settings-tag--with-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fb-2pct-cat-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.fb-2pct-cat-dot--likely_eligible {
+  background: #1a7a40;
+}
+
+.fb-2pct-cat-dot--needs_review {
+  background: #b08000;
+}
+
+.fb-2pct-cat-dot--potentially_not_allowed {
+  background: #921b1b;
+}
+
+.fb-2pct-cat-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 12px;
+  font-size: 0.78rem;
+  color: #666;
+}
+
+.fb-2pct-cat-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fb-2pct-suggested-cats {
+  margin-top: 16px;
+  font-size: 0.85rem;
+}
+
+.fb-2pct-suggested-cats summary {
+  cursor: pointer;
+  color: var(--accent, #7a1a1a);
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+
+/* ── Tax Forms: 2% Report ───────────────────────────────────────────────── */
+
+.fb-2pct-report-card {
+  border-top: 3px solid #1e3a5f;
+}
+
+.fb-2pct-report-controls {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.fb-2pct-account-names {
+  font-size: 0.82rem;
+}
+
+.fb-2pct-report-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.fb-2pct-report-total-row td {
+  border-top: 2px solid var(--border);
+}
+
+.fb-2pct-transactions-detail {
+  margin-top: 16px;
+}
+
+.fb-2pct-transactions-detail summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--accent, #7a1a1a);
+  margin-bottom: 8px;
+}
+
+/* ── Reconciliation: 2% issue badge ─────────────────────────────────────── */
+
+.fb-recon-issue--two_percent_support_needed {
+  background: #f0f5ff;
+  color: #1e3a5f;
+}
+
+/* ── Settings: Compliance checklist ─────────────────────────────────────── */
+
+.fb-checklist-ok {
+  color: #155724;
+}
+
+.fb-checklist-warn {
+  color: #7c4a1a;
+  font-weight: 600;
+}
+
+/* fb-metric-value warning state */
+.fb-metric-value--warn {
+  color: #b45309;
+}
+
 /* ============================================================================
    Onboarding Section
+   ============================================================================ */
+
+Onboarding Section
    ============================================================================ */
 
 /* Overview callout card */
@@ -6154,4 +6753,5 @@ button.fb-onboarding-step-btn.fb-onboarding-step-btn--active:hover {
   .fb-onboarding-upload-inner {
     padding: 28px 16px;
   }
+}
 }

@@ -115,6 +115,7 @@ function isMissingReceipt(expense: ExpenseRecord, receiptUrls: Record<string, st
 }
 
 function isTwoPercentFund(expense: ExpenseRecord) {
+  if (expense.uses_two_percent_funds) return true;
   const fund = (expense.fund || "").toLowerCase();
   const category = (expense.category || "").toLowerCase();
   const payee = vendorName(expense).toLowerCase();
@@ -177,6 +178,39 @@ function canPreviewReceipt(expense: ExpenseRecord, url: string | undefined) {
   if (!url) return false;
   if (expense.content_type?.startsWith("image/")) return true;
   return /\.(jpe?g|png|gif|webp)(\?|$)/i.test(url);
+}
+
+const TWO_PERCENT_STATUS_LABELS: Record<string, string> = {
+  likely_eligible: "Likely 2% Eligible",
+  needs_review: "Needs Review",
+  potentially_not_allowed: "Potentially Not Allowed",
+};
+
+const TWO_PERCENT_STATUS_CLASS: Record<string, string> = {
+  likely_eligible: "fb-2pct-badge--eligible",
+  needs_review: "fb-2pct-badge--review",
+  potentially_not_allowed: "fb-2pct-badge--warn",
+};
+
+function TwoPercentTransactionBadges({ expense }: { expense: ExpenseRecord }) {
+  const isTwoPct = isTwoPercentFund(expense);
+  if (!isTwoPct) return null;
+  const status = expense.two_percent_review_status;
+  return (
+    <span className="fb-2pct-tx-badges">
+      <span className="fb-2pct-badge fb-2pct-badge--fund" title="NYS Foreign Fire Insurance / 2% Funds">
+        2%
+      </span>
+      {status ? (
+        <span
+          className={`fb-2pct-badge ${TWO_PERCENT_STATUS_CLASS[status] ?? ""}`}
+          title={TWO_PERCENT_STATUS_LABELS[status] ?? status}
+        >
+          {TWO_PERCENT_STATUS_LABELS[status] ?? status}
+        </span>
+      ) : null}
+    </span>
+  );
 }
 
 const QUICK_FILTERS: { id: QuickFilter; label: string }[] = [
@@ -677,6 +711,26 @@ export function TransactionsLedger({
                 <dt>Logged by</dt>
                 <dd>{formatExpenseLoggedBy(selectedExpense)}</dd>
               </div>
+              {isTwoPercentFund(selectedExpense) && (
+                <div>
+                  <dt>2% Fund</dt>
+                  <dd>
+                    <TwoPercentTransactionBadges expense={selectedExpense} />
+                    {selectedExpense.two_percent_warning_reason && (
+                      <span className="filename">{selectedExpense.two_percent_warning_reason}</span>
+                    )}
+                    {selectedExpense.member_vote_recorded && (
+                      <span className="filename">Member vote recorded</span>
+                    )}
+                    {selectedExpense.meeting_date && (
+                      <span className="filename">Meeting: {selectedExpense.meeting_date}</span>
+                    )}
+                    {selectedExpense.support_note && (
+                      <span className="filename">Support: {selectedExpense.support_note}</span>
+                    )}
+                  </dd>
+                </div>
+              )}
             </dl>
 
             {editing ? renderEditForm(selectedExpense.id, true) : null}
@@ -928,6 +982,7 @@ export function TransactionsLedger({
                             {expense.description || expense.payment_reference}
                           </span>
                         )}
+                        <TwoPercentTransactionBadges expense={expense} />
                       </td>
                       <td>
                         <span className={`transactions-cat-pill ${categoryPillClass(expense.category)}`}>
@@ -983,6 +1038,7 @@ export function TransactionsLedger({
                     <span className={`transactions-cat-pill ${categoryPillClass(expense.category)}`}>
                       {categoryLabel(expense)}
                     </span>
+                    <TwoPercentTransactionBadges expense={expense} />
                   </div>
                   <div
                     className="transactions-mobile-card-actions"
