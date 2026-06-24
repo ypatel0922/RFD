@@ -196,12 +196,14 @@ function TwoPercentTransactionBadges({ expense }: { expense: ExpenseRecord }) {
   const isTwoPct = isTwoPercentFund(expense);
   if (!isTwoPct) return null;
   const status = expense.two_percent_review_status;
+  // Only show a badge for actionable statuses — "needs_review" is guidance noise.
+  const showStatusBadge = status && status !== "needs_review";
   return (
     <span className="fb-2pct-tx-badges">
       <span className="fb-2pct-badge fb-2pct-badge--fund" title="NYS Foreign Fire Insurance / 2% Funds">
         2%
       </span>
-      {status ? (
+      {showStatusBadge ? (
         <span
           className={`fb-2pct-badge ${TWO_PERCENT_STATUS_CLASS[status] ?? ""}`}
           title={TWO_PERCENT_STATUS_LABELS[status] ?? status}

@@ -179,6 +179,51 @@ export function categoryTwoPercentStatus(category: string): TwoPercentStatus | n
   return null;
 }
 
+// ── Vendor-to-2%-category direct mapping ─────────────────────────────────────
+// Used to suggest the right 2% category from a vendor name or description.
+
+const VENDOR_TO_TWO_PCT_CATEGORY: Array<{ pattern: RegExp; category: string }> = [
+  { pattern: /fasny/i, category: "FASNY Membership Dues" },
+  { pattern: /membership\s*dues?/i, category: "FASNY Membership Dues" },
+  { pattern: /meeting.*(?:food|refresh|meal|snack|lunch|dinner|breakfast)/i, category: "Meeting Food & Refreshments" },
+  { pattern: /(?:food|refresh|meal|snack|lunch|dinner|breakfast).*(?:drill|fire|training)/i, category: "Food After Fire/Drill" },
+  { pattern: /(?:drill|fire|training).*(?:food|refresh|meal)/i, category: "Food After Fire/Drill" },
+  { pattern: /(?:picnic|banquet|annual\s*(?:dinner|party|banquet)|christmas\s*party|holiday\s*party|parade\s*banquet)/i, category: "Member Picnic/Banquet/Event" },
+  { pattern: /(?:dress|parade)\s*uniform/i, category: "Dress/Parade Uniforms" },
+  { pattern: /\buniform\b/i, category: "Dress/Parade Uniforms" },
+  { pattern: /(?:group|member)\s*(?:life|disability|vision|health)\s*insur/i, category: "Group Insurance" },
+  { pattern: /(?:group|member)\s*insur/i, category: "Group Insurance" },
+  { pattern: /office\s*equip/i, category: "Office Equipment" },
+  { pattern: /furniture/i, category: "Member Room Furniture/Appliances" },
+  { pattern: /(?:television|\btv\b|appliance|refrigerator|microwave|air\s*condi)/i, category: "Member Room Furniture/Appliances" },
+  { pattern: /\bradio\b/i, category: "Member Room Furniture/Appliances" },
+  { pattern: /newsletter/i, category: "Newsletter Publication" },
+  { pattern: /firefighter.?s?\s*home/i, category: "FASNY Firefighter's Home Gift" },
+  { pattern: /(?:attorney|auditor|accountant|accounting|legal\s*(?:fee|service))/i, category: "Attorney/Auditor Services (2% admin)" },
+  { pattern: /(?:convention|conference)/i, category: "Convention/Conference Attendance" },
+  { pattern: /(?:training\s*facility|firemen.?s?\s*park|park\s*(?:improve|construct|repair))/i, category: "Training Facility/Park Improvement" },
+  { pattern: /kitchen\s*(?:remodel|renovate|improve|install)/i, category: "Firehouse Kitchen/Lounge Remodel" },
+  { pattern: /firehouse\s*(?:improve|renovate|remodel|repair)/i, category: "Firehouse Kitchen/Lounge Remodel" },
+  { pattern: /member\s*room/i, category: "Member Room Furniture/Appliances" },
+  { pattern: /(?:invest|certificate.*deposit|money\s*market|treasury)/i, category: "Investment of 2% Funds" },
+];
+
+/**
+ * Suggest the most likely 2% fund category for a vendor name or description.
+ * Returns a category string, or null if nothing matches.
+ *
+ * Used to auto-suggest the category when a 2% expense is being logged
+ * and there is no prior transaction history for the vendor.
+ */
+export function suggestTwoPctCategory(vendor: string, description?: string | null): string | null {
+  const text = [vendor, description].filter(Boolean).join(" ").trim();
+  if (!text) return null;
+  for (const { pattern, category } of VENDOR_TO_TWO_PCT_CATEGORY) {
+    if (pattern.test(text)) return category;
+  }
+  return null;
+}
+
 // ── Display helpers ───────────────────────────────────────────────────────────
 
 export const TWO_PERCENT_STATUS_LABELS: Record<TwoPercentStatus, string> = {

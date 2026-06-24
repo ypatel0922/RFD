@@ -78,19 +78,7 @@ type ReconciliationIssueKey =
   | "missing_receipt"
   | "duplicate"
   | "extraction_issue"
-  | "extracted"
-  | "two_percent_support_needed";
-
-function expenseNeedsTwoPercentSupport(expense: ExpenseRecord) {
-  if (!expense.uses_two_percent_funds) return false;
-  const hasReceipt =
-    expense.receipt_path &&
-    !expense.receipt_path.includes("no-receipt") &&
-    !expense.receipt_path.includes("/manual/");
-  const hasCategory = Boolean(expense.category?.trim());
-  // Only flag for missing receipt or category — support_note is optional.
-  return !hasReceipt || !hasCategory;
-}
+  | "extracted";
 
 function getReconciliationIssues(
   expense: ExpenseRecord,
@@ -109,7 +97,6 @@ function getReconciliationIssues(
     issues.push("pending_bank_match");
   }
   if (expenseMissingReceipt(expense, receiptUrls)) issues.push("missing_receipt");
-  if (expenseNeedsTwoPercentSupport(expense)) issues.push("two_percent_support_needed");
   return [...new Set(issues)];
 }
 
@@ -120,7 +107,6 @@ const RECON_ISSUE_LABELS: Record<ReconciliationIssueKey, string> = {
   duplicate: "Duplicate",
   extraction_issue: "Extraction Issue",
   extracted: "Extracted",
-  two_percent_support_needed: "2% Support Needed",
 };
 
 function ReconciliationIssueCell({ issues }: { issues: ReconciliationIssueKey[] }) {
@@ -258,8 +244,7 @@ type ReconciliationQueueFilter =
   | "missing_receipt"
   | "pending_bank_match"
   | "needs_review"
-  | "duplicate"
-  | "two_percent_support";
+  | "duplicate";
 
 function buildReconciliationSummary(expenses: ExpenseRecord[], receiptUrls: Record<string, string>) {
   let unreconciled = 0;
@@ -436,8 +421,6 @@ export function ReconciliationInboxSection({
       list = list.filter((e) => e.extraction_status === "needs_review" || e.extraction_status === "failed");
     } else if (queueFilter === "duplicate") {
       list = list.filter((e) => Boolean(e.reconciliation_candidate));
-    } else if (queueFilter === "two_percent_support") {
-      list = list.filter((e) => expenseNeedsTwoPercentSupport(e));
     }
     return list.sort((a, b) => parseExpenseSortDate(b).localeCompare(parseExpenseSortDate(a)));
   }, [actionItems, accountFilter, periodFilter, queueFilter, receiptUrls]);
@@ -542,7 +525,6 @@ export function ReconciliationInboxSection({
             <option value="pending_bank_match">Pending bank match</option>
             <option value="needs_review">Needs review</option>
             <option value="duplicate">Possible duplicate</option>
-            <option value="two_percent_support">2% Support needed</option>
           </select>
         </label>
         <div className="fb-recon-controls-actions">
