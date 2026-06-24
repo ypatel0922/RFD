@@ -1482,6 +1482,940 @@ button.fb-sidebar-sublink-active {
   box-shadow: 0 12px 32px rgb(15 23 42 / 6%);
 }
 
+/* ── Tax Forms hub card enhancements ────────────────────────── */
+
+.nys-card-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #dcfae6;
+  color: var(--success);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  width: fit-content;
+}
+
+.nys-card-btn {
+  margin-top: auto;
+  max-width: none;
+  width: 100%;
+}
+
+/* ── Replace-confirm banner ──────────────────────────────────── */
+
+.nys-replace-confirm {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  background: #fffbeb;
+  border: 1.5px solid #f59e0b;
+  border-radius: 12px;
+  font-size: 0.875rem;
+}
+
+.nys-replace-confirm-msg {
+  flex: 1;
+  min-width: 200px;
+  color: #92400e;
+}
+
+.nys-replace-confirm-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.nys-replace-btn {
+  background: #f59e0b !important;
+  border-color: #f59e0b !important;
+}
+
+.nys-replace-btn:hover {
+  background: #d97706 !important;
+  border-color: #d97706 !important;
+}
+
+/* ── Tax Form Filings section ────────────────────────────────── */
+
+.tf-section {
+  padding: 0;
+  overflow: hidden;
+}
+
+.tf-section-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tf-section-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.tf-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 28px 20px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.tf-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  padding: 40px 24px;
+}
+
+.tf-empty-icon {
+  color: var(--muted);
+  opacity: 0.5;
+  margin-bottom: 4px;
+}
+
+.tf-empty-msg {
+  font-weight: 700;
+  color: var(--ink-soft);
+  margin: 0;
+}
+
+.tf-empty-sub {
+  margin: 0;
+  max-width: 360px;
+  font-size: 0.85rem;
+}
+
+/* ── Table (desktop) ─────────────────────────────────────────── */
+
+.tf-table-wrap {
+  overflow-x: auto;
+}
+
+.tf-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.tf-table thead {
+  background: var(--surface-muted);
+}
+
+.tf-table th {
+  padding: 10px 14px;
+  text-align: left;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+
+.tf-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.tf-row:last-child td {
+  border-bottom: none;
+}
+
+.tf-cell-year {
+  font-weight: 800;
+  font-size: 0.95rem;
+  color: var(--ink);
+}
+
+.tf-cell-file {
+  max-width: 200px;
+}
+
+.tf-filename {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+  max-width: 190px;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+}
+
+/* ── Badges ──────────────────────────────────────────────────── */
+
+.tf-source-badge {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.tf-source-badge--gen {
+  background: #e8f0fe;
+  color: #1a56db;
+}
+
+.tf-source-badge--up {
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.tf-status-badge {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.tf-status-badge--draft {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.tf-status-badge--saved {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.tf-status-badge--uploaded {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.tf-status-badge--archived {
+  background: #f3f4f6;
+  color: #9ca3af;
+}
+
+/* ── Action buttons ──────────────────────────────────────────── */
+
+.tf-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tf-action-btn {
+  padding: 5px 11px;
+  border-radius: 8px;
+  border: 1.5px solid var(--border);
+  background: var(--surface-muted);
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  min-height: auto;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.tf-action-btn:hover:not(:disabled) {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #ffffff;
+}
+
+.tf-action-btn--warn {
+  border-color: #f59e0b;
+  color: #92400e;
+}
+
+.tf-action-btn--warn:hover:not(:disabled) {
+  background: #f59e0b;
+  border-color: #f59e0b;
+  color: #ffffff;
+}
+
+.tf-action-btn--muted:hover:not(:disabled) {
+  background: var(--surface-muted);
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+.tf-action-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ── Mobile cards ────────────────────────────────────────────── */
+
+.tf-cards {
+  display: none;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.tf-card {
+  background: var(--surface-muted);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tf-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tf-card-year {
+  font-weight: 800;
+  font-size: 1.05rem;
+  color: var(--ink);
+}
+
+.tf-card-source {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.tf-card-file,
+.tf-card-date {
+  margin: 0;
+  font-size: 0.8rem;
+}
+
+.tf-card-actions {
+  margin-top: 6px;
+}
+
+/* ── View modal ──────────────────────────────────────────────── */
+
+.tf-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 55%);
+  z-index: 1000;
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+}
+
+.tf-modal {
+  background: var(--card);
+  width: min(680px, 100vw);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: tf-slide-in 0.2s ease-out;
+}
+
+@keyframes tf-slide-in {
+  from { transform: translateX(40px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+.tf-modal-hdr {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px 20px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.tf-modal-eyebrow {
+  margin: 0 0 4px;
+}
+
+.tf-modal-title {
+  margin: 0 0 4px;
+  font-size: 1.15rem;
+  font-weight: 900;
+  color: var(--ink);
+}
+
+.tf-modal-meta {
+  margin: 0;
+  font-size: 0.82rem;
+}
+
+.tf-modal-close {
+  flex-shrink: 0;
+  padding: 6px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 8px;
+  transition: all 0.15s;
+  min-height: auto;
+}
+
+.tf-modal-close:hover {
+  background: var(--surface-muted);
+  color: var(--ink);
+}
+
+.tf-modal-preview {
+  flex: 1;
+  overflow: auto;
+  background: #525659;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+}
+
+.tf-modal-loading,
+.tf-modal-no-file {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 40px;
+  color: #c0c8d0;
+  font-size: 0.9rem;
+}
+
+.tf-modal-loading {
+  flex-direction: row;
+}
+
+.tf-modal-iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 560px;
+  border: none;
+}
+
+.tf-modal-img {
+  max-width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+}
+
+.tf-modal-footer {
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+/* ── NYS Report Root ─────────────────────────────────────────── */
+
+.nys-report-root {
+  padding-bottom: 48px;
+}
+
+.nys-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* ── PDF iframe preview ──────────────────────────────────────── */
+
+.nys-iframe-wrap {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 4px 24px rgb(15 23 42 / 10%);
+  background: #525659;
+  /* height sized to approx US Letter aspect ratio */
+  height: 860px;
+}
+
+.nys-pdf-iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #525659;
+}
+
+/* Source row: description + amount side-by-side */
+.nys-source-row {
+  display: grid;
+  grid-template-columns: 1fr 130px;
+  gap: 8px;
+  align-items: start;
+}
+
+.nys-source-desc {
+  min-width: 0;
+}
+
+.nys-source-amt {
+  flex-shrink: 0;
+}
+
+.nys-field-input--amount {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Financial sub-headings */
+.nys-fin-sub-title {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 4px 0 2px;
+  border-bottom: 1px solid var(--border);
+  margin-top: 4px;
+}
+
+/* Total rows */
+.nys-total-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 6px 10px;
+  background: var(--surface-muted);
+  border-radius: 8px;
+  font-weight: 800;
+  font-size: 0.88rem;
+}
+
+.nys-total-row--accent {
+  background: #edf4ff;
+  color: #1e3a5f;
+}
+
+.nys-total-value {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.92rem;
+}
+
+/* Entity type radio-button group */
+.nys-type-picker {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.nys-type-btn {
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1.5px solid var(--border);
+  background: var(--surface-muted);
+  color: var(--ink-soft);
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  min-height: auto;
+  transition: all 0.15s;
+}
+
+.nys-type-btn:hover {
+  background: #e8ecf4;
+  color: var(--ink);
+}
+
+.nys-type-btn--active {
+  border-color: var(--primary);
+  background: #fef2f2;
+  color: var(--primary);
+}
+
+button.nys-type-btn--active {
+  background: #fef2f2;
+  color: var(--primary);
+}
+
+/* ── Toolbar ─────────────────────────────────────────────────── */
+
+.nys-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.nys-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.nys-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 800;
+}
+
+.nys-year-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.nys-year-picker-label {
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+}
+
+.nys-year-select {
+  width: auto;
+  min-height: 40px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 0.92rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.nys-upload-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.nys-upload-btn--busy {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.nys-upload-error {
+  margin: 0;
+}
+
+/* ── Action bar ──────────────────────────────────────────────── */
+
+.nys-action-bar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 18px 22px;
+  box-shadow: var(--shadow-card);
+}
+
+.nys-report-heading {
+  margin: 0 0 3px;
+  font-size: clamp(1.1rem, 2.4vw, 1.35rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.nys-report-subhead {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.nys-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.nys-save-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.82rem;
+  font-weight: 800;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+.nys-save-badge--ok {
+  background: #dcfae6;
+  color: var(--success);
+}
+
+.nys-save-badge--err {
+  background: #fef3f2;
+  color: var(--danger);
+}
+
+.nys-print-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* ── Split screen ────────────────────────────────────────────── */
+
+.nys-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(300px, 0.9fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.nys-col-label {
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── Preview column ──────────────────────────────────────────── */
+
+.nys-preview-col {
+  position: sticky;
+  top: 80px;
+}
+
+
+/* ── Fields column ───────────────────────────────────────────── */
+
+.nys-fields-col {
+  min-width: 0;
+}
+
+.nys-fields-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.nys-fields-group {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px 18px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.nys-fields-group-title {
+  margin: 0;
+}
+
+.nys-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.nys-field-label {
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: var(--ink-soft);
+}
+
+.nys-field-input {
+  font-family: inherit;
+  font-size: 0.9rem;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-muted);
+  color: var(--ink);
+  transition: border-color 0.15s;
+  width: 100%;
+}
+
+.nys-field-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  background: #ffffff;
+}
+
+.nys-field-hint {
+  margin: 0;
+  font-size: 0.74rem;
+  line-height: 1.3;
+}
+
+.nys-field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.nys-fin-note {
+  font-size: 0.82rem;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.nys-fields-group--fin {
+  border-color: rgb(127 29 29 / 20%);
+  background: linear-gradient(180deg, #ffffff 0%, #fdf9f9 100%);
+}
+
+.nys-ending-balance-display {
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-top: 4px;
+}
+
+.nys-ending-balance-label {
+  margin: 0 0 3px;
+}
+
+.nys-ending-balance-value {
+  margin: 0 0 3px;
+  font-size: 1.5rem;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  color: var(--success);
+  font-variant-numeric: tabular-nums;
+}
+
+.nys-ending-balance-formula {
+  margin: 0;
+  font-size: 0.78rem;
+}
+
+/* ── Spinner animation ───────────────────────────────────────── */
+
+@keyframes nys-spin {
+  to { transform: rotate(360deg); }
+}
+
+.nys-spinner {
+  animation: nys-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+/* ── Print styles ────────────────────────────────────────────── */
+/* Note: Print/Download open the filled PDF in a new window — no special
+   print CSS needed here. This rule hides the app chrome just in case. */
+
+@media print {
+  .fb-topbar,
+  .fb-sidebar,
+  .nys-toolbar,
+  .nys-action-bar,
+  .nys-fields-col,
+  .nys-col-label,
+  .fb-app-version,
+  footer {
+    display: none !important;
+  }
+}
+
+/* ── Responsive ──────────────────────────────────────────────── */
+
+@media (max-width: 1100px) {
+  .nys-split {
+    grid-template-columns: 1fr;
+  }
+
+  .nys-preview-col {
+    position: static;
+    order: 2;
+  }
+
+  .nys-fields-col {
+    order: 1;
+  }
+
+  .nys-iframe-wrap {
+    height: 600px;
+  }
+}
+
+/* Show cards instead of table on mobile */
+@media (max-width: 680px) {
+  .tf-table-wrap {
+    display: none;
+  }
+
+  .tf-cards {
+    display: flex;
+  }
+}
+
+/* Modal full-screen on small screens */
+@media (max-width: 480px) {
+  .tf-modal {
+    width: 100vw;
+  }
+}
+
+@media (max-width: 700px) {
+  .nys-action-bar {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .nys-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .nys-actions .fb-secondary-btn,
+  .nys-actions .fb-primary-btn {
+    flex: 1;
+    min-width: 120px;
+    justify-content: center;
+  }
+
+  .nys-source-row {
+    grid-template-columns: 1fr;
+  }
+
+  .nys-iframe-wrap {
+    height: 500px;
+  }
+}
+
+@media (max-width: 520px) {
+  .nys-toolbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .nys-toolbar-right {
+    width: 100%;
+  }
+
+  .nys-upload-btn {
+    flex: 1;
+    justify-content: center;
+  }
+}
+
 .fb-back-link {
   align-self: flex-start;
   font-weight: 700;
@@ -5207,4 +6141,617 @@ button.fb-receipt-opt-btn:hover {
 /* fb-metric-value warning state */
 .fb-metric-value--warn {
   color: #b45309;
+}
+
+/* ============================================================================
+   Onboarding Section
+   ============================================================================ */
+
+Onboarding Section
+   ============================================================================ */
+
+/* Overview callout card */
+.fb-onboarding-callout {
+  background: linear-gradient(135deg, #fdf4f4 0%, #fff 100%);
+  border: 1.5px solid rgb(127 29 29 / 20%);
+}
+
+.fb-onboarding-callout-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.fb-onboarding-callout-body .fb-primary-btn {
+  flex-shrink: 0;
+}
+
+/* Page wrapper */
+.fb-onboarding-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* Step navigation */
+.fb-onboarding-steps {
+  display: flex;
+  flex-direction: row;
+  gap: 0;
+  padding: 6px;
+  background: var(--card);
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
+}
+
+.fb-onboarding-step-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  background: transparent;
+  border: none;
+  border-radius: 12px;
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 0.88rem;
+  cursor: pointer;
+  min-height: auto;
+  text-align: left;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+button.fb-onboarding-step-btn {
+  background: transparent;
+  color: var(--muted);
+}
+
+button.fb-onboarding-step-btn:hover {
+  background: var(--surface-muted);
+  color: var(--ink);
+}
+
+.fb-onboarding-step-btn--active,
+button.fb-onboarding-step-btn.fb-onboarding-step-btn--active {
+  background: var(--primary) !important;
+  color: #fff !important;
+}
+
+button.fb-onboarding-step-btn.fb-onboarding-step-btn--active:hover {
+  background: var(--primary-hover) !important;
+}
+
+.fb-onboarding-step-num {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 10%);
+  font-size: 0.78rem;
+  font-weight: 900;
+  flex-shrink: 0;
+}
+
+.fb-onboarding-step-btn--active .fb-onboarding-step-num {
+  background: rgb(255 255 255 / 22%);
+}
+
+.fb-onboarding-step-label {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Info note */
+.fb-onboarding-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.fb-onboarding-note p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.fb-onboarding-note svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--primary);
+}
+
+/* Section headings inside steps */
+.fb-onboarding-section-label {
+  margin: 0 0 10px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Existing accounts list */
+.fb-onboarding-existing-section {
+  margin-top: 2px;
+}
+
+.fb-onboarding-account-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fb-onboarding-account-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-muted);
+  flex-wrap: wrap;
+}
+
+.fb-onboarding-account-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.fb-onboarding-account-name {
+  margin: 0;
+  font-weight: 800;
+  font-size: 0.93rem;
+}
+
+.fb-onboarding-account-meta {
+  margin: 2px 0 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.fb-onboarding-balance-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-size: 0.88rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.fb-onboarding-balance-badge .muted {
+  font-weight: 400;
+  font-size: 0.78rem;
+}
+
+/* Balance add form */
+.fb-onboarding-balance-form {
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.fb-onboarding-balance-form-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.fb-onboarding-form-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.fb-onboarding-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.fb-onboarding-form-grid label,
+.fb-onboarding-balance-form > label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.fb-onboarding-form-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Saved balances list */
+.fb-onboarding-balance-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fb-onboarding-balance-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  flex-wrap: wrap;
+}
+
+.fb-onboarding-balance-info {
+  min-width: 0;
+  flex: 1;
+}
+
+/* Upload zone */
+.fb-onboarding-upload-zone {
+  display: block;
+  border: 2px dashed var(--border);
+  border-radius: 16px;
+  background: var(--surface-muted);
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.fb-onboarding-upload-zone.fb-drag-over,
+.fb-onboarding-upload-zone:focus-within {
+  border-color: var(--primary);
+  background: rgb(127 29 29 / 3%);
+}
+
+.fb-onboarding-upload-zone.fb-onboarding-upload-zone--busy {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.fb-onboarding-upload-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 40px 24px;
+  text-align: center;
+}
+
+.fb-onboarding-upload-icon {
+  color: var(--muted);
+}
+
+.fb-onboarding-upload-label {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+
+.fb-onboarding-upload-btn-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.fb-onboarding-upload-btn {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  pointer-events: none;
+}
+
+.fb-onboarding-file-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+}
+
+.fb-onboarding-upload-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* Uploaded file list */
+.fb-onboarding-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fb-onboarding-file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-muted);
+}
+
+.fb-onboarding-file-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.fb-onboarding-file-name {
+  margin: 0;
+  font-weight: 700;
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fb-onboarding-file-meta {
+  margin: 2px 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* Suggestion groups */
+.fb-onboarding-suggestion-group {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.fb-onboarding-group-title {
+  margin: 0;
+  padding: 13px 16px 11px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--surface-muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.fb-onboarding-suggestion-list {
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  padding: 6px;
+  gap: 2px;
+}
+
+.fb-onboarding-suggestion-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 10px;
+  border-radius: 10px;
+  flex-wrap: wrap;
+}
+
+.fb-onboarding-suggestion-card:hover {
+  background: var(--surface-muted);
+}
+
+.fb-onboarding-suggestion-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.fb-onboarding-suggestion-value {
+  margin: 0;
+  font-weight: 700;
+  font-size: 0.93rem;
+}
+
+.fb-onboarding-confidence {
+  font-size: 0.76rem;
+  color: var(--muted);
+  white-space: nowrap;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.fb-onboarding-suggestion-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.fb-onboarding-suggestion-actions .fb-primary-btn,
+.fb-onboarding-suggestion-actions .fb-secondary-btn {
+  padding: 7px 14px;
+  min-height: 34px;
+  font-size: 0.83rem;
+}
+
+.fb-onboarding-rename-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.fb-onboarding-rename-form input {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 0.88rem;
+  min-width: 160px;
+  background: var(--card);
+  color: var(--ink);
+}
+
+.fb-onboarding-rename-form .fb-primary-btn,
+.fb-onboarding-rename-form .fb-secondary-btn {
+  padding: 7px 14px;
+  min-height: 34px;
+  font-size: 0.83rem;
+}
+
+/* Reviewed / resolved suggestions */
+.fb-onboarding-reviewed {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.fb-onboarding-reviewed-toggle {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--muted);
+  cursor: pointer;
+  background: var(--surface-muted);
+  list-style: none;
+  user-select: none;
+}
+
+.fb-onboarding-reviewed-toggle::marker,
+.fb-onboarding-reviewed-toggle::-webkit-details-marker {
+  display: none;
+}
+
+.fb-onboarding-suggestion-list--resolved {
+  background: var(--surface-muted);
+}
+
+.fb-onboarding-suggestion-card--resolved {
+  opacity: 0.72;
+}
+
+.fb-onboarding-original {
+  font-size: 0.78rem;
+}
+
+/* Empty state for suggestions */
+.fb-onboarding-empty-suggestions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 0 4px;
+}
+
+/* Step footer (navigation between steps) */
+.fb-onboarding-step-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+/* ── Mobile ──────────────────────────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+  .fb-onboarding-step-label {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .fb-onboarding-steps {
+    flex-direction: column;
+  }
+
+  .fb-onboarding-step-btn {
+    justify-content: flex-start;
+  }
+
+  .fb-onboarding-step-label {
+    display: block;
+  }
+
+  .fb-onboarding-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .fb-onboarding-account-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .fb-onboarding-balance-badge {
+    align-items: flex-start;
+  }
+
+  .fb-onboarding-suggestion-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .fb-onboarding-suggestion-actions {
+    width: 100%;
+  }
+
+  .fb-onboarding-suggestion-actions .fb-primary-btn,
+  .fb-onboarding-suggestion-actions .fb-secondary-btn {
+    flex: 1;
+    max-width: none;
+  }
+
+  .fb-onboarding-step-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .fb-onboarding-step-footer .fb-primary-btn,
+  .fb-onboarding-step-footer .fb-secondary-btn {
+    max-width: none;
+    width: 100%;
+    text-align: center;
+  }
+
+  .fb-onboarding-callout-body {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .fb-onboarding-callout-body .fb-primary-btn {
+    width: 100%;
+    max-width: none;
+  }
+
+  .fb-onboarding-upload-inner {
+    padding: 28px 16px;
+  }
+}
 }
