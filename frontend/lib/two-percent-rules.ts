@@ -10,6 +10,8 @@
  * as needed.
  */
 
+import { TWO_PERCENT_CATEGORY_BANK } from "./category-seed";
+
 export type TwoPercentStatus =
   | "likely_eligible"
   | "needs_review"
@@ -172,7 +174,24 @@ export function evaluateTwoPercentStatus(params: {
  * Returns the default 2% status for a given category name, or null if unknown.
  * Used by the Settings → Categories section to pre-populate eligibility.
  */
-export function categoryTwoPercentStatus(category: string): TwoPercentStatus | null {
+export function categoryTwoPercentStatus(
+  category: string,
+  departmentCategories?: Array<{ normalized_name: string; two_percent_guidance: string }>,
+): TwoPercentStatus | null {
+  if (departmentCategories?.length) {
+    const normalized = category.trim().toLowerCase().replace(/\s+/g, " ");
+    const match = departmentCategories.find((c) => c.normalized_name === normalized);
+    if (match) {
+      if (
+        match.two_percent_guidance === "likely_eligible" ||
+        match.two_percent_guidance === "needs_review" ||
+        match.two_percent_guidance === "potentially_not_allowed"
+      ) {
+        return match.two_percent_guidance;
+      }
+      return null;
+    }
+  }
   for (const rule of CATEGORY_STATUS) {
     if (rule.pattern.test(category)) return rule.status;
   }
@@ -183,29 +202,31 @@ export function categoryTwoPercentStatus(category: string): TwoPercentStatus | n
 // Used to suggest the right 2% category from a vendor name or description.
 
 const VENDOR_TO_TWO_PCT_CATEGORY: Array<{ pattern: RegExp; category: string }> = [
-  { pattern: /fasny/i, category: "FASNY Membership Dues" },
-  { pattern: /membership\s*dues?/i, category: "FASNY Membership Dues" },
-  { pattern: /meeting.*(?:food|refresh|meal|snack|lunch|dinner|breakfast)/i, category: "Meeting Food & Refreshments" },
-  { pattern: /(?:food|refresh|meal|snack|lunch|dinner|breakfast).*(?:drill|fire|training)/i, category: "Food After Fire/Drill" },
-  { pattern: /(?:drill|fire|training).*(?:food|refresh|meal)/i, category: "Food After Fire/Drill" },
-  { pattern: /(?:picnic|banquet|annual\s*(?:dinner|party|banquet)|christmas\s*party|holiday\s*party|parade\s*banquet)/i, category: "Member Picnic/Banquet/Event" },
-  { pattern: /(?:dress|parade)\s*uniform/i, category: "Dress/Parade Uniforms" },
-  { pattern: /\buniform\b/i, category: "Dress/Parade Uniforms" },
+  { pattern: /fasny/i, category: "FASNY Dues" },
+  { pattern: /membership\s*dues?/i, category: "FASNY Dues" },
+  { pattern: /meeting.*(?:food|refresh|meal|snack|lunch|dinner|breakfast)/i, category: "Meeting Food" },
+  { pattern: /(?:food|refresh|meal|snack|lunch|dinner|breakfast).*(?:drill|fire|training)/i, category: "Drill Food" },
+  { pattern: /(?:drill|fire|training).*(?:food|refresh|meal)/i, category: "Drill Food" },
+  { pattern: /(?:picnic|banquet|annual\s*(?:dinner|party|banquet)|christmas\s*party|holiday\s*party|parade\s*banquet)/i, category: "Member Events" },
+  { pattern: /(?:dress|parade)\s*uniform/i, category: "Parade Uniforms" },
+  { pattern: /\buniform\b/i, category: "Parade Uniforms" },
   { pattern: /(?:group|member)\s*(?:life|disability|vision|health)\s*insur/i, category: "Group Insurance" },
   { pattern: /(?:group|member)\s*insur/i, category: "Group Insurance" },
   { pattern: /office\s*equip/i, category: "Office Equipment" },
-  { pattern: /furniture/i, category: "Member Room Furniture/Appliances" },
-  { pattern: /(?:television|\btv\b|appliance|refrigerator|microwave|air\s*condi)/i, category: "Member Room Furniture/Appliances" },
-  { pattern: /\bradio\b/i, category: "Member Room Furniture/Appliances" },
-  { pattern: /newsletter/i, category: "Newsletter Publication" },
-  { pattern: /firefighter.?s?\s*home/i, category: "FASNY Firefighter's Home Gift" },
-  { pattern: /(?:attorney|auditor|accountant|accounting|legal\s*(?:fee|service))/i, category: "Attorney/Auditor Services (2% admin)" },
-  { pattern: /(?:convention|conference)/i, category: "Convention/Conference Attendance" },
-  { pattern: /(?:training\s*facility|firemen.?s?\s*park|park\s*(?:improve|construct|repair))/i, category: "Training Facility/Park Improvement" },
-  { pattern: /kitchen\s*(?:remodel|renovate|improve|install)/i, category: "Firehouse Kitchen/Lounge Remodel" },
-  { pattern: /firehouse\s*(?:improve|renovate|remodel|repair)/i, category: "Firehouse Kitchen/Lounge Remodel" },
-  { pattern: /member\s*room/i, category: "Member Room Furniture/Appliances" },
-  { pattern: /(?:invest|certificate.*deposit|money\s*market|treasury)/i, category: "Investment of 2% Funds" },
+  { pattern: /furniture/i, category: "Member Room" },
+  { pattern: /(?:television|\btv\b|appliance|refrigerator|microwave|air\s*condi)/i, category: "Member Room" },
+  { pattern: /\bradio\b/i, category: "Member Room" },
+  { pattern: /newsletter/i, category: "Newsletter" },
+  { pattern: /firefighter.?s?\s*home/i, category: "FASNY Home Gift" },
+  { pattern: /(?:attorney|auditor|accountant|accounting|legal\s*(?:fee|service))/i, category: "Legal & Admin" },
+  { pattern: /(?:convention|conference)/i, category: "Conferences" },
+  { pattern: /(?:training\s*facility|firemen.?s?\s*park|park\s*(?:improve|construct|repair))/i, category: "Training Park" },
+  { pattern: /kitchen\s*(?:remodel|renovate|improve|install)/i, category: "Firehouse Improvements" },
+  { pattern: /firehouse\s*(?:improve|renovate|remodel|repair)/i, category: "Firehouse Improvements" },
+  { pattern: /member\s*room/i, category: "Member Room" },
+  { pattern: /(?:invest|certificate.*deposit|money\s*market|treasury)/i, category: "2% Investments" },
+  { pattern: /\bnys\b|dfs|foreign\s*fire|2\s*%\s*deposit/i, category: "NYS 2% Deposit" },
+  { pattern: /interest\s*(?:credit|earned|income)/i, category: "2% Interest" },
 ];
 
 /**
@@ -247,30 +268,9 @@ export const TWO_PERCENT_SUGGESTED_CATEGORIES: Array<{
   name: string;
   status: TwoPercentStatus;
   note?: string;
-}> = [
-  { name: "FASNY Membership Dues", status: "likely_eligible" },
-  { name: "Meeting Food & Refreshments", status: "likely_eligible" },
-  { name: "Food After Fire/Drill", status: "likely_eligible" },
-  { name: "Member Picnic/Banquet/Event", status: "likely_eligible" },
-  { name: "Dress/Parade Uniforms", status: "likely_eligible" },
-  { name: "Member Room Furniture/Appliances", status: "likely_eligible" },
-  { name: "Group Insurance", status: "likely_eligible" },
-  { name: "Office Equipment", status: "likely_eligible" },
-  { name: "Training Facility/Park Improvement", status: "likely_eligible" },
-  { name: "Firehouse Kitchen/Lounge Remodel", status: "likely_eligible" },
-  { name: "Newsletter Publication", status: "likely_eligible" },
-  { name: "FASNY Firefighter's Home Gift", status: "likely_eligible" },
-  { name: "Attorney/Auditor Services (2% admin)", status: "likely_eligible" },
-  { name: "Investment of 2% Funds", status: "likely_eligible" },
-  { name: "Convention/Conference Attendance", status: "needs_review", note: "Verify it's related to 2% fund administration" },
-  { name: "Training/Education", status: "needs_review", note: "Verify it benefits all members as a whole, not fire department operations" },
-  { name: "Equipment Purchase", status: "needs_review", note: "Verify it's for member use, not fire department operations" },
-  { name: "Donation", status: "needs_review", note: "Verify recipient and member vote if required" },
-  { name: "Direct Cash Payment to Member", status: "potentially_not_allowed" },
-  { name: "LOSAP / Service Award", status: "potentially_not_allowed" },
-  { name: "Vehicle Registration", status: "potentially_not_allowed" },
-  { name: "Loan to Member", status: "potentially_not_allowed" },
-  { name: "Donation to Outside Department", status: "potentially_not_allowed" },
-  { name: "Salary (non-admin)", status: "potentially_not_allowed" },
-  { name: "Municipal Obligation", status: "potentially_not_allowed" },
-];
+}> = TWO_PERCENT_CATEGORY_BANK.map((seed) => ({
+  name: seed.name,
+  status: seed.two_percent_guidance as TwoPercentStatus,
+  note:
+    seed.two_percent_guidance === "needs_review" ? seed.description : undefined,
+}));

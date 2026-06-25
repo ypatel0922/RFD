@@ -3,10 +3,27 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 
-import { supabase } from "../lib/supabase";
-import type { ExpenseRecord } from "../lib/types";
+import { receiptsBucket, supabase } from "../lib/supabase";
+import {
+  buildCategoryOptions,
+  isUncategorizedCategory,
+  normalizeCategoryName,
+  suggestCategory,
+} from "../lib/categories";
+import { evaluateTwoPercentStatus } from "../lib/two-percent-rules";
+import type { BankAccount, DepartmentCategory, DepartmentVendor, ExpenseRecord } from "../lib/types";
 
 const LEDGER_ALL_LIMIT = 5000;
+
+type TransactionEditValues = {
+  payee: string;
+  total_amount: string;
+  transaction_date: string;
+  category: string;
+  bank_account_name: string;
+  description: string;
+  uses_two_percent_funds: boolean;
+};
 
 type QuickFilter =
   | "all"
@@ -75,18 +92,35 @@ function formatHumanDate(iso: string | null | undefined): string {
   return date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 }
 
+function formatTableDate(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const raw = iso.trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return raw;
+  const [, y, m, d] = match;
+  const month = Number(m);
+  const day = Number(d);
+  if (!month || !day) return raw;
+  return `${month}/${day}/${y.slice(-2)}`;
+}
+
 function formatCurrency(amount: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Math.abs(amount));
 }
 
-function formatExpenseLoggedBy(expense: ExpenseRecord) {
-  const raw = expense.uploaded_by?.trim();
-  if (raw) return raw;
-  return expense.created_by_email || "Unknown";
-}
-
 function vendorName(expense: ExpenseRecord) {
   return expense.payee || expense.merchant_name || "Needs review";
+}
+
+function TwoPercentColumnCell({ expense }: { expense: ExpenseRecord }) {
+  if (!isTwoPercentFund(expense)) {
+    return <span className="transactions-2pct-empty">—</span>;
+  }
+  return (
+    <span className="fb-2pct-badge fb-2pct-badge--fund transactions-2pct-col-badge" title="NYS 2% fund transaction">
+      2%
+    </span>
+  );
 }
 
 function isIncomeTransaction(expense: ExpenseRecord) {
@@ -180,41 +214,6 @@ function canPreviewReceipt(expense: ExpenseRecord, url: string | undefined) {
   return /\.(jpe?g|png|gif|webp)(\?|$)/i.test(url);
 }
 
-const TWO_PERCENT_STATUS_LABELS: Record<string, string> = {
-  likely_eligible: "Likely 2% Eligible",
-  needs_review: "Needs Review",
-  potentially_not_allowed: "Potentially Not Allowed",
-};
-
-const TWO_PERCENT_STATUS_CLASS: Record<string, string> = {
-  likely_eligible: "fb-2pct-badge--eligible",
-  needs_review: "fb-2pct-badge--review",
-  potentially_not_allowed: "fb-2pct-badge--warn",
-};
-
-function TwoPercentTransactionBadges({ expense }: { expense: ExpenseRecord }) {
-  const isTwoPct = isTwoPercentFund(expense);
-  if (!isTwoPct) return null;
-  const status = expense.two_percent_review_status;
-  // Only show a badge for actionable statuses — "needs_review" is guidance noise.
-  const showStatusBadge = status && status !== "needs_review";
-  return (
-    <span className="fb-2pct-tx-badges">
-      <span className="fb-2pct-badge fb-2pct-badge--fund" title="NYS Foreign Fire Insurance / 2% Funds">
-        2%
-      </span>
-      {showStatusBadge ? (
-        <span
-          className={`fb-2pct-badge ${TWO_PERCENT_STATUS_CLASS[status] ?? ""}`}
-          title={TWO_PERCENT_STATUS_LABELS[status] ?? status}
-        >
-          {TWO_PERCENT_STATUS_LABELS[status] ?? status}
-        </span>
-      ) : null}
-    </span>
-  );
-}
-
 const QUICK_FILTERS: { id: QuickFilter; label: string }[] = [
   { id: "all", label: "All" },
   { id: "needs_review", label: "Needs Review" },
@@ -238,6 +237,10 @@ export function TransactionsLedger({
   ledgerMayTruncate,
   bankAccountFilter = "",
   onClearBankAccountFilter,
+  bankAccounts = [],
+  departmentCategories = [],
+  departmentVendors = [],
+  onCategoriesChanged,
 }: {
   expenses: ExpenseRecord[];
   receiptUrls: Record<string, string>;
@@ -250,10 +253,22 @@ export function TransactionsLedger({
   ledgerMayTruncate: boolean;
   bankAccountFilter?: string;
   onClearBankAccountFilter?: () => void;
+  bankAccounts?: BankAccount[];
+  departmentCategories?: DepartmentCategory[];
+  departmentVendors?: DepartmentVendor[];
+  onCategoriesChanged?: () => Promise<void>;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editReason, setEditReason] = useState("");
-  const [editValues, setEditValues] = useState<Record<string, string>>({});
+  const [editValues, setEditValues] = useState<TransactionEditValues>({
+    payee: "",
+    total_amount: "",
+    transaction_date: "",
+    category: "",
+    bank_account_name: "",
+    description: "",
+    uses_two_percent_funds: false,
+  });
   const [categoryFilter, setCategoryFilter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -263,12 +278,61 @@ export function TransactionsLedger({
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [pendingCategories, setPendingCategories] = useState<Record<string, string>>({});
+  const [applyingId, setApplyingId] = useState<string | null>(null);
+  const [applyingAll, setApplyingAll] = useState(false);
+  const [catReviewOpen, setCatReviewOpen] = useState(true);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const filtersRef = useRef<HTMLDivElement>(null);
 
   const selectedExpense = useMemo(
     () => expenses.find((e) => e.id === selectedId) ?? null,
     [expenses, selectedId],
   );
+
+  const twoPctCategoryOptions = useMemo(
+    () => buildCategoryOptions(expenses, departmentCategories, { twoPctMode: true }),
+    [expenses, departmentCategories],
+  );
+
+  const editCategoryOptions = useMemo(() => {
+    if (!editValues.uses_two_percent_funds) return [];
+    const current = editValues.category.trim();
+    if (current && !twoPctCategoryOptions.includes(current)) {
+      return [current, ...twoPctCategoryOptions];
+    }
+    return twoPctCategoryOptions;
+  }, [editValues.uses_two_percent_funds, editValues.category, twoPctCategoryOptions]);
+
+  const uncategorizedTwoPct = useMemo(
+    () =>
+      expenses.filter(
+        (e) => isTwoPercentFund(e) && isUncategorizedCategory(e.category),
+      ),
+    [expenses],
+  );
+
+  useEffect(() => {
+    setPendingCategories((prev) => {
+      const next: Record<string, string> = {};
+      for (const expense of uncategorizedTwoPct) {
+        const suggested =
+          prev[expense.id] ||
+          suggestCategory({
+            vendor: expense.payee || expense.merchant_name || "",
+            description: expense.description,
+            ocrText: [expense.description, expense.bank_description].filter(Boolean).join(" "),
+            expenses,
+            departmentCategories,
+            departmentVendors,
+            isTwoPctAccount: true,
+          }) ||
+          "Other 2% Expense";
+        next[expense.id] = suggested;
+      }
+      return next;
+    });
+  }, [uncategorizedTwoPct, expenses, departmentCategories, departmentVendors]);
 
   useEffect(() => {
     function onDocClick(event: MouseEvent) {
@@ -287,10 +351,26 @@ export function TransactionsLedger({
   useEffect(() => {
     if (!selectedId) return;
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setSelectedId(null);
+      if (event.key === "Escape") closeDetailPanel();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  }, [selectedId]);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    function onDocClick(event: MouseEvent) {
+      const target = event.target as HTMLElement;
+      if (target.closest(".transactions-drawer")) return;
+      if (target.closest(".transactions-row-menu")) return;
+      if (target.closest(".transactions-row, .transactions-mobile-card")) {
+        setEditingId(null);
+        return;
+      }
+      closeDetailPanel();
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
   }, [selectedId]);
 
   function applyDatePreset(preset: "ytd" | "last_year" | "last12" | "clear") {
@@ -447,7 +527,90 @@ export function TransactionsLedger({
       .slice(0, 5);
   }, [expenses, selectedExpense]);
 
+  async function ensureCategoryEnabled(categoryName: string) {
+    const norm = normalizeCategoryName(categoryName);
+    const existing = departmentCategories.find((c) => c.normalized_name === norm);
+    if (existing && !existing.is_active && onCategoriesChanged) {
+      await supabase
+        .from("department_categories")
+        .update({
+          is_active: true,
+          created_from: "bank",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", existing.id);
+      await onCategoriesChanged();
+    }
+  }
+
+  async function applySuggestedCategory(expenseId: string) {
+    const category = (pendingCategories[expenseId] || "").trim();
+    if (!category) {
+      showErrorMessage("Choose a category first.");
+      return;
+    }
+    setApplyingId(expenseId);
+    try {
+      const { error } = await supabase
+        .from("expenses")
+        .update({
+          category,
+          last_manual_edit_reason: "Applied suggested 2% category",
+          last_manual_edit_at: new Date().toISOString(),
+          last_manual_edit_by: user.email || user.id,
+        })
+        .eq("id", expenseId);
+      if (error) throw error;
+      await ensureCategoryEnabled(category);
+      showSuccessMessage(`Categorized as "${category}".`);
+      await onExpensesChanged();
+    } catch (err) {
+      showErrorMessage(err instanceof Error ? err.message : "Could not apply category.");
+    } finally {
+      setApplyingId(null);
+    }
+  }
+
+  async function applyAllSuggestedCategories() {
+    if (!uncategorizedTwoPct.length) return;
+    setApplyingAll(true);
+    try {
+      let applied = 0;
+      for (const expense of uncategorizedTwoPct) {
+        const category = (pendingCategories[expense.id] || "Other 2% Expense").trim();
+        const { error } = await supabase
+          .from("expenses")
+          .update({
+            category,
+            last_manual_edit_reason: "Applied suggested 2% category (batch)",
+            last_manual_edit_at: new Date().toISOString(),
+            last_manual_edit_by: user.email || user.id,
+          })
+          .eq("id", expense.id);
+        if (!error) {
+          applied += 1;
+          await ensureCategoryEnabled(category);
+        }
+      }
+      showSuccessMessage(`Applied categories to ${applied} transaction${applied === 1 ? "" : "s"}.`);
+      await onExpensesChanged();
+    } catch (err) {
+      showErrorMessage(err instanceof Error ? err.message : "Could not apply categories.");
+    } finally {
+      setApplyingAll(false);
+    }
+  }
+
+  function closeDetailPanel() {
+    setEditingId(null);
+    setSelectedId(null);
+    setEditReason("");
+  }
+
   function beginEdit(expense: ExpenseRecord) {
+    const linkedAcct = bankAccounts.find(
+      (a) => a.name.toLowerCase() === (expense.bank_account_name || "").trim().toLowerCase(),
+    );
     setEditingId(expense.id);
     setEditReason("");
     setEditValues({
@@ -457,8 +620,45 @@ export function TransactionsLedger({
       category: expense.category || "",
       bank_account_name: expense.bank_account_name || "",
       description: expense.description || "",
+      uses_two_percent_funds:
+        Boolean(expense.uses_two_percent_funds) || Boolean(linkedAcct?.is_two_percent_account),
     });
     setMenuOpenId(null);
+  }
+
+  function handleEditTwoPctToggle(checked: boolean) {
+    setEditValues((prev) => {
+      const next: TransactionEditValues = { ...prev, uses_two_percent_funds: checked };
+      if (checked) {
+        const twoPctAcct = bankAccounts.find((a) => a.is_two_percent_account);
+        if (twoPctAcct) {
+          next.bank_account_name = twoPctAcct.name;
+        }
+        if (!prev.category.trim()) {
+          const suggestion = suggestCategory({
+            vendor: prev.payee,
+            description: prev.description,
+            expenses,
+            departmentCategories,
+            departmentVendors,
+            isTwoPctAccount: true,
+          });
+          if (suggestion) next.category = suggestion;
+        }
+      }
+      return next;
+    });
+  }
+
+  function handleEditBankAccountChange(accountName: string) {
+    const acct = bankAccounts.find(
+      (a) => a.name.toLowerCase() === accountName.trim().toLowerCase(),
+    );
+    setEditValues((prev) => ({
+      ...prev,
+      bank_account_name: accountName,
+      uses_two_percent_funds: acct?.is_two_percent_account ? true : prev.uses_two_percent_funds,
+    }));
   }
 
   async function saveEdit(expenseId: string) {
@@ -466,6 +666,16 @@ export function TransactionsLedger({
       showErrorMessage("Enter a reason for manual edits.");
       return;
     }
+    const isTwoPct = Boolean(editValues.uses_two_percent_funds);
+    const twoPctEvalRaw = isTwoPct
+      ? evaluateTwoPercentStatus({
+          vendor: editValues.payee,
+          category: editValues.category,
+          description: editValues.description,
+        })
+      : null;
+    const twoPctEval = twoPctEvalRaw?.status === "needs_review" ? null : twoPctEvalRaw;
+
     const { error } = await supabase
       .from("expenses")
       .update({
@@ -476,6 +686,9 @@ export function TransactionsLedger({
         category: optionalValue(editValues.category || ""),
         bank_account_name: optionalValue(editValues.bank_account_name || ""),
         description: optionalValue(editValues.description || ""),
+        uses_two_percent_funds: isTwoPct,
+        two_percent_review_status: isTwoPct ? (twoPctEval?.status ?? null) : null,
+        two_percent_warning_reason: isTwoPct ? (twoPctEval?.reason ?? null) : null,
         last_manual_edit_reason: editReason.trim(),
         last_manual_edit_at: new Date().toISOString(),
         last_manual_edit_by: user.email || user.id,
@@ -489,6 +702,40 @@ export function TransactionsLedger({
     setEditReason("");
     showSuccessMessage("Expense updated.");
     await onExpensesChanged();
+  }
+
+  async function deleteExpense(expense: ExpenseRecord) {
+    const label = vendorName(expense);
+    const amount = formatTransactionAmount(expense);
+    if (
+      !window.confirm(
+        `Delete this transaction?\n\n${label} — ${amount.text}\n\nThis cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    setDeletingId(expense.id);
+    setMenuOpenId(null);
+    try {
+      const path = expense.receipt_path?.trim();
+      if (
+        path &&
+        !path.includes("no-receipt") &&
+        !path.includes("/manual/")
+      ) {
+        await supabase.storage.from(receiptsBucket).remove([path]);
+      }
+      const { error } = await supabase.from("expenses").delete().eq("id", expense.id);
+      if (error) throw error;
+      setEditingId(null);
+      setSelectedId(null);
+      showSuccessMessage("Transaction deleted.");
+      await onExpensesChanged();
+    } catch (err) {
+      showErrorMessage(err instanceof Error ? err.message : "Could not delete transaction.");
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   function clearFilters() {
@@ -506,54 +753,214 @@ export function TransactionsLedger({
     vendorQuery || categoryFilter || dateFrom || dateTo || amountMin || amountMax || bankAccountFilter,
   );
 
-  function renderEditForm(expenseId: string, compact?: boolean) {
+  function renderReceiptPreview(expense: ExpenseRecord, receiptUrl: string | undefined) {
+    if (!receiptUrl) return null;
+    return (
+      <div className="transactions-receipt-preview transactions-edit-receipt">
+        {canPreviewReceipt(expense, receiptUrl) ? (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={receiptUrl} alt={`Receipt for ${vendorName(expense)}`} />
+            <a
+              className="transactions-edit-receipt-link"
+              href={receiptUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Open receipt full size
+            </a>
+          </>
+        ) : (
+          <div className="transactions-receipt-fallback">
+            <p className="muted">Receipt on file ({expense.original_filename})</p>
+            <a href={receiptUrl} target="_blank" rel="noopener noreferrer">
+              Open receipt
+            </a>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function renderEditForm(expense: ExpenseRecord, compact?: boolean, receiptUrl?: string) {
+    const expenseId = expense.id;
+    const isDeleting = deletingId === expenseId;
     return (
       <form
-        className={`transactions-edit-form${compact ? " transactions-edit-form-compact" : ""}`}
+        className={`transactions-edit-sheet${compact ? " transactions-edit-form-compact" : ""}`}
         onSubmit={(event: FormEvent) => {
           event.preventDefault();
           void saveEdit(expenseId);
         }}
       >
-        <input
-          placeholder="Vendor"
-          value={editValues.payee || ""}
-          onChange={(event) => setEditValues((prev) => ({ ...prev, payee: event.target.value }))}
-        />
-        <input
-          placeholder="Amount"
-          value={editValues.total_amount || ""}
-          onChange={(event) => setEditValues((prev) => ({ ...prev, total_amount: event.target.value }))}
-        />
-        <input
-          type="date"
-          value={editValues.transaction_date || ""}
-          onChange={(event) =>
-            setEditValues((prev) => ({ ...prev, transaction_date: event.target.value }))
-          }
-        />
-        <input
-          placeholder="Category"
-          value={editValues.category || ""}
-          onChange={(event) => setEditValues((prev) => ({ ...prev, category: event.target.value }))}
-        />
-        <input
-          placeholder="Bank account"
-          value={editValues.bank_account_name || ""}
-          onChange={(event) =>
-            setEditValues((prev) => ({ ...prev, bank_account_name: event.target.value }))
-          }
-        />
-        <textarea
-          rows={2}
-          placeholder="Reason for edit (required)"
-          value={editReason}
-          onChange={(event) => setEditReason(event.target.value)}
-        />
+        {renderReceiptPreview(expense, receiptUrl)}
+
+        <header className="transactions-edit-intro">
+          <h4>{compact ? "Update details" : "Edit transaction"}</h4>
+          <p>
+            {receiptUrl
+              ? "Check the receipt above, then update the fields below and press "
+              : "Update the details below, then press "}
+            <strong>Save changes</strong>.
+          </p>
+        </header>
+
+        <fieldset className="transactions-edit-group">
+          <legend>Basics</legend>
+          <label className="transactions-edit-field">
+            <span>Vendor (who you paid)</span>
+            <input
+              value={editValues.payee || ""}
+              onChange={(event) => setEditValues((prev) => ({ ...prev, payee: event.target.value }))}
+            />
+          </label>
+          <div className="transactions-edit-row-2">
+            <label className="transactions-edit-field">
+              <span>Amount</span>
+              <input
+                inputMode="decimal"
+                value={editValues.total_amount || ""}
+                onChange={(event) =>
+                  setEditValues((prev) => ({ ...prev, total_amount: event.target.value }))
+                }
+              />
+            </label>
+            <label className="transactions-edit-field">
+              <span>Date</span>
+              <input
+                type="date"
+                value={editValues.transaction_date || ""}
+                onChange={(event) =>
+                  setEditValues((prev) => ({ ...prev, transaction_date: event.target.value }))
+                }
+              />
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset className="transactions-edit-group">
+          <legend>2% fund</legend>
+          <label className="transactions-edit-check">
+            <input
+              type="checkbox"
+              checked={editValues.uses_two_percent_funds}
+              onChange={(event) => handleEditTwoPctToggle(event.target.checked)}
+            />
+            <span>This transaction uses 2% funds</span>
+          </label>
+          <p className="transactions-edit-hint">
+            When checked, the bank account switches to your 2% account automatically.
+          </p>
+        </fieldset>
+
+        <fieldset className="transactions-edit-group">
+          <legend>Account &amp; category</legend>
+          {bankAccounts.length ? (
+            <label className="transactions-edit-field">
+              <span>Bank account</span>
+              <select
+                value={editValues.bank_account_name || ""}
+                onChange={(event) => handleEditBankAccountChange(event.target.value)}
+              >
+                <option value="">Choose account…</option>
+                {bankAccounts.map((account) => (
+                  <option key={account.id} value={account.name}>
+                    {account.name}
+                    {account.is_two_percent_account ? " (2% account)" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <label className="transactions-edit-field">
+              <span>Bank account</span>
+              <input
+                value={editValues.bank_account_name || ""}
+                onChange={(event) =>
+                  setEditValues((prev) => ({ ...prev, bank_account_name: event.target.value }))
+                }
+              />
+            </label>
+          )}
+          {editValues.uses_two_percent_funds ? (
+            <label className="transactions-edit-field">
+              <span>2% category</span>
+              <select
+                value={editValues.category || ""}
+                onChange={(event) =>
+                  setEditValues((prev) => ({ ...prev, category: event.target.value }))
+                }
+              >
+                <option value="">Choose category…</option>
+                {editCategoryOptions.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <label className="transactions-edit-field">
+              <span>Category</span>
+              <input
+                value={editValues.category || ""}
+                onChange={(event) =>
+                  setEditValues((prev) => ({ ...prev, category: event.target.value }))
+                }
+              />
+            </label>
+          )}
+        </fieldset>
+
+        <details className="transactions-edit-more">
+          <summary>Notes (optional)</summary>
+          <label className="transactions-edit-field">
+            <span>Description or memo</span>
+            <textarea
+              rows={2}
+              value={editValues.description || ""}
+              onChange={(event) =>
+                setEditValues((prev) => ({ ...prev, description: event.target.value }))
+              }
+            />
+          </label>
+        </details>
+
+        <fieldset className="transactions-edit-group">
+          <legend>Reason for change</legend>
+          <label className="transactions-edit-field">
+            <span>Why are you editing this? (required)</span>
+            <textarea
+              rows={2}
+              value={editReason}
+              onChange={(event) => setEditReason(event.target.value)}
+              placeholder="Example: Corrected vendor name from receipt"
+            />
+          </label>
+        </fieldset>
+
         <div className="transactions-edit-actions">
-          <button type="submit">Save edit</button>
-          <button type="button" className="secondary-action" onClick={() => setEditingId(null)}>
+          <button type="submit" className="fb-primary-btn" disabled={isDeleting}>
+            Save changes
+          </button>
+          <button
+            type="button"
+            className="fb-secondary-btn"
+            disabled={isDeleting}
+            onClick={() => setEditingId(null)}
+          >
             Cancel
+          </button>
+        </div>
+
+        <div className="transactions-edit-danger">
+          <button
+            type="button"
+            className="transactions-delete-btn"
+            disabled={isDeleting}
+            onClick={() => void deleteExpense(expense)}
+          >
+            {isDeleting ? "Deleting…" : "Delete this transaction"}
           </button>
         </div>
       </form>
@@ -596,13 +1003,21 @@ export function TransactionsLedger({
                 role="menuitem"
                 onClick={(event) => event.stopPropagation()}
               >
-                View receipt / source
+                View receipt
               </a>
-            ) : (
-              <span className="transactions-menu-disabled" role="menuitem">
-                No receipt on file
-              </span>
-            )}
+            ) : null}
+            <button
+              type="button"
+              role="menuitem"
+              className="transactions-menu-delete"
+              disabled={deletingId === expense.id}
+              onClick={(event) => {
+                event.stopPropagation();
+                void deleteExpense(expense);
+              }}
+            >
+              {deletingId === expense.id ? "Deleting…" : "Delete transaction"}
+            </button>
           </div>
         ) : null}
       </div>
@@ -617,171 +1032,131 @@ export function TransactionsLedger({
     const editing = editingId === selectedExpense.id;
 
     return (
-      <>
-        <button
-          type="button"
-          className="transactions-drawer-backdrop"
-          aria-label="Close transaction details"
-          onClick={() => setSelectedId(null)}
-        />
         <aside className="transactions-drawer" role="dialog" aria-label="Transaction details">
           <div className="transactions-drawer-header">
-            <h3>Transaction Details</h3>
-            <button type="button" className="transactions-drawer-close" onClick={() => setSelectedId(null)}>
+            <h3>{editing ? "Edit transaction" : "Transaction details"}</h3>
+            <button
+              type="button"
+              className="transactions-drawer-close"
+              onClick={closeDetailPanel}
+            >
               ×
             </button>
           </div>
 
           <div className="transactions-drawer-body">
-            {receiptUrl ? (
-              <div className="transactions-receipt-preview">
-                {canPreviewReceipt(selectedExpense, receiptUrl) ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={receiptUrl} alt={`Receipt for ${vendorName(selectedExpense)}`} />
-                ) : (
-                  <div className="transactions-receipt-fallback">
-                    <p className="muted">Receipt on file ({selectedExpense.original_filename})</p>
-                    <a href={receiptUrl} target="_blank" rel="noopener noreferrer">
-                      Open preview
-                    </a>
+            {editing ? (
+              renderEditForm(selectedExpense, true, receiptUrl)
+            ) : (
+              <>
+                {renderReceiptPreview(selectedExpense, receiptUrl)}
+
+                <dl className="transactions-detail-list transactions-detail-list-simple">
+                  <div>
+                    <dt>Vendor</dt>
+                    <dd>{vendorName(selectedExpense)}</dd>
                   </div>
-                )}
-              </div>
-            ) : null}
+                  <div>
+                    <dt>Amount</dt>
+                    <dd className={amount.className}>{amount.text}</dd>
+                  </div>
+                  <div>
+                    <dt>Date</dt>
+                    <dd>{formatHumanDate(parseExpenseSortDate(selectedExpense))}</dd>
+                  </div>
+                  <div>
+                    <dt>2% fund</dt>
+                    <dd>
+                      {isTwoPercentFund(selectedExpense) ? (
+                        <TwoPercentColumnCell expense={selectedExpense} />
+                      ) : (
+                        "No"
+                      )}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Account</dt>
+                    <dd>{selectedExpense.bank_account_name || "—"}</dd>
+                  </div>
+                  <div>
+                    <dt>Category</dt>
+                    <dd>
+                      <span className={`transactions-cat-pill ${categoryPillClass(selectedExpense.category)}`}>
+                        {categoryLabel(selectedExpense)}
+                      </span>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Status</dt>
+                    <dd>
+                      <span className={`transactions-status-pill transactions-status-${status.key}`}>
+                        {status.label}
+                      </span>
+                    </dd>
+                  </div>
+                  {(selectedExpense.description || selectedExpense.payment_reference) && (
+                    <div>
+                      <dt>Notes</dt>
+                      <dd>{selectedExpense.description || selectedExpense.payment_reference}</dd>
+                    </div>
+                  )}
+                </dl>
 
-            <dl className="transactions-detail-list">
-              <div>
-                <dt>Vendor</dt>
-                <dd>{vendorName(selectedExpense)}</dd>
-              </div>
-              <div>
-                <dt>Amount</dt>
-                <dd className={amount.className}>{amount.text}</dd>
-              </div>
-              <div>
-                <dt>Date</dt>
-                <dd>{formatHumanDate(parseExpenseSortDate(selectedExpense))}</dd>
-              </div>
-              <div>
-                <dt>Account</dt>
-                <dd>{selectedExpense.bank_account_name || "—"}</dd>
-              </div>
-              <div>
-                <dt>Category</dt>
-                <dd>
-                  <span className={`transactions-cat-pill ${categoryPillClass(selectedExpense.category)}`}>
-                    {categoryLabel(selectedExpense)}
-                  </span>
-                </dd>
-              </div>
-              <div>
-                <dt>Status</dt>
-                <dd>
-                  <span className={`transactions-status-pill transactions-status-${status.key}`}>
-                    {status.label}
-                  </span>
-                </dd>
-              </div>
-              {(selectedExpense.bank_description ||
-                selectedExpense.reconciliation_candidate_notes ||
-                selectedExpense.reconciliation_status) && (
-                <div>
-                  <dt>Reconciliation</dt>
-                  <dd>
-                    {selectedExpense.reconciliation_status.replaceAll("_", " ")}
-                    {selectedExpense.bank_description ? (
-                      <span className="filename">Bank: {selectedExpense.bank_description}</span>
-                    ) : null}
-                    {selectedExpense.reconciliation_candidate_notes ? (
-                      <span className="filename">{selectedExpense.reconciliation_candidate_notes}</span>
-                    ) : null}
-                  </dd>
+                <div className="transactions-drawer-actions">
+                  <button type="button" className="fb-primary-btn" onClick={() => beginEdit(selectedExpense)}>
+                    Edit transaction
+                  </button>
+                  {receiptUrl ? (
+                    <a
+                      className="fb-secondary-btn transactions-drawer-link"
+                      href={receiptUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      View receipt
+                    </a>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="transactions-delete-btn transactions-drawer-delete"
+                    disabled={deletingId === selectedExpense.id}
+                    onClick={() => void deleteExpense(selectedExpense)}
+                  >
+                    {deletingId === selectedExpense.id ? "Deleting…" : "Delete"}
+                  </button>
                 </div>
-              )}
-              {(selectedExpense.description || selectedExpense.payment_reference) && (
-                <div>
-                  <dt>Notes</dt>
-                  <dd>
-                    {selectedExpense.description || "—"}
-                    {selectedExpense.payment_reference ? (
-                      <span className="filename">Ref: {selectedExpense.payment_reference}</span>
-                    ) : null}
-                  </dd>
+
+                <div className="transactions-similar-card">
+                  <h4>Same vendor</h4>
+                  {similarTransactions.length ? (
+                    <ul>
+                      {similarTransactions.map((item) => {
+                        const itemAmount = formatTransactionAmount(item);
+                        return (
+                          <li key={item.id}>
+                            <button
+                              type="button"
+                              className="transactions-similar-item"
+                              onClick={() => {
+                                setEditingId(null);
+                                setSelectedId(item.id);
+                              }}
+                            >
+                              <span>{formatHumanDate(parseExpenseSortDate(item))}</span>
+                              <span className={itemAmount.className}>{itemAmount.text}</span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : (
+                    <p className="muted">No other transactions for this vendor.</p>
+                  )}
                 </div>
-              )}
-              <div>
-                <dt>Logged by</dt>
-                <dd>{formatExpenseLoggedBy(selectedExpense)}</dd>
-              </div>
-              {isTwoPercentFund(selectedExpense) && (
-                <div>
-                  <dt>2% Fund</dt>
-                  <dd>
-                    <TwoPercentTransactionBadges expense={selectedExpense} />
-                    {selectedExpense.two_percent_warning_reason && (
-                      <span className="filename">{selectedExpense.two_percent_warning_reason}</span>
-                    )}
-                    {selectedExpense.member_vote_recorded && (
-                      <span className="filename">Member vote recorded</span>
-                    )}
-                    {selectedExpense.meeting_date && (
-                      <span className="filename">Meeting: {selectedExpense.meeting_date}</span>
-                    )}
-                    {selectedExpense.support_note && (
-                      <span className="filename">Support: {selectedExpense.support_note}</span>
-                    )}
-                  </dd>
-                </div>
-              )}
-            </dl>
-
-            {editing ? renderEditForm(selectedExpense.id, true) : null}
-
-            <div className="transactions-drawer-actions">
-              {!editing ? (
-                <button type="button" onClick={() => beginEdit(selectedExpense)}>
-                  Edit transaction
-                </button>
-              ) : null}
-              {receiptUrl ? (
-                <a
-                  className="secondary-action transactions-drawer-link"
-                  href={receiptUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  View full receipt / source
-                </a>
-              ) : null}
-            </div>
-
-            <div className="transactions-similar-card">
-              <h4>Vendor history</h4>
-              {similarTransactions.length ? (
-                <ul>
-                  {similarTransactions.map((item) => {
-                    const itemAmount = formatTransactionAmount(item);
-                    return (
-                      <li key={item.id}>
-                        <button
-                          type="button"
-                          className="transactions-similar-item"
-                          onClick={() => setSelectedId(item.id)}
-                        >
-                          <span>{formatHumanDate(parseExpenseSortDate(item))}</span>
-                          <span className={itemAmount.className}>{itemAmount.text}</span>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : (
-                <p className="muted">No other transactions for this vendor in the loaded list.</p>
-              )}
-            </div>
+              </>
+            )}
           </div>
         </aside>
-      </>
     );
   }
 
@@ -822,6 +1197,80 @@ export function TransactionsLedger({
           <span>Income This Month</span>
         </article>
       </div>
+
+      {uncategorizedTwoPct.length > 0 ? (
+        <details
+          className="transactions-2pct-cat-review"
+          open={catReviewOpen}
+          onToggle={(e) => setCatReviewOpen((e.target as HTMLDetailsElement).open)}
+        >
+          <summary>
+            <span>
+              <strong>{uncategorizedTwoPct.length}</strong> 2% transaction
+              {uncategorizedTwoPct.length === 1 ? "" : "s"} need a category
+            </span>
+            <button
+              type="button"
+              className="fb-secondary-btn transactions-2pct-apply-all"
+              disabled={applyingAll}
+              onClick={(e) => {
+                e.preventDefault();
+                void applyAllSuggestedCategories();
+              }}
+            >
+              {applyingAll ? "Applying…" : "Apply all suggestions"}
+            </button>
+          </summary>
+          <ul className="transactions-2pct-cat-list">
+            {uncategorizedTwoPct.map((expense) => {
+              const amount = formatTransactionAmount(expense);
+              const options = Array.from(
+                new Set([
+                  pendingCategories[expense.id] || "Other 2% Expense",
+                  ...twoPctCategoryOptions,
+                ]),
+              );
+              return (
+                <li key={expense.id} className="transactions-2pct-cat-row">
+                  <div className="transactions-2pct-cat-meta">
+                    <strong>{vendorName(expense)}</strong>
+                    <span className="muted">
+                      {formatHumanDate(parseExpenseSortDate(expense))} ·{" "}
+                      <span className={amount.className}>{amount.text}</span>
+                    </span>
+                  </div>
+                  <label className="transactions-2pct-cat-pick">
+                    <span className="sr-only">Category for {vendorName(expense)}</span>
+                    <select
+                      value={pendingCategories[expense.id] || "Other 2% Expense"}
+                      onChange={(e) =>
+                        setPendingCategories((prev) => ({
+                          ...prev,
+                          [expense.id]: e.target.value,
+                        }))
+                      }
+                    >
+                      {options.map((opt) => (
+                        <option key={opt} value={opt}>
+                          {opt}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className="fb-primary-btn"
+                    disabled={applyingId === expense.id || applyingAll}
+                    onClick={() => void applySuggestedCategory(expense.id)}
+                  >
+                    {applyingId === expense.id ? "…" : "Apply"}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </details>
+      ) : null}
 
       <div className="transactions-toolbar">
         <label className="transactions-search">
@@ -954,15 +1403,26 @@ export function TransactionsLedger({
         <>
           <div className="transactions-table-wrap transactions-desktop-only">
             <table className="transactions-table">
+              <colgroup>
+                <col className="transactions-col-date" />
+                <col className="transactions-col-vendor" />
+                <col className="transactions-col-category" />
+                <col className="transactions-col-2pct" />
+                <col className="transactions-col-account" />
+                <col className="transactions-col-amount" />
+                <col className="transactions-col-status" />
+                <col className="transactions-col-actions" />
+              </colgroup>
               <thead>
                 <tr>
-                  <th>Date</th>
-                  <th>Vendor / Description</th>
-                  <th>Category</th>
-                  <th>Account</th>
-                  <th>Amount</th>
-                  <th>Status</th>
-                  <th aria-label="Actions" />
+                  <th className="transactions-col-date">Date</th>
+                  <th className="transactions-col-vendor">Vendor</th>
+                  <th className="transactions-col-category">Category</th>
+                  <th className="transactions-col-2pct">2%</th>
+                  <th className="transactions-col-account">Account</th>
+                  <th className="transactions-col-amount">Amount</th>
+                  <th className="transactions-col-status">Status</th>
+                  <th className="transactions-col-actions" aria-label="Actions" />
                 </tr>
               </thead>
               <tbody>
@@ -974,26 +1434,35 @@ export function TransactionsLedger({
                     <tr
                       key={expense.id}
                       className={`transactions-row${isSelected ? " is-selected" : ""}`}
-                      onClick={() => setSelectedId(expense.id)}
+                      onClick={() => {
+                        setEditingId(null);
+                        setSelectedId(expense.id);
+                      }}
                     >
-                      <td className="transactions-col-date">{formatHumanDate(parseExpenseSortDate(expense))}</td>
+                      <td className="transactions-col-date">
+                        {formatTableDate(parseExpenseSortDate(expense))}
+                      </td>
                       <td className="transactions-col-vendor">
-                        <strong>{vendorName(expense)}</strong>
+                        <strong title={vendorName(expense)}>{vendorName(expense)}</strong>
                         {(expense.description || expense.payment_reference) && (
                           <span className="transactions-vendor-sub">
                             {expense.description || expense.payment_reference}
                           </span>
                         )}
-                        <TwoPercentTransactionBadges expense={expense} />
                       </td>
-                      <td>
+                      <td className="transactions-col-category">
                         <span className={`transactions-cat-pill ${categoryPillClass(expense.category)}`}>
                           {categoryLabel(expense)}
                         </span>
                       </td>
-                      <td>{expense.bank_account_name || "—"}</td>
-                      <td className={amount.className}>{amount.text}</td>
-                      <td>
+                      <td className="transactions-col-2pct">
+                        <TwoPercentColumnCell expense={expense} />
+                      </td>
+                      <td className="transactions-col-account" title={expense.bank_account_name || undefined}>
+                        {expense.bank_account_name || "—"}
+                      </td>
+                      <td className={`transactions-col-amount ${amount.className}`}>{amount.text}</td>
+                      <td className="transactions-col-status">
                         <span className={`transactions-status-pill transactions-status-${status.key}`}>
                           {status.label}
                         </span>
@@ -1016,10 +1485,14 @@ export function TransactionsLedger({
                 <article
                   key={expense.id}
                   className="transactions-mobile-card"
-                  onClick={() => setSelectedId(expense.id)}
+                  onClick={() => {
+                    setEditingId(null);
+                    setSelectedId(expense.id);
+                  }}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();
+                      setEditingId(null);
                       setSelectedId(expense.id);
                     }
                   }}
@@ -1030,6 +1503,7 @@ export function TransactionsLedger({
                     <span className="transactions-mobile-date">
                       {formatHumanDate(parseExpenseSortDate(expense))}
                     </span>
+                    <TwoPercentColumnCell expense={expense} />
                     <span className={amount.className}>{amount.text}</span>
                   </div>
                   <strong>{vendorName(expense)}</strong>
@@ -1040,7 +1514,6 @@ export function TransactionsLedger({
                     <span className={`transactions-cat-pill ${categoryPillClass(expense.category)}`}>
                       {categoryLabel(expense)}
                     </span>
-                    <TwoPercentTransactionBadges expense={expense} />
                   </div>
                   <div
                     className="transactions-mobile-card-actions"
