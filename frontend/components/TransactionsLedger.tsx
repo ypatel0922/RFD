@@ -290,6 +290,12 @@ export function TransactionsLedger({
     [expenses, selectedId],
   );
 
+  const panelExpense = useMemo(() => {
+    if (selectedExpense) return selectedExpense;
+    if (!editingId) return null;
+    return expenses.find((e) => e.id === editingId) ?? null;
+  }, [expenses, selectedExpense, editingId]);
+
   const twoPctCategoryOptions = useMemo(
     () => buildCategoryOptions(expenses, departmentCategories, { twoPctMode: true }),
     [expenses, departmentCategories],
@@ -344,8 +350,8 @@ export function TransactionsLedger({
         setMenuOpenId(null);
       }
     }
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
+    document.addEventListener("click", onDocClick);
+    return () => document.removeEventListener("click", onDocClick);
   }, []);
 
   useEffect(() => {
@@ -607,6 +613,11 @@ export function TransactionsLedger({
     setEditReason("");
   }
 
+  function openEditPanel(expense: ExpenseRecord) {
+    setSelectedId(expense.id);
+    beginEdit(expense);
+  }
+
   function beginEdit(expense: ExpenseRecord) {
     const linkedAcct = bankAccounts.find(
       (a) => a.name.toLowerCase() === (expense.bank_account_name || "").trim().toLowerCase(),
@@ -753,50 +764,85 @@ export function TransactionsLedger({
     vendorQuery || categoryFilter || dateFrom || dateTo || amountMin || amountMax || bankAccountFilter,
   );
 
-  function renderReceiptPreview(expense: ExpenseRecord, receiptUrl: string | undefined) {
+  function openReceiptFullSize(receiptUrl: string) {
+    window.open(receiptUrl, "_blank", "noopener,noreferrer");
+  }
+
+  function renderReceiptPreview(
+    expense: ExpenseRecord,
+    receiptUrl: string | undefined,
+    variant: "view" | "edit" = "edit",
+  ) {
     if (!receiptUrl) return null;
-    return (
-      <div className="transactions-receipt-preview transactions-edit-receipt">
-        {canPreviewReceipt(expense, receiptUrl) ? (
-          <>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={receiptUrl} alt={`Receipt for ${vendorName(expense)}`} />
-            <a
-              className="transactions-edit-receipt-link"
-              href={receiptUrl}
-              target="_blank"
-              rel="noopener noreferrer"
+    const previewClass =
+      variant === "edit"
+        ? "transactions-receipt-preview transactions-edit-receipt"
+        : "transactions-receipt-preview transactions-receipt-preview-view";
+
+    if (canPreviewReceipt(expense, receiptUrl)) {
+      if (variant === "view") {
+        return (
+          <div className={previewClass}>
+            <button
+              type="button"
+              className="transactions-receipt-thumb-btn"
+              onClick={() => openReceiptFullSize(receiptUrl)}
             >
-              Open receipt full size
-            </a>
-          </>
-        ) : (
-          <div className="transactions-receipt-fallback">
-            <p className="muted">Receipt on file ({expense.original_filename})</p>
-            <a href={receiptUrl} target="_blank" rel="noopener noreferrer">
-              Open receipt
-            </a>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={receiptUrl} alt={`Receipt for ${vendorName(expense)}`} />
+              <span className="transactions-receipt-thumb-hint">Click to view full receipt</span>
+            </button>
           </div>
-        )}
+        );
+      }
+
+      return (
+        <div className={previewClass}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={receiptUrl} alt={`Receipt for ${vendorName(expense)}`} />
+          <a
+            className="transactions-edit-receipt-link"
+            href={receiptUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Open receipt full size
+          </a>
+        </div>
+      );
+    }
+
+    return (
+      <div className={previewClass}>
+        <div className="transactions-receipt-fallback">
+          <p className="muted">Receipt on file ({expense.original_filename})</p>
+          <button
+            type="button"
+            className="transactions-edit-receipt-link transactions-receipt-open-btn"
+            onClick={() => openReceiptFullSize(receiptUrl)}
+          >
+            Open receipt
+          </button>
+        </div>
       </div>
     );
   }
 
-  function renderEditForm(expense: ExpenseRecord, compact?: boolean, receiptUrl?: string) {
+  function renderEditForm(expense: ExpenseRecord, receiptUrl?: string) {
     const expenseId = expense.id;
     const isDeleting = deletingId === expenseId;
     return (
       <form
-        className={`transactions-edit-sheet${compact ? " transactions-edit-form-compact" : ""}`}
+        className="transactions-edit-sheet"
         onSubmit={(event: FormEvent) => {
           event.preventDefault();
           void saveEdit(expenseId);
         }}
       >
-        {renderReceiptPreview(expense, receiptUrl)}
+        {renderReceiptPreview(expense, receiptUrl, "edit")}
 
         <header className="transactions-edit-intro">
-          <h4>{compact ? "Update details" : "Edit transaction"}</h4>
+          <h4>Edit transaction</h4>
           <p>
             {receiptUrl
               ? "Check the receipt above, then update the fields below and press "
@@ -949,7 +995,7 @@ export function TransactionsLedger({
             disabled={isDeleting}
             onClick={() => setEditingId(null)}
           >
-            Cancel
+            Back to details
           </button>
         </div>
 
@@ -969,15 +1015,22 @@ export function TransactionsLedger({
 
   function renderRowActions(expense: ExpenseRecord) {
     const receiptUrl = receiptUrls[expense.id];
+    const stopMenuEvent = (event: { stopPropagation: () => void }) => {
+      event.stopPropagation();
+    };
     return (
-      <div className="transactions-row-menu">
+      <div
+        className="transactions-row-menu"
+        onMouseDown={stopMenuEvent}
+        onClick={stopMenuEvent}
+      >
         <button
           type="button"
           className="transactions-menu-trigger"
           aria-label="Transaction actions"
-          onClick={(event) => {
-            event.stopPropagation();
-            setMenuOpenId(menuOpenId === expense.id ? null : expense.id);
+          aria-expanded={menuOpenId === expense.id}
+          onClick={() => {
+            setMenuOpenId((current) => (current === expense.id ? null : expense.id));
           }}
         >
           ⋯
@@ -989,22 +1042,23 @@ export function TransactionsLedger({
               role="menuitem"
               onClick={(event) => {
                 event.stopPropagation();
-                beginEdit(expense);
-                setSelectedId(expense.id);
+                openEditPanel(expense);
               }}
             >
               Edit transaction
             </button>
             {receiptUrl ? (
-              <a
-                href={receiptUrl}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                type="button"
                 role="menuitem"
-                onClick={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setMenuOpenId(null);
+                  openReceiptFullSize(receiptUrl);
+                }}
               >
-                View receipt
-              </a>
+                View full receipt
+              </button>
             ) : null}
             <button
               type="button"
@@ -1025,14 +1079,14 @@ export function TransactionsLedger({
   }
 
   function renderDetailPanel() {
-    if (!selectedExpense) return null;
-    const receiptUrl = receiptUrls[selectedExpense.id];
-    const amount = formatTransactionAmount(selectedExpense);
-    const status = transactionStatus(selectedExpense, receiptUrls);
-    const editing = editingId === selectedExpense.id;
+    if (!panelExpense) return null;
+    const receiptUrl = receiptUrls[panelExpense.id];
+    const amount = formatTransactionAmount(panelExpense);
+    const status = transactionStatus(panelExpense, receiptUrls);
+    const editing = editingId === panelExpense.id;
 
     return (
-        <aside className="transactions-drawer" role="dialog" aria-label="Transaction details">
+        <aside className={`transactions-drawer${editing ? " transactions-drawer--editing" : ""}`} role="dialog" aria-label="Transaction details">
           <div className="transactions-drawer-header">
             <h3>{editing ? "Edit transaction" : "Transaction details"}</h3>
             <button
@@ -1046,15 +1100,15 @@ export function TransactionsLedger({
 
           <div className="transactions-drawer-body">
             {editing ? (
-              renderEditForm(selectedExpense, true, receiptUrl)
+              renderEditForm(panelExpense, receiptUrl)
             ) : (
               <>
-                {renderReceiptPreview(selectedExpense, receiptUrl)}
+                {renderReceiptPreview(panelExpense, receiptUrl, "view")}
 
                 <dl className="transactions-detail-list transactions-detail-list-simple">
                   <div>
                     <dt>Vendor</dt>
-                    <dd>{vendorName(selectedExpense)}</dd>
+                    <dd>{vendorName(panelExpense)}</dd>
                   </div>
                   <div>
                     <dt>Amount</dt>
@@ -1062,13 +1116,13 @@ export function TransactionsLedger({
                   </div>
                   <div>
                     <dt>Date</dt>
-                    <dd>{formatHumanDate(parseExpenseSortDate(selectedExpense))}</dd>
+                    <dd>{formatHumanDate(parseExpenseSortDate(panelExpense))}</dd>
                   </div>
                   <div>
                     <dt>2% fund</dt>
                     <dd>
-                      {isTwoPercentFund(selectedExpense) ? (
-                        <TwoPercentColumnCell expense={selectedExpense} />
+                      {isTwoPercentFund(panelExpense) ? (
+                        <TwoPercentColumnCell expense={panelExpense} />
                       ) : (
                         "No"
                       )}
@@ -1076,13 +1130,13 @@ export function TransactionsLedger({
                   </div>
                   <div>
                     <dt>Account</dt>
-                    <dd>{selectedExpense.bank_account_name || "—"}</dd>
+                    <dd>{panelExpense.bank_account_name || "—"}</dd>
                   </div>
                   <div>
                     <dt>Category</dt>
                     <dd>
-                      <span className={`transactions-cat-pill ${categoryPillClass(selectedExpense.category)}`}>
-                        {categoryLabel(selectedExpense)}
+                      <span className={`transactions-cat-pill ${categoryPillClass(panelExpense.category)}`}>
+                        {categoryLabel(panelExpense)}
                       </span>
                     </dd>
                   </div>
@@ -1094,37 +1148,13 @@ export function TransactionsLedger({
                       </span>
                     </dd>
                   </div>
-                  {(selectedExpense.description || selectedExpense.payment_reference) && (
+                  {(panelExpense.description || panelExpense.payment_reference) && (
                     <div>
                       <dt>Notes</dt>
-                      <dd>{selectedExpense.description || selectedExpense.payment_reference}</dd>
+                      <dd>{panelExpense.description || panelExpense.payment_reference}</dd>
                     </div>
                   )}
                 </dl>
-
-                <div className="transactions-drawer-actions">
-                  <button type="button" className="fb-primary-btn" onClick={() => beginEdit(selectedExpense)}>
-                    Edit transaction
-                  </button>
-                  {receiptUrl ? (
-                    <a
-                      className="fb-secondary-btn transactions-drawer-link"
-                      href={receiptUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      View receipt
-                    </a>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="transactions-delete-btn transactions-drawer-delete"
-                    disabled={deletingId === selectedExpense.id}
-                    onClick={() => void deleteExpense(selectedExpense)}
-                  >
-                    {deletingId === selectedExpense.id ? "Deleting…" : "Delete"}
-                  </button>
-                </div>
 
                 <div className="transactions-similar-card">
                   <h4>Same vendor</h4>
@@ -1161,7 +1191,7 @@ export function TransactionsLedger({
   }
 
   return (
-    <section className="card transactions-page">
+    <section className={`card transactions-page${panelExpense ? " has-drawer" : ""}`}>
       <header className="transactions-page-header">
         <h2>Transactions</h2>
         <p className="muted">Search, filter, and review all department transactions.</p>
@@ -1433,7 +1463,7 @@ export function TransactionsLedger({
                   return (
                     <tr
                       key={expense.id}
-                      className={`transactions-row${isSelected ? " is-selected" : ""}`}
+                      className={`transactions-row${isSelected ? " is-selected" : ""}${menuOpenId === expense.id ? " is-menu-open" : ""}`}
                       onClick={() => {
                         setEditingId(null);
                         setSelectedId(expense.id);
@@ -1468,7 +1498,7 @@ export function TransactionsLedger({
                         </span>
                       </td>
                       <td className="transactions-col-actions" onClick={(event) => event.stopPropagation()}>
-                        {editingId === expense.id ? null : renderRowActions(expense)}
+                        {renderRowActions(expense)}
                       </td>
                     </tr>
                   );
@@ -1529,7 +1559,7 @@ export function TransactionsLedger({
         </>
       )}
 
-      {selectedExpense ? renderDetailPanel() : null}
+      {panelExpense ? renderDetailPanel() : null}
     </section>
   );
 }
