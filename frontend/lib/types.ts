@@ -291,11 +291,25 @@ export type OnboardingSuggestion = {
   updated_at: string;
 };
 
+export type CategoryGroup = "two_percent" | "general";
+export type CategoryDefaultType = "expense" | "income" | "both";
+export type TwoPercentGuidance =
+  | "likely_eligible"
+  | "needs_review"
+  | "potentially_not_allowed"
+  | "not_two_percent";
+
 export type DepartmentCategory = {
   id: string;
   department_id: string;
   name: string;
   normalized_name: string;
+  description: string | null;
+  category_group: CategoryGroup;
+  default_type: CategoryDefaultType;
+  two_percent_guidance: TwoPercentGuidance;
+  is_system_default: boolean;
+  is_active: boolean;
   created_from: string | null;
   created_at: string;
   updated_at: string;

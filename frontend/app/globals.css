@@ -4484,8 +4484,41 @@ button.fb-receipt-opt-btn:hover {
 }
 
 .transactions-table {
-  min-width: 720px;
+  table-layout: fixed;
+  min-width: 860px;
   width: 100%;
+}
+
+.transactions-table col.transactions-col-date {
+  width: 4.25rem;
+}
+
+.transactions-table col.transactions-col-vendor {
+  width: 24%;
+}
+
+.transactions-table col.transactions-col-category {
+  width: 17%;
+}
+
+.transactions-table col.transactions-col-2pct {
+  width: 2.5rem;
+}
+
+.transactions-table col.transactions-col-account {
+  width: 16%;
+}
+
+.transactions-table col.transactions-col-amount {
+  width: 5.25rem;
+}
+
+.transactions-table col.transactions-col-status {
+  width: 6.25rem;
+}
+
+.transactions-table col.transactions-col-actions {
+  width: 2.5rem;
 }
 
 .transactions-table th {
@@ -4493,20 +4526,117 @@ button.fb-receipt-opt-btn:hover {
   white-space: nowrap;
 }
 
-.transactions-table tbody tr.transactions-row {
-  cursor: pointer;
+.transactions-table th,
+.transactions-table td {
+  overflow: hidden;
 }
 
-.transactions-table tbody tr.transactions-row:hover td {
-  background: #f8fafc;
+.transactions-col-date {
+  white-space: nowrap;
+  padding-left: 12px;
+  padding-right: 6px;
+  font-size: 0.92rem;
+  font-variant-numeric: tabular-nums;
 }
 
-.transactions-table tbody tr.transactions-row.is-selected td {
-  background: #fef2f2;
+.transactions-col-vendor {
+  min-width: 0;
 }
 
 .transactions-col-vendor strong {
   display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.35;
+}
+
+.transactions-col-category,
+.transactions-col-account {
+  min-width: 0;
+}
+
+.transactions-table td.transactions-col-account,
+.transactions-table td.transactions-col-category {
+  overflow: visible;
+}
+
+.transactions-col-category {
+  line-height: 1.4;
+  font-size: 0.92rem;
+}
+
+.transactions-col-category .transactions-cat-pill {
+  display: inline-block;
+  max-width: 100%;
+  overflow: visible;
+  text-overflow: unset;
+  white-space: normal;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.transactions-col-account {
+  overflow: visible;
+  white-space: normal;
+  line-height: 1.4;
+  font-size: 0.92rem;
+  word-break: break-word;
+}
+
+.transactions-col-2pct {
+  text-align: center;
+  white-space: nowrap;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.transactions-col-amount {
+  white-space: nowrap;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  padding-left: 8px;
+  padding-right: 12px;
+}
+
+.transactions-table th.transactions-col-amount {
+  text-align: right;
+}
+
+.transactions-col-status {
+  white-space: nowrap;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.transactions-col-status .transactions-status-pill {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.transactions-table tbody tr.transactions-row {
+  cursor: pointer;
+}
+
+.transactions-table tbody tr.transactions-row:hover {
+  background: #f8fafc;
+}
+
+.transactions-table tbody tr.transactions-row:hover td {
+  background: transparent;
+}
+
+.transactions-table tbody tr.transactions-row.is-selected {
+  background: #eef4fb;
+}
+
+.transactions-table tbody tr.transactions-row.is-selected td {
+  background: transparent;
+}
+
+.transactions-table tbody tr.transactions-row.is-selected:hover {
+  background: #e8eff8;
 }
 
 .transactions-vendor-sub {
@@ -4599,8 +4729,191 @@ button.fb-receipt-opt-btn:hover {
 }
 
 .transactions-col-actions {
-  width: 48px;
-  text-align: right;
+  width: 2.5rem;
+  text-align: center;
+  padding-left: 4px;
+  padding-right: 8px;
+}
+
+.transactions-2pct-empty {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.transactions-2pct-col-badge {
+  font-size: 0.72rem;
+  padding: 3px 8px;
+}
+
+.transactions-menu-delete {
+  color: rgb(127 29 29) !important;
+}
+
+.transactions-menu-delete:hover {
+  background: rgb(127 29 29 / 8%) !important;
+}
+
+.transactions-delete-btn {
+  border: 1px solid rgb(127 29 29 / 35%);
+  background: #ffffff;
+  color: rgb(127 29 29);
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.transactions-delete-btn:hover:not(:disabled) {
+  background: rgb(127 29 29 / 6%);
+}
+
+.transactions-delete-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.transactions-drawer-delete {
+  width: 100%;
+}
+
+.transactions-detail-list-simple {
+  gap: 12px;
+}
+
+.transactions-edit-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.transactions-edit-intro h4 {
+  margin: 0 0 6px;
+  font-size: 1.05rem;
+}
+
+.transactions-edit-intro p {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.transactions-edit-group {
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fafbfc;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.transactions-edit-group legend {
+  padding: 0 6px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.transactions-edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.transactions-edit-field > span {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.transactions-edit-field input,
+.transactions-edit-field select,
+.transactions-edit-field textarea {
+  font-size: 1rem;
+  padding: 10px 12px;
+}
+
+.transactions-edit-row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.transactions-edit-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.transactions-edit-check input {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.transactions-edit-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.transactions-edit-more {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 14px;
+  background: #ffffff;
+}
+
+.transactions-edit-more summary {
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.transactions-edit-more[open] {
+  padding-bottom: 14px;
+}
+
+.transactions-edit-danger {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.transactions-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.transactions-edit-actions .fb-primary-btn,
+.transactions-edit-actions .fb-secondary-btn {
+  flex: 1 1 140px;
+  font-size: 1rem;
+  padding: 12px 16px;
+}
+
+.transactions-mobile-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+@media (max-width: 520px) {
+  .transactions-edit-row-2 {
+    grid-template-columns: 1fr;
+  }
 }
 
 .transactions-row-menu {
@@ -4667,12 +4980,7 @@ button.fb-receipt-opt-btn:hover {
 }
 
 .transactions-drawer-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  border: 0;
-  background: rgb(23 32 51 / 42%);
-  cursor: pointer;
+  display: none;
 }
 
 .transactions-drawer {
@@ -4688,6 +4996,7 @@ button.fb-receipt-opt-btn:hover {
   border-left: 1px solid var(--border);
   background: #ffffff;
   box-shadow: -12px 0 40px rgb(23 32 51 / 14%);
+  pointer-events: auto;
 }
 
 .transactions-drawer-header {
@@ -4732,6 +5041,27 @@ button.fb-receipt-opt-btn:hover {
   border: 1px solid var(--border);
   border-radius: 14px;
   background: #f8fafc;
+}
+
+.transactions-edit-receipt {
+  margin-bottom: 0;
+}
+
+.transactions-edit-receipt img {
+  max-height: 200px;
+}
+
+.transactions-edit-receipt-link {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--brand);
+  text-decoration: none;
+}
+
+.transactions-edit-receipt-link:hover {
+  text-decoration: underline;
 }
 
 .transactions-receipt-fallback {
@@ -4826,8 +5156,33 @@ button.fb-receipt-opt-btn:hover {
 }
 
 .transactions-edit-form-compact input,
-.transactions-edit-form-compact textarea {
+.transactions-edit-form-compact textarea,
+.transactions-edit-form-compact select {
   margin: 0;
+}
+
+.transactions-edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.transactions-edit-field span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.transactions-edit-field select,
+.transactions-edit-form select {
+  width: 100%;
+}
+
+.transactions-edit-2pct-row {
+  margin: 2px 0;
 }
 
 .transactions-edit-actions {
@@ -6781,4 +7136,380 @@ button.fb-onboarding-step-btn.fb-onboarding-step-btn--active:hover {
   .fb-onboarding-upload-inner {
     padding: 28px 16px;
   }
+}
+
+/* ─── Category Management ─────────────────────────────────────────────────── */
+
+.fb-cat-management {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+.fb-cat-intro {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fb-cat-summary .fb-settings-summary-card {
+  cursor: default;
+}
+
+.fb-cat-most-used {
+  font-size: 1rem !important;
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.fb-cat-desc {
+  margin: 4px 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.fb-cat-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.fb-cat-badge--eligible {
+  background: rgb(34 197 94 / 14%);
+  color: rgb(21 128 61);
+}
+
+.fb-cat-badge--review {
+  background: rgb(245 158 11 / 16%);
+  color: rgb(146 64 14);
+}
+
+.fb-cat-badge--warn {
+  background: rgb(127 29 29 / 12%);
+  color: rgb(127 29 29);
+}
+
+.fb-cat-badge--neutral {
+  background: rgb(100 116 139 / 14%);
+  color: rgb(71 85 105);
+}
+
+.fb-cat-table-wrap {
+  margin-top: 4px;
+}
+
+.fb-cat-table td strong {
+  display: block;
+}
+
+.fb-cat-row--hidden {
+  opacity: 0.55;
+}
+
+.fb-cat-delete {
+  color: rgb(127 29 29);
+}
+
+.fb-cat-form-panel {
+  margin-bottom: 4px;
+}
+
+.fb-cat-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 0 20px 20px;
+}
+
+.fb-cat-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.fb-cat-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.fb-cat-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.fb-cat-mobile-card {
+  display: none;
+}
+
+.fb-cat-card {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 16px;
+  background: var(--card);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fb-cat-card--hidden {
+  opacity: 0.6;
+}
+
+.fb-cat-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.fb-cat-card-head h4 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.fb-cat-card-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+  margin: 0;
+}
+
+.fb-cat-card-meta div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fb-cat-card-meta dt {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.fb-cat-card-meta dd {
+  margin: 0;
+  font-size: 0.88rem;
+}
+
+@media (max-width: 768px) {
+  .fb-cat-form-row {
+    grid-template-columns: 1fr;
+  }
+
+  .fb-cat-table thead,
+  .fb-cat-table tbody > tr:not(.fb-cat-mobile-card) {
+    display: none;
+  }
+
+  .fb-cat-mobile-card {
+    display: table-row;
+  }
+
+  .fb-cat-mobile-card > td {
+    display: block;
+    padding: 0 0 12px;
+    border: none;
+  }
+
+  .fb-cat-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 480px) {
+  .fb-cat-summary {
+    grid-template-columns: 1fr;
+  }
+}
+
+.fb-cat-bank-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  padding: 0 20px 20px;
+}
+
+.fb-cat-bank-details {
+  padding: 0;
+  overflow: hidden;
+}
+
+.fb-cat-bank-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 20px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.fb-cat-bank-summary::-webkit-details-marker {
+  display: none;
+}
+
+.fb-cat-bank-summary .fb-settings-panel-title {
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+.fb-cat-bank-compact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 0 20px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.fb-cat-bank-pick {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.fb-cat-bank-pick select {
+  width: 100%;
+}
+
+.fb-cat-bank-hint {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+/* 2% category review on transactions */
+.transactions-2pct-cat-review {
+  margin: 0 0 16px;
+  border: 1px solid rgb(127 29 29 / 18%);
+  border-radius: 14px;
+  background: rgb(127 29 29 / 4%);
+  overflow: hidden;
+}
+
+.transactions-2pct-cat-review > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 16px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 0.9rem;
+}
+
+.transactions-2pct-cat-review > summary::-webkit-details-marker {
+  display: none;
+}
+
+.transactions-2pct-apply-all {
+  font-size: 0.8rem;
+  padding: 6px 12px;
+}
+
+.transactions-2pct-cat-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.transactions-2pct-cat-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+}
+
+.transactions-2pct-cat-meta {
+  flex: 1 1 160px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.transactions-2pct-cat-meta strong {
+  font-size: 0.88rem;
+}
+
+.transactions-2pct-cat-pick {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+.transactions-2pct-cat-pick select {
+  width: 100%;
+  font-size: 0.85rem;
+}
+
+.transactions-2pct-cat-row .fb-primary-btn {
+  font-size: 0.8rem;
+  padding: 6px 14px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 600px) {
+  .transactions-2pct-cat-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .transactions-2pct-cat-row .fb-primary-btn {
+    width: 100%;
+  }
+}
+
+.fb-cat-bank-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px;
+  background: var(--card);
+}
+
+.fb-cat-bank-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.fb-cat-bank-card-head strong {
+  font-size: 0.92rem;
+  line-height: 1.3;
+}
+
+.fb-cat-bank-card .fb-cat-desc {
+  flex: 1;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.fb-cat-bank-card .fb-secondary-btn {
+  align-self: flex-start;
+  margin-top: 4px;
 }

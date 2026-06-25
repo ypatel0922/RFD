@@ -35,12 +35,9 @@ import {
 } from "../lib/types";
 import {
   evaluateTwoPercentStatus,
-  suggestTwoPctCategory,
-  categoryTwoPercentStatus,
   TWO_PERCENT_STATUS_LABELS,
   TWO_PERCENT_STATUS_CLASS,
   TWO_PERCENT_DISCLAIMER,
-  TWO_PERCENT_SUGGESTED_CATEGORIES,
   type TwoPercentStatus,
 } from "../lib/two-percent-rules";
 import { buildReconciliationReport, reconciliationReportCsv } from "../lib/reports";
@@ -48,6 +45,12 @@ import { ReconciliationInboxSection } from "./reconciliation-inbox";
 import { TransactionsLedger } from "./TransactionsLedger";
 import { NysFFReportPage } from "./nys-foreign-fire-report";
 import { TaxFormFilingsSection } from "./tax-form-filings";
+import { CategoryManagementSection } from "./category-management";
+import {
+  buildCategoryOptions,
+  seedDepartmentCategories,
+  suggestCategory,
+} from "../lib/categories";
 
 type AuthMode = "login" | "signup";
 type AppView =
@@ -378,16 +381,6 @@ function buildVendorAggregates(
   });
 }
 
-const PRESET_EXPENSE_CATEGORIES = [
-  "Fuel",
-  "Supplies",
-  "Food",
-  "Training",
-  "Equipment",
-  "General",
-  "Maintenance",
-];
-
 const PAYMENT_METHOD_OPTIONS = [
   { value: "credit_card", label: "Credit Card" },
   { value: "debit_card", label: "Debit Card" },
@@ -433,73 +426,6 @@ function sortVendorSuggestions(vendors: VendorAggregate[]): VendorAggregate[] {
     if (countCmp !== 0) return countCmp;
     return a.label.localeCompare(b.label);
   });
-}
-
-function buildCategoryOptions(
-  expenses: ExpenseRecord[],
-  departmentCategories?: DepartmentCategory[],
-): string[] {
-  const seen = new Set(PRESET_EXPENSE_CATEGORIES.map((c) => c.toLowerCase()));
-  const result: string[] = [...PRESET_EXPENSE_CATEGORIES];
-  // Add department categories (from onboarding or manual) after presets
-  if (departmentCategories) {
-    for (const dc of departmentCategories) {
-      const key = dc.normalized_name;
-      if (!seen.has(key)) {
-        seen.add(key);
-        result.push(dc.name);
-      }
-    }
-  }
-  // Add expense-derived categories at the end
-  const historical: string[] = [];
-  for (const expense of expenses) {
-    const cat = (expense.category || "").trim();
-    if (!cat) continue;
-    const key = cat.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    historical.push(cat);
-  }
-  historical.sort((a, b) => a.localeCompare(b));
-  return [...result, ...historical];
-}
-
-function suggestCategoryForVendor(
-  vendor: string,
-  expenses: ExpenseRecord[],
-  departmentVendors?: DepartmentVendor[],
-): string {
-  const normalized = vendor.trim().toLowerCase();
-  if (!normalized) return "";
-  const matching = expenses.filter((expense) => {
-    const label = (expense.payee || expense.merchant_name || "").trim().toLowerCase();
-    return label === normalized && (expense.category || "").trim();
-  });
-  if (matching.length > 0) {
-    matching.sort((a, b) => parseExpenseSortDate(b).localeCompare(parseExpenseSortDate(a)));
-    const recentCategory = matching[0].category!.trim();
-    const counts = new Map<string, number>();
-    for (const expense of matching) {
-      const cat = expense.category!.trim();
-      counts.set(cat, (counts.get(cat) || 0) + 1);
-    }
-    let topCategory = recentCategory;
-    let topCount = 0;
-    for (const [cat, count] of counts) {
-      if (count > topCount) {
-        topCount = count;
-        topCategory = cat;
-      }
-    }
-    return topCount > 1 ? topCategory : recentCategory;
-  }
-  // Fall back to department vendor default category
-  if (departmentVendors) {
-    const dv = departmentVendors.find((v) => v.normalized_name === normalized);
-    if (dv?.default_category) return dv.default_category;
-  }
-  return "";
 }
 
 function formatBankAccountLabel(account: BankAccount): string {
@@ -640,17 +566,22 @@ function VendorAutocompleteField({
   );
 }
 
-/** Put 2% eligible categories at the top of the dropdown list. */
-function reorderFor2Pct(options: string[]): string[] {
+/** Put likely-eligible 2% categories first in the dropdown. */
+function reorderFor2Pct(options: string[], departmentCategories?: DepartmentCategory[]): string[] {
   const eligibleSet = new Set(
-    TWO_PERCENT_SUGGESTED_CATEGORIES.filter((c) => c.status === "likely_eligible").map((c) => c.name.toLowerCase()),
+    (departmentCategories || [])
+      .filter(
+        (c) =>
+          c.is_active &&
+          c.category_group === "two_percent" &&
+          c.two_percent_guidance === "likely_eligible",
+      )
+      .map((c) => c.normalized_name),
   );
-  const seedNames = TWO_PERCENT_SUGGESTED_CATEGORIES.filter((c) => c.status === "likely_eligible").map((c) => c.name);
-  const existingLower = new Set(options.map((o) => o.toLowerCase()));
-  const missing = seedNames.filter((n) => !existingLower.has(n.toLowerCase()));
-  const twoFirst = options.filter((o) => eligibleSet.has(o.toLowerCase()));
-  const rest = options.filter((o) => !eligibleSet.has(o.toLowerCase()));
-  return [...missing, ...twoFirst, ...rest];
+  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+  const twoFirst = options.filter((o) => eligibleSet.has(norm(o)));
+  const rest = options.filter((o) => !eligibleSet.has(norm(o)));
+  return [...twoFirst, ...rest];
 }
 
 function CategoryComboboxField({
@@ -677,7 +608,7 @@ function CategoryComboboxField({
     [expenses, departmentCategories],
   );
   const filteredCategories = useMemo(() => {
-    const allOpts = twoPctMode ? reorderFor2Pct(categoryOptions) : categoryOptions;
+    const allOpts = twoPctMode ? reorderFor2Pct(categoryOptions, departmentCategories) : categoryOptions;
     const q = value.trim().toLowerCase();
     if (!q) return allOpts.slice(0, 12);
     return allOpts.filter((option) => option.toLowerCase().includes(q)).slice(0, 12);
@@ -956,20 +887,27 @@ function ManualExpenseForm({
         setBankAccount(twoPctAcct.name);
       }
       if (!category) {
-        const suggestion = suggestTwoPctCategory(payee) ?? suggestCategoryForVendor(payee, expenses, departmentVendors);
+        const suggestion = suggestCategory({
+          vendor: payee,
+          expenses,
+          departmentCategories,
+          departmentVendors,
+          isTwoPctAccount: true,
+        });
         if (suggestion) setCategory(suggestion);
       }
     }
   }
 
   function handleVendorChange(nextVendor: string) {
-    const historySuggestion = suggestCategoryForVendor(nextVendor, expenses, departmentVendors);
-    if (historySuggestion) {
-      setCategory(historySuggestion);
-    } else if (isTwoPctTagged) {
-      const twoPctSuggestion = suggestTwoPctCategory(nextVendor);
-      if (twoPctSuggestion) setCategory(twoPctSuggestion);
-    }
+    const suggestion = suggestCategory({
+      vendor: nextVendor,
+      expenses,
+      departmentCategories,
+      departmentVendors,
+      isTwoPctAccount: isTwoPctTagged,
+    });
+    if (suggestion) setCategory(suggestion);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1219,12 +1157,24 @@ export default function Home() {
   }
 
   async function loadDepartmentCategories(departmentId: string) {
+    await seedDepartmentCategories(supabase, departmentId);
     const { data } = await supabase
       .from("department_categories")
       .select("*")
       .eq("department_id", departmentId)
       .order("name");
-    setDepartmentCategories((data as DepartmentCategory[] | null) ?? []);
+    const rows = (data as DepartmentCategory[] | null) ?? [];
+    setDepartmentCategories(
+      rows.map((row) => ({
+        ...row,
+        description: row.description ?? null,
+        category_group: row.category_group ?? "general",
+        default_type: row.default_type ?? "expense",
+        two_percent_guidance: row.two_percent_guidance ?? "not_two_percent",
+        is_system_default: row.is_system_default ?? false,
+        is_active: row.is_active ?? true,
+      })),
+    );
   }
 
   async function loadDepartmentVendors(departmentId: string) {
@@ -1767,6 +1717,10 @@ export default function Home() {
                 ledgerMayTruncate={expenses.length >= LEDGER_ALL_LIMIT}
                 bankAccountFilter={ledgerBankAccountFilter}
                 onClearBankAccountFilter={() => setLedgerBankAccountFilter("")}
+                bankAccounts={bankAccounts}
+                departmentCategories={departmentCategories}
+                departmentVendors={departmentVendors}
+                onCategoriesChanged={() => loadDepartmentCategories(membership.department_id)}
               />
             </div>
           ) : view === "reconciliation" ? (
@@ -1842,6 +1796,7 @@ export default function Home() {
               expenses={expenses}
               departmentSettings={departmentSettings}
               departmentCategories={departmentCategories}
+              departmentVendors={departmentVendors}
               activeSection={settingsSection}
               onSectionChange={setSettingsSection}
               onBankAccountsChanged={handleBankAccountsChanged}
@@ -2661,19 +2616,34 @@ function NewExpensePage({
     setDraft(nextDraft);
     const resolvedBankAccount = extracted.bank_account_name || guessBankAccount(extracted.payee || extracted.merchant_name || "");
     const resolvedAccount = bankAccounts.find((a) => a.name.toLowerCase() === resolvedBankAccount.toLowerCase());
+    const isTwoPct = Boolean(resolvedAccount?.is_two_percent_account);
+    const payee = extracted.payee || extracted.merchant_name || "";
+    const ocrCategory = extracted.category || "";
+    const suggestedCategory =
+      ocrCategory ||
+      suggestCategory({
+        vendor: payee,
+        description: extracted.description,
+        ocrText: [extracted.description, extracted.merchant_name, extracted.payee].filter(Boolean).join(" "),
+        expenses,
+        departmentCategories,
+        departmentVendors,
+        isTwoPctAccount: isTwoPct,
+      }) ||
+      "";
     setReviewForm({
       fund: nextDraft.fund,
       payment_reference: extracted.payment_reference || "",
-      payee: extracted.payee || extracted.merchant_name || "",
+      payee,
       description: extracted.description || "",
       bank_account_name: resolvedBankAccount,
       transaction_date: extracted.transaction_date || "",
       total_amount: extracted.total_amount || "",
       tax_amount: extracted.tax_amount || "",
       balance_after_transaction: extracted.balance_after_transaction || "",
-      category: extracted.category || "",
+      category: suggestedCategory,
       payment_method: matchPaymentMethod(extracted.payment_method || ""),
-      uses_two_percent_funds: Boolean(resolvedAccount?.is_two_percent_account),
+      uses_two_percent_funds: isTwoPct,
       member_vote_recorded: false,
       meeting_date: "",
       support_note: "",
@@ -3516,7 +3486,17 @@ function ReviewExpenseForm({
     if (checked) {
       const twoPctAcct = bankAccounts.find((a) => a.is_two_percent_account);
       const newAcct = twoPctAcct && form.bank_account_name.toLowerCase() !== twoPctAcct.name.toLowerCase() ? twoPctAcct.name : form.bank_account_name;
-      const newCategory = !form.category ? (suggestTwoPctCategory(form.payee) ?? suggestCategoryForVendor(form.payee, expenses, departmentVendors) ?? form.category) : form.category;
+      const newCategory = !form.category
+        ? (suggestCategory({
+            vendor: form.payee,
+            description: form.description,
+            ocrText: draft.extracted.description,
+            expenses,
+            departmentCategories,
+            departmentVendors,
+            isTwoPctAccount: true,
+          }) ?? form.category)
+        : form.category;
       setForm({ ...form, uses_two_percent_funds: true, bank_account_name: newAcct, category: newCategory });
     } else {
       update("uses_two_percent_funds", false);
@@ -3524,13 +3504,16 @@ function ReviewExpenseForm({
   }
 
   function handleVendorChange(vendor: string) {
-    const historySuggestion = suggestCategoryForVendor(vendor, expenses, departmentVendors);
-    if (historySuggestion) {
-      update("category", historySuggestion);
-    } else if (form.uses_two_percent_funds) {
-      const twoPctSuggestion = suggestTwoPctCategory(vendor);
-      if (twoPctSuggestion) update("category", twoPctSuggestion);
-    }
+    const suggestion = suggestCategory({
+      vendor,
+      description: form.description,
+      ocrText: draft.extracted.description,
+      expenses,
+      departmentCategories,
+      departmentVendors,
+      isTwoPctAccount: form.uses_two_percent_funds,
+    });
+    if (suggestion) update("category", suggestion);
   }
 
   const isTwoPct = Boolean(form.uses_two_percent_funds);
@@ -4289,6 +4272,7 @@ function Settings({
   expenses,
   departmentSettings,
   departmentCategories,
+  departmentVendors,
   activeSection,
   onSectionChange,
   onBankAccountsChanged,
@@ -4308,6 +4292,7 @@ function Settings({
   expenses: ExpenseRecord[];
   departmentSettings: DepartmentSetting | null;
   departmentCategories: DepartmentCategory[];
+  departmentVendors: DepartmentVendor[];
   activeSection: SettingsSectionId;
   onSectionChange: (section: SettingsSectionId) => void;
   onBankAccountsChanged: () => Promise<void>;
@@ -4844,6 +4829,11 @@ function Settings({
             department_id: membership.department_id,
             name: value,
             normalized_name: normalized,
+            category_group: "general",
+            default_type: suggestion.suggestion_type === "income_type" ? "income" : "expense",
+            two_percent_guidance: "not_two_percent",
+            is_system_default: false,
+            is_active: true,
             created_from: "onboarding",
           });
           if (error) throw error;
@@ -4943,6 +4933,11 @@ function Settings({
             department_id: membership.department_id,
             name: finalValue,
             normalized_name: normalized,
+            category_group: "general",
+            default_type: suggestion.suggestion_type === "income_type" ? "income" : "expense",
+            two_percent_guidance: "not_two_percent",
+            is_system_default: false,
+            is_active: true,
             created_from: "onboarding",
           });
           if (error) throw error;
@@ -6151,53 +6146,16 @@ function Settings({
           </button>,
         );
       case "categories":
-        return renderPlaceholderCard(
-          "Categories",
-          "Create and organize categories for transactions and new expense entries.",
-          <>
-            {categories.length ? (
-              <>
-                <p>
-                  <strong>{categories.length}</strong> categories in use from your expense ledger.
-                  Firebook shows a 2% eligibility indicator based on the NYS 2% Fund Manual.
-                </p>
-                <div className="fb-settings-tag-list">
-                  {categories.map((category) => {
-                    const status = categoryTwoPercentStatus(category);
-                    return (
-                      <span key={category} className="fb-settings-tag fb-settings-tag--with-status">
-                        {category}
-                        {status ? (
-                          <span className={`fb-2pct-cat-dot fb-2pct-cat-dot--${status}`} title={TWO_PERCENT_STATUS_LABELS[status]} />
-                        ) : null}
-                      </span>
-                    );
-                  })}
-                </div>
-                <div className="fb-2pct-cat-legend">
-                  <span><span className="fb-2pct-cat-dot fb-2pct-cat-dot--likely_eligible" /> Likely 2% eligible</span>
-                  <span><span className="fb-2pct-cat-dot fb-2pct-cat-dot--needs_review" /> Needs review</span>
-                  <span><span className="fb-2pct-cat-dot fb-2pct-cat-dot--potentially_not_allowed" /> Potentially not allowed</span>
-                </div>
-              </>
-            ) : (
-              <p className="muted">Categories will appear as you log expenses with a category field.</p>
-            )}
-            <details className="fb-2pct-suggested-cats">
-              <summary>Suggested 2% fund categories from the NYS manual</summary>
-              <div className="fb-settings-tag-list" style={{ marginTop: 12 }}>
-                {TWO_PERCENT_SUGGESTED_CATEGORIES.map((item) => (
-                  <span key={item.name} className="fb-settings-tag fb-settings-tag--with-status">
-                    {item.name}
-                    <span className={`fb-2pct-cat-dot fb-2pct-cat-dot--${item.status}`} title={TWO_PERCENT_STATUS_LABELS[item.status]} />
-                  </span>
-                ))}
-              </div>
-            </details>
-          </>,
-          <button type="button" className="fb-secondary-btn" disabled>
-            Manage categories (soon)
-          </button>,
+        return (
+          <CategoryManagementSection
+            departmentId={membership.department_id}
+            departmentCategories={departmentCategories}
+            departmentVendors={departmentVendors}
+            expenses={expenses}
+            onCategoriesChanged={onCategoriesChanged}
+            showErrorMessage={showErrorMessage}
+            showSuccessMessage={showSuccessMessage}
+          />
         );
       case "permissions":
         return renderPlaceholderCard(
