@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { plaidClient, supabaseAdmin } from "../_lib";
+import { logAuditEvent } from "../../../../lib/audit-server";
 import {
   buildReceiptRequestMessage,
   generateRequestCode,
@@ -100,6 +101,20 @@ export async function POST(request: NextRequest) {
           .eq("external_transaction_id", tx.transaction_id);
         if (updateTx.error) throw new Error(updateTx.error.message);
         matched += 1;
+        await logAuditEvent({
+          departmentId,
+          action: "transaction.plaid_matched",
+          resourceType: "expense",
+          resourceId: match.id,
+          resourceLabel: match.payee || match.merchant_name || undefined,
+          afterData: {
+            reconciliation_status: "matched",
+            bank_posted_date: tx.date,
+            bank_description: tx.name,
+          },
+          metadata: { plaidTransactionId: tx.transaction_id },
+          request,
+        });
       }
 
       // Post-import: request receipts for new expense-type transactions
@@ -167,6 +182,24 @@ export async function POST(request: NextRequest) {
           if (requestStatus === "pending") receiptRequestsSent += 1;
         }
       }
+    }
+
+    await logAuditEvent({
+      departmentId,
+      action: "plaid.sync_run",
+      resourceType: "plaid",
+      metadata: { inserted, matched, receiptRequestsSent },
+      request,
+    });
+
+    if (inserted > 0) {
+      await logAuditEvent({
+        departmentId,
+        action: "plaid.transaction_imported",
+        resourceType: "plaid",
+        metadata: { count: inserted },
+        request,
+      });
     }
 
     return NextResponse.json({ ok: true, inserted, matched, receiptRequestsSent });

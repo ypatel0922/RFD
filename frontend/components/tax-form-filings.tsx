@@ -2,6 +2,7 @@
 
 import { ChangeEvent, useEffect, useRef, useState } from "react";
 import { supabase, taxFormsBucket } from "../lib/supabase";
+import { logAuditFromBrowser } from "../lib/audit";
 import type { DepartmentMembership, TaxFormFiling } from "../lib/types";
 
 // ─────────────────────────────────────────────────────────
@@ -122,6 +123,15 @@ export function TaxFormFilingsSection({
       a.download = filing.file_name || `nys-2pct-${filing.tax_year}.pdf`;
       a.click();
     }
+    void logAuditFromBrowser({
+      departmentId,
+      userRole: membership.role,
+      action: "report.downloaded",
+      resourceType: "tax_filing",
+      resourceId: filing.id,
+      resourceLabel: `${filing.tax_year} ${sourceLabel(filing.source)}`,
+      metadata: { taxYear: filing.tax_year, source: filing.source },
+    });
   }
 
   // ── Replace uploaded filing ─────────────────────────────
@@ -179,6 +189,15 @@ export function TaxFormFilingsSection({
             : f,
         ),
       );
+      void logAuditFromBrowser({
+        departmentId,
+        userRole: membership.role,
+        action: "report.prior_year_replaced",
+        resourceType: "tax_filing",
+        resourceId: replaceTarget.id,
+        resourceLabel: `${replaceTarget.tax_year} prior filing`,
+        metadata: { filename: file.name },
+      });
     } finally {
       setIsReplacing(false);
       setReplaceTarget(null);

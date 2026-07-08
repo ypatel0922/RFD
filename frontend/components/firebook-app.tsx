@@ -47,6 +47,8 @@ import { TransactionsLedger } from "./TransactionsLedger";
 import { NysFFReportPage } from "./nys-foreign-fire-report";
 import { TaxFormFilingsSection } from "./tax-form-filings";
 import { CategoryManagementSection } from "./category-management";
+import { AuditTrailSection } from "./audit-trail";
+import { expenseAuditSnapshot, invalidateAuditTrailEnabledCache, logAuditFromBrowser } from "../lib/audit";
 import {
   buildCategoryOptions,
   seedDepartmentCategories,
@@ -1064,6 +1066,20 @@ export default function Home() {
     setMessage(nextMessage);
   }
 
+  async function handleLogout() {
+    if (membership && session?.user) {
+      void logAuditFromBrowser({
+        departmentId: membership.department_id,
+        userRole: membership.role,
+        action: "auth.logout",
+        resourceType: "auth",
+        resourceId: session.user.id,
+        resourceLabel: session.user.email || undefined,
+      });
+    }
+    await supabase.auth.signOut();
+  }
+
   useEffect(() => {
     if (typeof window === "undefined" || !window.matchMedia) return;
     const mq = window.matchMedia("(max-width: 900px)");
@@ -1391,6 +1407,22 @@ export default function Home() {
           if (!nextSession.user) return;
           try {
             await loadMembership(nextSession.user);
+            const { data: memberRow } = await supabase
+              .from("department_members")
+              .select("department_id, role")
+              .eq("user_id", nextSession.user.id)
+              .limit(1)
+              .maybeSingle();
+            if (memberRow) {
+              void logAuditFromBrowser({
+                departmentId: memberRow.department_id,
+                userRole: memberRow.role,
+                action: "auth.login_success",
+                resourceType: "auth",
+                resourceId: nextSession.user.id,
+                resourceLabel: nextSession.user.email || undefined,
+              });
+            }
           } catch (error) {
             await supabase.auth.signOut();
             const message =
@@ -1475,7 +1507,7 @@ export default function Home() {
               <span className="fb-user-chip-role">{membership.role}</span>
             </div>
           </div>
-          <button type="button" className="fb-topbar-logout" onClick={() => void supabase.auth.signOut()}>
+          <button type="button" className="fb-topbar-logout" onClick={() => void handleLogout()}>
             Log out
           </button>
         </div>
@@ -1668,7 +1700,7 @@ export default function Home() {
               <p className="fb-sidebar-dept">{membership.departments?.name || "Fire Department"}</p>
               <p className="fb-sidebar-email">{session.user.email}</p>
               <p className="fb-sidebar-role">{membership.role}</p>
-              <button type="button" className="fb-sidebar-signout" onClick={() => void supabase.auth.signOut()}>
+              <button type="button" className="fb-sidebar-signout" onClick={() => void handleLogout()}>
                 Sign out
               </button>
             </div>
@@ -1723,6 +1755,8 @@ export default function Home() {
                 expenses={expenses}
                 receiptUrls={receiptUrls}
                 user={session.user}
+                departmentId={membership.department_id}
+                userRole={membership.role}
                 onExpensesChanged={() => loadExpenses(membership.department_id)}
                 showErrorMessage={showErrorMessage}
                 showSuccessMessage={showSuccessMessage}
@@ -1951,6 +1985,15 @@ function LoginForm({
       }
       setForgotIsError(false);
       setForgotMessage("Check your email for a password reset link.");
+      void fetch("/api/audit-log/public", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "auth.password_reset_requested",
+          email,
+          resourceType: "auth",
+        }),
+      });
     } catch (error) {
       setForgotIsError(true);
       setForgotMessage(
@@ -2753,6 +2796,80 @@ function NewExpensePage({
       setDraft(null);
       setReviewForm(null);
       showSuccessMessage("Expense logged. It is waiting for a bank transaction match.");
+      const ocrFields = ["payee", "total_amount", "transaction_date", "category", "bank_account_name", "description"] as const;
+      const extracted = draft.extracted;
+      const ocrOverridden = ocrFields.some((field) => {
+        const ocrVal = String(
+          field === "payee"
+            ? extracted.payee || extracted.merchant_name || ""
+            : (extracted as Record<string, unknown>)[field] || "",
+        ).trim();
+        const formVal = String(
+          field === "payee"
+            ? reviewForm.payee || ""
+            : (reviewForm as Record<string, unknown>)[field] || "",
+        ).trim();
+        return ocrVal !== formVal;
+      });
+      void logAuditFromBrowser({
+        departmentId: membership.department_id,
+        userRole: membership.role,
+        action: "receipt.uploaded",
+        resourceType: "expense",
+        resourceId: draft.id,
+        resourceLabel: reviewForm.payee || draft.receiptFile.name,
+        afterData: expenseAuditSnapshot({
+          payee: reviewForm.payee,
+          total_amount: reviewForm.total_amount,
+          transaction_date: reviewForm.transaction_date,
+          category: reviewForm.category,
+          bank_account_name: reviewForm.bank_account_name,
+          description: reviewForm.description,
+          uses_two_percent_funds: reviewForm.uses_two_percent_funds,
+        }),
+        metadata: { filename: draft.receiptFile.name },
+      });
+      void logAuditFromBrowser({
+        departmentId: membership.department_id,
+        userRole: membership.role,
+        action: "transaction.created",
+        resourceType: "expense",
+        resourceId: draft.id,
+        resourceLabel: reviewForm.payee || "Receipt expense",
+        afterData: expenseAuditSnapshot({
+          payee: reviewForm.payee,
+          total_amount: reviewForm.total_amount,
+          transaction_date: reviewForm.transaction_date,
+          category: reviewForm.category,
+          bank_account_name: reviewForm.bank_account_name,
+          description: reviewForm.description,
+          uses_two_percent_funds: reviewForm.uses_two_percent_funds,
+        }),
+      });
+      void logAuditFromBrowser({
+        departmentId: membership.department_id,
+        userRole: membership.role,
+        action: ocrOverridden ? "ocr.fields_overridden" : "ocr.fields_accepted",
+        resourceType: "expense",
+        resourceId: draft.id,
+        resourceLabel: reviewForm.payee || "Receipt OCR",
+        beforeData: {
+          payee: extracted.payee || extracted.merchant_name,
+          total_amount: extracted.total_amount,
+          transaction_date: extracted.transaction_date,
+          category: extracted.category,
+          bank_account_name: extracted.bank_account_name,
+          description: extracted.description,
+        },
+        afterData: {
+          payee: reviewForm.payee,
+          total_amount: reviewForm.total_amount,
+          transaction_date: reviewForm.transaction_date,
+          category: reviewForm.category,
+          bank_account_name: reviewForm.bank_account_name,
+          description: reviewForm.description,
+        },
+      });
       void onExpensesChanged().catch((error: unknown) => {
         const message = error instanceof Error ? error.message : "Expense saved, but refresh failed.";
         showErrorMessage(message);
@@ -2814,6 +2931,35 @@ function NewExpensePage({
       showErrorMessage(result.error.message);
       setManualWorking(false);
       return;
+    }
+    const expenseId = payload.id as string;
+    void logAuditFromBrowser({
+      departmentId: membership.department_id,
+      userRole: membership.role,
+      action: "transaction.created",
+      resourceType: "expense",
+      resourceId: expenseId,
+      resourceLabel: values.payee || "Manual expense",
+      afterData: expenseAuditSnapshot({
+        payee: values.payee,
+        total_amount: values.total_amount,
+        transaction_date: values.transaction_date,
+        category: values.category,
+        bank_account_name: values.bank_account_name,
+        description: values.description,
+        uses_two_percent_funds: values.uses_two_percent_funds,
+      }),
+      metadata: { source: "manual" },
+    });
+    if (values.uses_two_percent_funds) {
+      void logAuditFromBrowser({
+        departmentId: membership.department_id,
+        userRole: membership.role,
+        action: "transaction.two_percent_included",
+        resourceType: "expense",
+        resourceId: expenseId,
+        resourceLabel: values.payee || "Manual expense",
+      });
     }
     showSuccessMessage("Manual expense logged.");
     setManualFormKey((k) => k + 1);
@@ -3790,6 +3936,14 @@ function Reports({
     link.download = `reconciliation-${startDate}-${endDate}.csv`;
     link.click();
     URL.revokeObjectURL(url);
+    void logAuditFromBrowser({
+      departmentId: membership.department_id,
+      userRole: membership.role,
+      action: "report.downloaded",
+      resourceType: "report",
+      resourceLabel: `Reconciliation ${startDate} to ${endDate}`,
+      metadata: { reportType: "reconciliation", startDate, endDate, bankAccountName },
+    });
   }
 
   async function handleStatementUpload(event: ChangeEvent<HTMLInputElement>) {
@@ -3997,7 +4151,8 @@ type SettingsSectionId =
   | "permissions"
   | "compliance"
   | "notifications"
-  | "security";
+  | "security"
+  | "audit_trail";
 
 const SETTINGS_NAV: { id: SettingsSectionId; label: string }[] = [
   { id: "overview", label: "Overview" },
@@ -4009,6 +4164,7 @@ const SETTINGS_NAV: { id: SettingsSectionId; label: string }[] = [
   { id: "compliance", label: "Compliance" },
   { id: "notifications", label: "Notifications" },
   { id: "security", label: "Security" },
+  { id: "audit_trail", label: "Audit Trail" },
 ];
 
 type ExternalPlaidAccount = {
@@ -4608,6 +4764,29 @@ function Settings({
       return;
     }
     showSuccessMessage("Bank account saved.");
+    void logAuditFromBrowser({
+      departmentId: membership.department_id,
+      userRole: membership.role,
+      action: "bank_account.added",
+      resourceType: "bank_account",
+      resourceLabel: name,
+      afterData: {
+        name,
+        institution_name: institution || null,
+        account_mask: accountMask || null,
+        is_default: isDefault,
+        is_two_percent_account: isTwoPct,
+      },
+    });
+    if (isTwoPct) {
+      void logAuditFromBrowser({
+        departmentId: membership.department_id,
+        userRole: membership.role,
+        action: "bank_account.nys_tagged",
+        resourceType: "bank_account",
+        resourceLabel: name,
+      });
+    }
   }
 
   async function makeDefault(accountId: string) {
@@ -4619,6 +4798,15 @@ function Settings({
     }
     await onBankAccountsChanged();
     showSuccessMessage("Default account updated.");
+    void logAuditFromBrowser({
+      departmentId: membership.department_id,
+      userRole: membership.role,
+      action: "bank_account.edited",
+      resourceType: "bank_account",
+      resourceId: accountId,
+      resourceLabel: "Default account changed",
+      afterData: { is_default: true },
+    });
   }
 
   async function setTwoPercentAccount(accountId: string, value: boolean) {
@@ -4641,6 +4829,14 @@ function Settings({
     }
     await onBankAccountsChanged();
     showSuccessMessage(value ? "Account tagged as 2% Funds account." : "2% Funds tag removed.");
+    void logAuditFromBrowser({
+      departmentId: membership.department_id,
+      userRole: membership.role,
+      action: value ? "bank_account.nys_tagged" : "bank_account.nys_untagged",
+      resourceType: "bank_account",
+      resourceId: accountId,
+      resourceLabel: bankAccounts.find((a) => a.id === accountId)?.name,
+    });
   }
 
   async function toggleAutoLog(autoLog: boolean) {
@@ -4655,6 +4851,23 @@ function Settings({
     }
     await onDepartmentSettingsChanged();
     showSuccessMessage("Statement auto-log setting saved.");
+  }
+
+  async function toggleAuditTrail(enabled: boolean) {
+    const { error } = await supabase.from("department_settings").upsert({
+      department_id: membership.department_id,
+      audit_trail_enabled: enabled,
+      updated_at: new Date().toISOString(),
+    });
+    if (error) {
+      showErrorMessage(error.message);
+      return;
+    }
+    invalidateAuditTrailEnabledCache(membership.department_id);
+    await onDepartmentSettingsChanged();
+    showSuccessMessage(
+      enabled ? "Audit Trail enabled. Important actions will now be recorded." : "Audit Trail turned off.",
+    );
   }
 
   // ── Onboarding actions ────────────────────────────────────────────────────
@@ -4904,6 +5117,14 @@ function Settings({
           });
           if (error) throw error;
           feedbackMsg = `"${value}" added to Categories.`;
+          void logAuditFromBrowser({
+            departmentId: membership.department_id,
+            userRole: membership.role,
+            action: "category.created",
+            resourceType: "category",
+            resourceLabel: value,
+            metadata: { source: "onboarding" },
+          });
           await onCategoriesChanged();
         }
       } else if (suggestion.suggestion_type === "vendor") {
@@ -4925,6 +5146,14 @@ function Settings({
           });
           if (error) throw error;
           feedbackMsg = `"${value}" added to Vendors.`;
+          void logAuditFromBrowser({
+            departmentId: membership.department_id,
+            userRole: membership.role,
+            action: "vendor.created",
+            resourceType: "vendor",
+            resourceLabel: value,
+            metadata: { source: "onboarding" },
+          });
           await onVendorsChanged();
         }
       } else if (suggestion.suggestion_type === "account") {
@@ -4943,6 +5172,14 @@ function Settings({
           if (error) throw error;
           await onBankAccountsChanged();
           feedbackMsg = `"${value}" added to Accounts.`;
+          void logAuditFromBrowser({
+            departmentId: membership.department_id,
+            userRole: membership.role,
+            action: "bank_account.added",
+            resourceType: "bank_account",
+            resourceLabel: value,
+            metadata: { source: "onboarding" },
+          });
         }
       }
 
@@ -6215,6 +6452,7 @@ function Settings({
         return (
           <CategoryManagementSection
             departmentId={membership.department_id}
+            userRole={membership.role}
             departmentCategories={departmentCategories}
             departmentVendors={departmentVendors}
             expenses={expenses}
@@ -6260,7 +6498,7 @@ function Settings({
               </li>
               <li className="muted">NYS 2% annual report — see Tax Forms tab</li>
               <li className="muted">IRS Form 990 package — in preparation</li>
-              <li className="muted">Audit trail via Transactions and Reports</li>
+              <li className="muted">Audit trail — see Settings → Audit Trail</li>
             </ul>
             <div style={{ marginTop: 16, borderTop: "1px solid var(--fb-border)", paddingTop: 14 }}>
               <p className="eyebrow" style={{ marginBottom: 8 }}>2% Expense Guidance</p>
@@ -6391,7 +6629,30 @@ function Settings({
               Signed in as <strong>{user.email}</strong> · role <strong>{membership.role}</strong>
             </p>
             <p className="muted">Password changes and active session management will be available here soon.</p>
+            <div style={{ marginTop: 16, borderTop: "1px solid var(--fb-border)", paddingTop: 14 }}>
+              <label className="fb-settings-toggle">
+                <input
+                  type="checkbox"
+                  checked={Boolean(departmentSettings?.audit_trail_enabled)}
+                  onChange={(event) => void toggleAuditTrail(event.target.checked)}
+                />
+                <span>
+                  Enable Audit Trail
+                  <span className="fb-settings-helper-text">
+                    {" "}When enabled, Firebook records important user actions like transaction edits, receipt uploads, bank account changes, and report generation.
+                  </span>
+                </span>
+              </label>
+            </div>
           </>,
+        );
+      case "audit_trail":
+        return (
+          <AuditTrailSection
+            membership={membership}
+            auditTrailEnabled={Boolean(departmentSettings?.audit_trail_enabled)}
+            onOpenSettings={() => onSectionChange("security")}
+          />
         );
       default:
         return null;
@@ -6925,6 +7186,20 @@ async function applyStatementReconciliation({
         })
         .eq("id", top.expense.id);
       matched += 1;
+      void logAuditFromBrowser({
+        departmentId: membership.department_id,
+        userRole: membership.role,
+        action: "transaction.reconciled",
+        resourceType: "expense",
+        resourceId: top.expense.id,
+        resourceLabel: top.expense.payee || top.expense.merchant_name || undefined,
+        afterData: {
+          reconciliation_status: "matched",
+          bank_posted_date: tx.posted_date,
+          bank_description: tx.description,
+        },
+        metadata: { source: "statement" },
+      });
       txResults.push({
         tx,
         status: "matched",
