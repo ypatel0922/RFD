@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 
 import { supabase } from "../lib/supabase";
-import type { BankAccount, DepartmentMembership, ExpenseRecord } from "../lib/types";
+import type { BankAccount, DepartmentMembership, ExpenseRecord, ReceiptRequest } from "../lib/types";
 
 function expenseNumericAmount(total: ExpenseRecord["total_amount"]): number | null {
   if (total == null) return null;
@@ -125,15 +125,19 @@ function ReconciliationIssueCell({ issues }: { issues: ReconciliationIssueKey[] 
 function ReconciliationRowMenu({
   expense,
   receiptUrls,
+  receiptRequest,
   onReview,
   onMatch,
   onAddReceipt,
+  onSendReceiptText,
 }: {
   expense: ExpenseRecord;
   receiptUrls: Record<string, string>;
+  receiptRequest?: ReceiptRequest | null;
   onReview: () => void;
   onMatch: () => void;
   onAddReceipt: () => void;
+  onSendReceiptText?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -143,6 +147,7 @@ function ReconciliationRowMenu({
     expense.reconciliation_status === "unreconciled" ||
     expense.reconciliation_status === "needs_attention" ||
     expense.reconciliation_candidate;
+  const hasPendingRequest = receiptRequest?.status === "pending";
 
   useEffect(() => {
     if (!open) return;
@@ -202,16 +207,32 @@ function ReconciliationRowMenu({
             </button>
           ) : null}
           {!hasReceipt ? (
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setOpen(false);
-                onAddReceipt();
-              }}
-            >
-              Add receipt
-            </button>
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setOpen(false);
+                  onAddReceipt();
+                }}
+              >
+                Add receipt
+              </button>
+              {onSendReceiptText ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setOpen(false);
+                    onSendReceiptText();
+                  }}
+                >
+                  {hasPendingRequest
+                    ? `Receipt text pending (${receiptRequest?.request_code})`
+                    : "Send receipt text"}
+                </button>
+              ) : null}
+            </>
           ) : (
             <a
               role="menuitem"
@@ -316,6 +337,8 @@ export function ReconciliationInboxSection({
   onOpenUploadStatement,
   onOpenTransactions,
   onOpenNewExpense,
+  receiptRequests = [],
+  onReceiptRequestsChanged,
 }: {
   expenses: ExpenseRecord[];
   receiptUrls: Record<string, string>;
@@ -329,6 +352,8 @@ export function ReconciliationInboxSection({
   onOpenUploadStatement: () => void;
   onOpenTransactions: () => void;
   onOpenNewExpense: () => void;
+  receiptRequests?: ReceiptRequest[];
+  onReceiptRequestsChanged?: () => Promise<void>;
 }) {
   const [accountFilter, setAccountFilter] = useState("");
   const [periodFilter, setPeriodFilter] = useState("");
@@ -337,6 +362,7 @@ export function ReconciliationInboxSection({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [lastBankSync, setLastBankSync] = useState<string | null>(null);
   const [statementPeriods, setStatementPeriods] = useState<Array<{ key: string; label: string }>>([]);
+  const [sendingReceiptText, setSendingReceiptText] = useState<string | null>(null);
 
   const actionItems = useMemo(() => expenses.filter((e) => expenseNeedsReconciliationAttention(e)), [expenses]);
   const summary = useMemo(() => buildReconciliationSummary(expenses, receiptUrls), [expenses, receiptUrls]);
@@ -391,6 +417,78 @@ export function ReconciliationInboxSection({
       cancelled = true;
     };
   }, [membership.department_id]);
+
+  async function sendReceiptTextForExpense(expense: ExpenseRecord) {
+    // Find the external_transaction linked to this expense
+    const { data: extTxRow } = await supabase
+      .from("external_transactions")
+      .select("id")
+      .eq("expense_id", expense.id)
+      .eq("department_id", membership.department_id)
+      .maybeSingle();
+
+    // Also check if there's a receipt_request with this expense_id directly
+    const existingByExpense = receiptRequests.find(
+      (r) => r.expense_id === expense.id && r.status === "pending",
+    );
+
+    const transactionId = extTxRow?.id;
+    if (!transactionId && !existingByExpense) {
+      showErrorMessage(
+        "No linked bank transaction found. Receipt text can only be sent for Plaid-imported transactions.",
+      );
+      return;
+    }
+
+    if (existingByExpense) {
+      showSuccessMessage(
+        `A receipt request (${existingByExpense.request_code}) is already pending. Check your texts.`,
+      );
+      return;
+    }
+
+    setSendingReceiptText(expense.id);
+    try {
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      const response = await fetch("/api/receipt-requests/send", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${currentSession?.access_token || ""}`,
+        },
+        body: JSON.stringify({
+          departmentId: membership.department_id,
+          transactionId,
+        }),
+      });
+      const result = (await response.json()) as {
+        ok: boolean;
+        error?: string;
+        alreadyPending?: boolean;
+        requestCode?: string;
+        phone?: string;
+        message?: string;
+      };
+
+      if (!response.ok || !result.ok) {
+        showErrorMessage(result.error || "Could not send receipt text.");
+        return;
+      }
+
+      if (result.alreadyPending) {
+        showSuccessMessage(result.message || "A receipt request is already pending.");
+      } else {
+        showSuccessMessage(
+          `Receipt request sent (${result.requestCode}) to ${result.phone}.`,
+        );
+      }
+      await onReceiptRequestsChanged?.();
+    } catch (err) {
+      showErrorMessage(err instanceof Error ? err.message : "Could not send receipt text.");
+    } finally {
+      setSendingReceiptText(null);
+    }
+  }
 
   const filteredItems = useMemo(() => {
     let list = actionItems;
@@ -598,11 +696,16 @@ export function ReconciliationInboxSection({
                         key={expense.id}
                         expense={expense}
                         receiptUrls={receiptUrls}
+                        receiptRequest={
+                          receiptRequests.find((r) => r.expense_id === expense.id) ?? null
+                        }
                         isSelected={selectedId === expense.id}
                         onSelect={() => setSelectedId(expense.id)}
                         onReview={() => setSelectedId(expense.id)}
                         onMatch={onOpenFullReport}
                         onAddReceipt={onOpenNewExpense}
+                        onSendReceiptText={() => void sendReceiptTextForExpense(expense)}
+                        sendingReceiptText={sendingReceiptText === expense.id}
                       />
                     ))}
                   </tbody>
@@ -662,19 +765,25 @@ export function ReconciliationInboxSection({
 function ReconciliationTableRow({
   expense,
   receiptUrls,
+  receiptRequest,
   isSelected,
   onSelect,
   onReview,
   onMatch,
   onAddReceipt,
+  onSendReceiptText,
+  sendingReceiptText,
 }: {
   expense: ExpenseRecord;
   receiptUrls: Record<string, string>;
+  receiptRequest?: ReceiptRequest | null;
   isSelected: boolean;
   onSelect: () => void;
   onReview: () => void;
   onMatch: () => void;
   onAddReceipt: () => void;
+  onSendReceiptText?: () => void;
+  sendingReceiptText?: boolean;
 }) {
   const issues = getReconciliationIssues(expense, receiptUrls);
   const vendor = expense.payee || expense.merchant_name || "Needs review";
@@ -700,6 +809,15 @@ function ReconciliationTableRow({
       <td className="fb-col-vendor">
         <strong className="fb-recon-vendor">{vendor}</strong>
         {subline ? <span className="filename">{subline}</span> : null}
+        {receiptRequest?.status === "pending" ? (
+          <span className="fb-recon-sms-badge fb-recon-sms-badge--pending" title={`Receipt text sent (${receiptRequest.request_code})`}>
+            Receipt text sent
+          </span>
+        ) : receiptRequest?.status === "completed" ? (
+          <span className="fb-recon-sms-badge fb-recon-sms-badge--done" title="Receipt received by text">
+            Receipt received by text
+          </span>
+        ) : null}
       </td>
       <td className="fb-col-account">{expense.bank_account_name?.trim() || "—"}</td>
       <td className="fb-col-amount">
@@ -713,13 +831,19 @@ function ReconciliationTableRow({
         <ReconciliationIssueCell issues={issues} />
       </td>
       <td className="fb-col-actions">
-        <ReconciliationRowMenu
-          expense={expense}
-          receiptUrls={receiptUrls}
-          onReview={onReview}
-          onMatch={onMatch}
-          onAddReceipt={onAddReceipt}
-        />
+        {sendingReceiptText ? (
+          <span className="muted" style={{ fontSize: "0.8rem" }}>Sending…</span>
+        ) : (
+          <ReconciliationRowMenu
+            expense={expense}
+            receiptUrls={receiptUrls}
+            receiptRequest={receiptRequest}
+            onReview={onReview}
+            onMatch={onMatch}
+            onAddReceipt={onAddReceipt}
+            onSendReceiptText={onSendReceiptText}
+          />
+        )}
       </td>
     </tr>
   );

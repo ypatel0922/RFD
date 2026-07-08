@@ -291,6 +291,35 @@ export type OnboardingSuggestion = {
   updated_at: string;
 };
 
+export type ReceiptRequestStatus = "pending" | "completed" | "expired" | "ignored" | "failed";
+
+export type ReceiptRequest = {
+  id: string;
+  department_id: string;
+  transaction_id: string;
+  expense_id: string | null;
+  user_id: string | null;
+  phone_number: string;
+  request_code: string;
+  status: ReceiptRequestStatus;
+  sent_at: string | null;
+  completed_at: string | null;
+  twilio_message_sid: string | null;
+  inbound_message_sid: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type UserNotificationPrefs = {
+  id: string;
+  user_id: string;
+  department_id: string;
+  sms_receipt_requests_enabled: boolean;
+  phone_number: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type CategoryGroup = "two_percent" | "general";
 export type CategoryDefaultType = "expense" | "income" | "both";
 export type TwoPercentGuidance =

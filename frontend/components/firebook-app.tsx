@@ -30,6 +30,7 @@ import {
   OnboardingBeginningBalance,
   OnboardingPriorRecordUpload,
   OnboardingSuggestion,
+  ReceiptRequest,
   ROLE_OPTIONS,
   ReviewForm,
 } from "../lib/types";
@@ -1031,6 +1032,7 @@ export default function Home() {
   const [onboardingBeginningBalances, setOnboardingBeginningBalances] = useState<OnboardingBeginningBalance[]>([]);
   const [receiptUrls, setReceiptUrls] = useState<Record<string, string>>({});
   const [statementUrls, setStatementUrls] = useState<Record<string, string>>({});
+  const [receiptRequests, setReceiptRequests] = useState<ReceiptRequest[]>([]);
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [view, setView] = useState<AppView>("dashboard");
   const [message, setMessage] = useState<string | null>(null);
@@ -1208,7 +1210,7 @@ export default function Home() {
 
   async function loadExpenses(departmentId: string) {
     setMessage(null);
-    let query = supabase
+    const query = supabase
       .from("expenses")
       .select("*")
       .eq("department_id", departmentId)
@@ -1225,9 +1227,21 @@ export default function Home() {
     await loadReceiptUrls(loadedExpenses);
   }
 
+  async function loadReceiptRequests(departmentId: string) {
+    const { data } = await supabase
+      .from("receipt_requests")
+      .select("*")
+      .eq("department_id", departmentId)
+      .in("status", ["pending", "completed"])
+      .order("created_at", { ascending: false })
+      .limit(500);
+    setReceiptRequests((data || []) as ReceiptRequest[]);
+  }
+
   useEffect(() => {
     if (!membership?.department_id) return;
     void loadExpenses(membership.department_id);
+    void loadReceiptRequests(membership.department_id);
   }, [membership?.department_id]);
 
   async function loadStatementUrls(uploads: BankStatementUpload[]) {
@@ -1721,6 +1735,7 @@ export default function Home() {
                 departmentCategories={departmentCategories}
                 departmentVendors={departmentVendors}
                 onCategoriesChanged={() => loadDepartmentCategories(membership.department_id)}
+                receiptRequests={receiptRequests}
               />
             </div>
           ) : view === "reconciliation" ? (
@@ -1753,6 +1768,8 @@ export default function Home() {
                 setView("new_expense");
                 setMobileNavOpen(false);
               }}
+              receiptRequests={receiptRequests}
+              onReceiptRequestsChanged={() => loadReceiptRequests(membership.department_id)}
             />
           ) : view === "accounts" ? (
             <AccountsTabSection
@@ -4312,6 +4329,12 @@ function Settings({
   const [plaidSyncedAt, setPlaidSyncedAt] = useState<string | null>(null);
   const [departmentMembers, setDepartmentMembers] = useState<DepartmentMemberRow[]>([]);
 
+  // SMS notification prefs state
+  const [notifPrefsLoading, setNotifPrefsLoading] = useState(false);
+  const [notifPrefsSaving, setNotifPrefsSaving] = useState(false);
+  const [notifSmsDraft, setNotifSmsDraft] = useState(true);
+  const [notifPhoneDraft, setNotifPhoneDraft] = useState("");
+
   // Onboarding state
   const [onboardingStep, setOnboardingStep] = useState<1 | 2 | 3>(1);
   const [onboardingLoading, setOnboardingLoading] = useState(false);
@@ -4443,6 +4466,49 @@ function Settings({
       void loadOnboardingData();
     }
   }, [activeSection, loadOnboardingData]);
+
+  useEffect(() => {
+    if (activeSection !== "notifications") return;
+    setNotifPrefsLoading(true);
+    fetch(
+      `/api/user-notification-prefs?departmentId=${membership.department_id}`,
+      { headers: { Authorization: `Bearer ${session.access_token}` } },
+    )
+      .then((r) => r.json())
+      .then((data: { sms_receipt_requests_enabled?: boolean; phone_number?: string | null }) => {
+        setNotifSmsDraft(data.sms_receipt_requests_enabled ?? true);
+        setNotifPhoneDraft(data.phone_number || "");
+      })
+      .catch(() => {})
+      .finally(() => setNotifPrefsLoading(false));
+  }, [activeSection, membership.department_id, session.access_token]);
+
+  async function saveNotifPrefs() {
+    setNotifPrefsSaving(true);
+    try {
+      const response = await fetch("/api/user-notification-prefs", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          departmentId: membership.department_id,
+          smsReceiptRequestsEnabled: notifSmsDraft,
+          phoneNumber: notifPhoneDraft.trim() || null,
+        }),
+      });
+      if (!response.ok) {
+        const data = (await response.json()) as { error?: string };
+        throw new Error(data.error || "Save failed.");
+      }
+      showSuccessMessage("Notification settings saved.");
+    } catch (err) {
+      showErrorMessage(err instanceof Error ? err.message : "Could not save settings.");
+    } finally {
+      setNotifPrefsSaving(false);
+    }
+  }
 
   async function startPlaidLink() {
     const response = await fetch("/api/plaid/create-link-token", {
@@ -6215,17 +6281,107 @@ function Settings({
           </>,
         );
       }
-      case "notifications":
-        return renderPlaceholderCard(
-          "Notifications",
-          "Choose reminders for receipts, reconciliation, sync failures, and deadlines.",
-          <ul className="fb-settings-checklist muted">
-            <li>Missing receipt reminders (coming soon)</li>
-            <li>Reconciliation reminders (coming soon)</li>
-            <li>Failed bank sync alerts (coming soon)</li>
-            <li>Report deadline notices (coming soon)</li>
-          </ul>,
+      case "notifications": {
+        const hasPhone = Boolean(notifPhoneDraft.trim());
+        return (
+          <div className="card fb-settings-section">
+            <div className="fb-settings-section-head">
+              <h2>Notifications</h2>
+              <p className="muted">
+                Get a text message when a Plaid-imported expense is missing a receipt. Reply with a photo and Firebook attaches it automatically.
+              </p>
+            </div>
+
+            {notifPrefsLoading ? (
+              <p className="muted">Loading settings…</p>
+            ) : (
+              <div className="fb-settings-form-stack">
+                <div className="fb-settings-field-group">
+                  <h3 className="fb-settings-field-group-title">SMS Receipt Requests</h3>
+
+                  <label className="fb-settings-toggle">
+                    <input
+                      type="checkbox"
+                      checked={notifSmsDraft}
+                      onChange={(e) => setNotifSmsDraft(e.target.checked)}
+                    />
+                    <span>
+                      Text me when a receipt is needed
+                      <span className="fb-settings-helper-text">
+                        {" "}When enabled, Firebook will send you a text after each Plaid import
+                        for any expense without a receipt. Reply with a photo to attach it.
+                      </span>
+                    </span>
+                  </label>
+
+                  {notifSmsDraft && (
+                    <div className="fb-settings-sub-fields">
+                      <label className="fb-settings-field-label">
+                        <span>Your mobile phone number</span>
+                        <input
+                          type="tel"
+                          placeholder="+1 (555) 000-0000"
+                          autoComplete="tel"
+                          value={notifPhoneDraft}
+                          onChange={(e) => setNotifPhoneDraft(e.target.value)}
+                        />
+                        <span className="fb-settings-helper-text">
+                          Used only for Firebook receipt request texts. Never shared.
+                        </span>
+                      </label>
+
+                      {notifSmsDraft && !hasPhone && (
+                        <p className="fb-settings-warning">
+                          Add a phone number to receive SMS receipt requests.
+                        </p>
+                      )}
+
+                      {notifSmsDraft && hasPhone && (
+                        <p className="fb-settings-hint">
+                          Receipt request texts will be sent to {notifPhoneDraft.trim()}.
+                          You can reply with a photo at any time.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="fb-settings-field-group">
+                  <h3 className="fb-settings-field-group-title">How it works</h3>
+                  <ol className="fb-settings-checklist">
+                    <li>Plaid imports a transaction without a receipt</li>
+                    <li>Firebook texts you: "Receipt needed for $52 at Home Depot on Jul 8. Ref: FB-4821"</li>
+                    <li>Reply with a photo of the receipt</li>
+                    <li>Firebook attaches it, runs OCR, and updates reconciliation</li>
+                    <li>You get a confirmation text when it's done</li>
+                  </ol>
+                </div>
+
+                <div className="fb-settings-field-group fb-settings-field-group--muted">
+                  <h3 className="fb-settings-field-group-title">Coming soon</h3>
+                  <ul className="fb-settings-checklist muted">
+                    <li>Reconciliation deadline reminders</li>
+                    <li>Failed bank sync alerts</li>
+                    <li>Quiet hours configuration</li>
+                    <li>Maximum daily message limits</li>
+                  </ul>
+                </div>
+
+                <div className="fb-settings-actions">
+                  <button
+                    type="button"
+                    className="fb-primary-btn"
+                    disabled={notifPrefsSaving}
+                    onClick={() => void saveNotifPrefs()}
+                  >
+                    {notifPrefsSaving ? "Saving…" : "Save notification settings"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         );
+      }
       case "security":
         return renderPlaceholderCard(
           "Security",

@@ -11,7 +11,7 @@ import {
   suggestCategory,
 } from "../lib/categories";
 import { evaluateTwoPercentStatus } from "../lib/two-percent-rules";
-import type { BankAccount, DepartmentCategory, DepartmentVendor, ExpenseRecord } from "../lib/types";
+import type { BankAccount, DepartmentCategory, DepartmentVendor, ExpenseRecord, ReceiptRequest } from "../lib/types";
 
 const LEDGER_ALL_LIMIT = 5000;
 
@@ -41,7 +41,9 @@ type StatusKey =
   | "needs_review"
   | "missing_receipt"
   | "pending_bank_match"
-  | "extracted";
+  | "extracted"
+  | "receipt_requested"
+  | "receipt_received";
 
 type StatusInfo = { label: string; key: StatusKey };
 
@@ -163,7 +165,11 @@ function isInCurrentMonth(iso: string) {
   return Number(y) === now.getFullYear() && Number(m) === now.getMonth() + 1;
 }
 
-function transactionStatus(expense: ExpenseRecord, receiptUrls: Record<string, string>): StatusInfo {
+function transactionStatus(
+  expense: ExpenseRecord,
+  receiptUrls: Record<string, string>,
+  receiptRequests?: ReceiptRequest[],
+): StatusInfo {
   if (
     expense.extraction_status === "needs_review" ||
     expense.extraction_status === "failed" ||
@@ -172,6 +178,20 @@ function transactionStatus(expense: ExpenseRecord, receiptUrls: Record<string, s
     return { label: "Needs Review", key: "needs_review" };
   }
   if (isMissingReceipt(expense, receiptUrls)) {
+    // Check if there's a completed receipt request (received by text)
+    const completedRequest = receiptRequests?.find(
+      (r) => r.expense_id === expense.id && r.status === "completed",
+    );
+    if (completedRequest) {
+      return { label: "Receipt received by text", key: "receipt_received" };
+    }
+    // Check if there's a pending receipt request (SMS sent)
+    const pendingRequest = receiptRequests?.find(
+      (r) => r.expense_id === expense.id && r.status === "pending",
+    );
+    if (pendingRequest) {
+      return { label: "Receipt requested", key: "receipt_requested" };
+    }
     return { label: "Missing Receipt", key: "missing_receipt" };
   }
   if (expense.reconciliation_status === "matched") {
@@ -241,6 +261,7 @@ export function TransactionsLedger({
   departmentCategories = [],
   departmentVendors = [],
   onCategoriesChanged,
+  receiptRequests = [],
 }: {
   expenses: ExpenseRecord[];
   receiptUrls: Record<string, string>;
@@ -257,6 +278,7 @@ export function TransactionsLedger({
   departmentCategories?: DepartmentCategory[];
   departmentVendors?: DepartmentVendor[];
   onCategoriesChanged?: () => Promise<void>;
+  receiptRequests?: ReceiptRequest[];
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editReason, setEditReason] = useState("");
@@ -501,7 +523,7 @@ export function TransactionsLedger({
     let monthIncome = 0;
 
     for (const expense of expenses) {
-      const status = transactionStatus(expense, receiptUrls);
+      const status = transactionStatus(expense, receiptUrls, receiptRequests);
       if (status.key === "needs_review") needsReview += 1;
 
       const iso = parseExpenseSortDate(expense);
@@ -1082,7 +1104,7 @@ export function TransactionsLedger({
     if (!panelExpense) return null;
     const receiptUrl = receiptUrls[panelExpense.id];
     const amount = formatTransactionAmount(panelExpense);
-    const status = transactionStatus(panelExpense, receiptUrls);
+    const status = transactionStatus(panelExpense, receiptUrls, receiptRequests);
     const editing = editingId === panelExpense.id;
 
     return (
@@ -1458,7 +1480,7 @@ export function TransactionsLedger({
               <tbody>
                 {displayExpenses.map((expense) => {
                   const amount = formatTransactionAmount(expense);
-                  const status = transactionStatus(expense, receiptUrls);
+                  const status = transactionStatus(expense, receiptUrls, receiptRequests);
                   const isSelected = selectedId === expense.id;
                   return (
                     <tr
@@ -1510,7 +1532,7 @@ export function TransactionsLedger({
           <div className="transactions-mobile-list transactions-mobile-only">
             {displayExpenses.map((expense) => {
               const amount = formatTransactionAmount(expense);
-              const status = transactionStatus(expense, receiptUrls);
+              const status = transactionStatus(expense, receiptUrls, receiptRequests);
               return (
                 <article
                   key={expense.id}
