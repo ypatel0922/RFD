@@ -11,6 +11,7 @@ import {
   suggestCategory,
 } from "../lib/categories";
 import { evaluateTwoPercentStatus } from "../lib/two-percent-rules";
+import { expenseAuditSnapshot, logAuditFromBrowser } from "../lib/audit";
 import type { BankAccount, DepartmentCategory, DepartmentVendor, ExpenseRecord, ReceiptRequest } from "../lib/types";
 
 const LEDGER_ALL_LIMIT = 5000;
@@ -249,6 +250,8 @@ export function TransactionsLedger({
   expenses,
   receiptUrls,
   user,
+  departmentId,
+  userRole = "",
   onExpensesChanged,
   showErrorMessage,
   showSuccessMessage,
@@ -266,6 +269,8 @@ export function TransactionsLedger({
   expenses: ExpenseRecord[];
   receiptUrls: Record<string, string>;
   user: User;
+  departmentId: string;
+  userRole?: string;
   onExpensesChanged: () => Promise<void>;
   showErrorMessage: (message: string) => void;
   showSuccessMessage: (message: string | null) => void;
@@ -591,6 +596,17 @@ export function TransactionsLedger({
       if (error) throw error;
       await ensureCategoryEnabled(category);
       showSuccessMessage(`Categorized as "${category}".`);
+      const expense = expenses.find((e) => e.id === expenseId);
+      void logAuditFromBrowser({
+        departmentId,
+        userRole,
+        action: "transaction.category_changed",
+        resourceType: "expense",
+        resourceId: expenseId,
+        resourceLabel: expense?.payee || expense?.merchant_name || undefined,
+        beforeData: expense ? { category: expense.category } : null,
+        afterData: { category },
+      });
       await onExpensesChanged();
     } catch (err) {
       showErrorMessage(err instanceof Error ? err.message : "Could not apply category.");
@@ -709,6 +725,19 @@ export function TransactionsLedger({
       : null;
     const twoPctEval = twoPctEvalRaw?.status === "needs_review" ? null : twoPctEvalRaw;
 
+    const original = expenses.find((e) => e.id === expenseId);
+    const beforeSnap = original ? expenseAuditSnapshot(original) : null;
+    const afterSnap = expenseAuditSnapshot({
+      payee: editValues.payee,
+      total_amount: editValues.total_amount,
+      transaction_date: editValues.transaction_date,
+      category: editValues.category,
+      bank_account_name: editValues.bank_account_name,
+      description: editValues.description,
+      uses_two_percent_funds: isTwoPct,
+      reconciliation_status: original?.reconciliation_status,
+    });
+
     const { error } = await supabase
       .from("expenses")
       .update({
@@ -734,6 +763,59 @@ export function TransactionsLedger({
     setEditingId(null);
     setEditReason("");
     showSuccessMessage("Expense updated.");
+    void logAuditFromBrowser({
+      departmentId,
+      userRole,
+      action: "transaction.edited",
+      resourceType: "expense",
+      resourceId: expenseId,
+      resourceLabel: editValues.payee || original?.payee || undefined,
+      beforeData: beforeSnap,
+      afterData: afterSnap,
+      metadata: { reason: editReason.trim() },
+    });
+    if (original && original.category !== editValues.category) {
+      void logAuditFromBrowser({
+        departmentId,
+        userRole,
+        action: "transaction.category_changed",
+        resourceType: "expense",
+        resourceId: expenseId,
+        beforeData: { category: original.category },
+        afterData: { category: editValues.category },
+      });
+    }
+    if (original && original.bank_account_name !== editValues.bank_account_name) {
+      void logAuditFromBrowser({
+        departmentId,
+        userRole,
+        action: "transaction.bank_account_changed",
+        resourceType: "expense",
+        resourceId: expenseId,
+        beforeData: { bank_account_name: original.bank_account_name },
+        afterData: { bank_account_name: editValues.bank_account_name },
+      });
+    }
+    if (original && Boolean(original.uses_two_percent_funds) !== isTwoPct) {
+      void logAuditFromBrowser({
+        departmentId,
+        userRole,
+        action: isTwoPct ? "transaction.two_percent_included" : "transaction.two_percent_excluded",
+        resourceType: "expense",
+        resourceId: expenseId,
+        resourceLabel: editValues.payee || undefined,
+      });
+    }
+    if (isTwoPct && twoPctEval?.status === "potentially_not_allowed") {
+      void logAuditFromBrowser({
+        departmentId,
+        userRole,
+        action: "transaction.two_percent_flagged",
+        resourceType: "expense",
+        resourceId: expenseId,
+        metadata: { reason: twoPctEval.reason },
+      });
+    }
     await onExpensesChanged();
   }
 
@@ -760,6 +842,15 @@ export function TransactionsLedger({
       }
       const { error } = await supabase.from("expenses").delete().eq("id", expense.id);
       if (error) throw error;
+      void logAuditFromBrowser({
+        departmentId,
+        userRole,
+        action: "transaction.deleted",
+        resourceType: "expense",
+        resourceId: expense.id,
+        resourceLabel: label,
+        beforeData: expenseAuditSnapshot(expense),
+      });
       setEditingId(null);
       setSelectedId(null);
       showSuccessMessage("Transaction deleted.");

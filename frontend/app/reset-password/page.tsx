@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 
 import { supabase } from "../../lib/supabase";
+import { logAuditFromBrowser } from "../../lib/audit";
 
 type PageState = "loading" | "ready" | "success" | "invalid";
 
@@ -212,6 +213,18 @@ export default function ResetPasswordPage() {
       if (updateError) {
         setError(updateError.message);
         return;
+      }
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user) {
+        void logAuditFromBrowser({
+          departmentId: "",
+          action: "auth.password_reset_completed",
+          resourceType: "auth",
+          resourceId: user.id,
+          resourceLabel: user.email || undefined,
+        });
       }
       await supabase.auth.signOut();
       setPageState("success");

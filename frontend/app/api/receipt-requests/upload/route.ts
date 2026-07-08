@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { supabaseAdmin } from "../../plaid/_lib";
+import { logAuditEvent } from "../../../../lib/audit-server";
 import { isMissingReceiptPath } from "../../../../lib/twilio";
 import {
   compareReceiptToTransaction,
@@ -176,6 +177,18 @@ export async function POST(request: NextRequest) {
       updated_at: nowIso,
     })
     .eq("id", rr.id);
+
+  const targetExpenseId = extTx?.expense_id || expenseId;
+  await logAuditEvent({
+    departmentId,
+    userId: (rr.user_id as string | null) ?? null,
+    action: extTx?.expense_id ? "receipt.replaced" : "receipt.uploaded",
+    resourceType: "expense",
+    resourceId: targetExpenseId,
+    resourceLabel: vendor,
+    metadata: { source: "web_upload", requestCode: code },
+    request,
+  });
 
   return NextResponse.json({ ok: true, vendor, amount });
 }
