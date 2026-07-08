@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+import { PublicFooter } from "../components/public-site";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
@@ -507,19 +508,7 @@ export default function HomePage() {
         </section>
       </div>
 
-      <footer className="border-t border-zinc-200 bg-white py-8">
-        <div className="mx-auto flex min-w-0 max-w-7xl flex-col gap-3 px-4 text-sm text-zinc-600 md:flex-row md:items-center md:justify-between md:px-6 lg:px-10">
-          <p>© {new Date().getFullYear()} Firebook for Fire Departments</p>
-          <div className="flex items-center gap-5">
-            <Link href="/login" className="hover:text-zinc-900">
-              Sign In
-            </Link>
-            <a href="#demo" className="hover:text-zinc-900">
-              Request Demo
-            </a>
-          </div>
-        </div>
-      </footer>
+      <PublicFooter />
     </main>
   );
 }
