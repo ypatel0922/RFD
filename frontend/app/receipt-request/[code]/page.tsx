@@ -3,6 +3,8 @@
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
+import { BrandLogo } from "../../../components/brand-logo";
+
 type RequestInfo = {
   found: boolean;
   status?: string;
@@ -94,7 +96,7 @@ export default function ReceiptRequestPage() {
       <div className="receipt-request-page">
         <div className="receipt-request-card">
           <div className="receipt-request-logo">
-            <span className="receipt-request-logo-text">Firebook</span>
+            <BrandLogo className="receipt-request-logo-image" tone="dark" priority />
           </div>
           {info?.status === "completed" ? (
             <>
@@ -122,12 +124,12 @@ export default function ReceiptRequestPage() {
       <div className="receipt-request-page">
         <div className="receipt-request-card">
           <div className="receipt-request-logo">
-            <span className="receipt-request-logo-text">Firebook</span>
+            <BrandLogo className="receipt-request-logo-image" tone="dark" priority />
           </div>
           <div className="receipt-request-success-icon" aria-hidden>✓</div>
           <h1 className="receipt-request-title">Receipt submitted!</h1>
           <p className="receipt-request-body">
-            Firebook received your receipt for{" "}
+            Hallix received your receipt for{" "}
             {info.vendor ? <strong>{info.vendor}</strong> : "this transaction"}.
             You're all set — you can close this page.
           </p>
@@ -140,7 +142,7 @@ export default function ReceiptRequestPage() {
     <div className="receipt-request-page">
       <div className="receipt-request-card">
         <div className="receipt-request-logo">
-          <span className="receipt-request-logo-text">Firebook</span>
+          <BrandLogo className="receipt-request-logo-image" tone="dark" priority />
         </div>
         <h1 className="receipt-request-title">Upload your receipt</h1>
         <p className="receipt-request-ref">Ref: {code}</p>
@@ -216,6 +218,7 @@ export default function ReceiptRequestPage() {
           gap: 1rem;
         }
         .receipt-request-logo { text-align: center; }
+        .receipt-request-logo-image { display: inline-block; width: auto; height: 32px; max-width: 100%; }
         .receipt-request-logo-text { font-size: 1.25rem; font-weight: 700; color: #b91c1c; letter-spacing: -0.02em; }
         .receipt-request-title { font-size: 1.35rem; font-weight: 700; margin: 0; color: #111; }
         .receipt-request-ref { font-size: 0.8rem; color: #888; font-family: monospace; }

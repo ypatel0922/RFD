@@ -3,6 +3,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { BrandLogo } from "./brand-logo";
 import { Button } from "./ui/button";
 
 export function PublicHeader() {
@@ -10,12 +11,8 @@ export function PublicHeader() {
     <header className="sticky top-0 z-20 border-b border-zinc-200/80 bg-zinc-50/95 backdrop-blur">
       <div className="mx-auto w-full min-w-0 max-w-7xl px-4 py-3 md:px-5 md:py-4 lg:px-10">
         <div className="flex min-w-0 items-center justify-between gap-3 rounded-2xl border border-slate-700/90 bg-gradient-to-r from-[#172033] via-[#1e293b] to-[#172033] px-4 py-3 shadow-lg shadow-slate-900/20 md:px-6 md:py-4">
-          <Link
-            href="/"
-            className="flex min-w-0 shrink-0 items-center gap-2 text-lg font-semibold tracking-tight text-white"
-          >
-            <span className="rounded-md bg-slate-700/90 px-2 py-1 text-xs font-bold text-white">RFD</span>
-            Firebook
+          <Link href="/" className="flex min-w-0 shrink-0 items-center">
+            <BrandLogo className="h-8 w-auto" priority />
           </Link>
           <div className="flex shrink-0 items-center gap-2">
             <Button
@@ -37,7 +34,7 @@ export function PublicFooter() {
   return (
     <footer className="border-t border-zinc-200 bg-white py-8">
       <div className="mx-auto flex min-w-0 max-w-7xl flex-col gap-4 px-4 text-sm text-zinc-600 md:flex-row md:items-center md:justify-between md:px-6 lg:px-10">
-        <p>© {new Date().getFullYear()} Firebook for Fire Departments</p>
+        <p>© {new Date().getFullYear()} Hallix for Fire Departments</p>
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
           <Link href="/privacy" className="font-semibold text-zinc-600 hover:text-zinc-900">
             Privacy Policy

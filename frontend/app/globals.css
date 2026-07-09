@@ -308,6 +308,13 @@ th {
   margin-bottom: 20px;
 }
 
+.firebook-brand__logo {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: min(200px, 100%);
+}
+
 .firebook-brand__wordmark {
   font-size: clamp(1.5rem, 4vw, 1.85rem);
   font-weight: 800;
@@ -836,7 +843,7 @@ th {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Firebook authenticated app shell (dashboard + other views)               */
+/* Hallix authenticated app shell (dashboard + other views)               */
 /* -------------------------------------------------------------------------- */
 
 .fb-app {
@@ -914,10 +921,16 @@ th {
 
 .fb-brand {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   font-weight: 800;
   font-size: 1.12rem;
   letter-spacing: -0.02em;
+}
+
+.fb-brand-icon {
+  display: block;
+  width: 32px;
+  height: 32px;
 }
 
 .fb-brand-mark {

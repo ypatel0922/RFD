@@ -47,6 +47,7 @@ import { TransactionsLedger } from "./TransactionsLedger";
 import { NysFFReportPage } from "./nys-foreign-fire-report";
 import { TaxFormFilingsSection } from "./tax-form-filings";
 import { CategoryManagementSection } from "./category-management";
+import { BrandLogo } from "./brand-logo";
 import { AuditTrailSection } from "./audit-trail";
 import { expenseAuditSnapshot, invalidateAuditTrailEnabledCache, logAuditFromBrowser } from "../lib/audit";
 import {
@@ -1382,7 +1383,7 @@ export default function Home() {
     return (
       <div className="auth-page">
         <main className="auth-layout auth-layout--loading">
-          <p className="auth-loading">Loading Firebook…</p>
+          <p className="auth-loading">Loading Hallix…</p>
         </main>
       </div>
     );
@@ -1460,9 +1461,8 @@ export default function Home() {
               <path d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <div className="fb-brand" aria-label="Firebook">
-            <span className="fb-brand-mark">Fire</span>
-            <span className="fb-brand-accent">book</span>
+          <div className="fb-brand" aria-label="Hallix">
+            <BrandLogo variant="icon" className="fb-brand-icon" />
           </div>
         </div>
 
@@ -1891,9 +1891,9 @@ function AuthScreen({
     <div className="auth-page">
       <main className="auth-layout">
         <section className="card auth-card">
-          <div className="firebook-brand" aria-label="Firebook">
-            <span className="firebook-brand__wordmark">Firebook</span>
-            <span className="firebook-brand__tagline">Fire department bookkeeping</span>
+          <div className="firebook-brand" aria-label="Hallix">
+            <BrandLogo className="firebook-brand__logo" tone="dark" priority />
+            <span className="firebook-brand__tagline">AI bookkeeping for fire departments</span>
           </div>
           <h1 className="auth-title">{mode === "login" ? "Log in to your department" : "Create your account"}</h1>
           <p className="auth-lede">
@@ -2362,7 +2362,7 @@ function TaxFormsSection({
         <p className="eyebrow">Compliance</p>
         <h1 className="fb-dash-title">Tax Forms</h1>
         <p className="fb-dash-subtitle">
-          Generate New York State filings directly from your Firebook transaction data. Select a report to get started.
+          Generate New York State filings directly from your Hallix transaction data. Select a report to get started.
         </p>
       </section>
 
@@ -2377,7 +2377,7 @@ function TaxFormsSection({
           </div>
           <h2>NYS Foreign Fire Insurance Report (2%)</h2>
           <p className="muted">
-            Generate the Annual Report of Foreign Fire Insurance Premiums using your Firebook transaction data. Includes OCR extraction from prior year filings.
+            Generate the Annual Report of Foreign Fire Insurance Premiums using your Hallix transaction data. Includes OCR extraction from prior year filings.
             {bankAccounts.some((a) => a.is_two_percent_account)
               ? " Financial figures auto-populate from your tagged 2% account."
               : " Tag a 2% account in Settings → Bank Accounts to enable auto-population."}
@@ -5309,8 +5309,8 @@ function Settings({
           <div>
             <h2 className="fb-settings-panel-title">Beginning Balances</h2>
             <p className="fb-settings-panel-subtitle">
-              Enter the balances you are starting with in Firebook. These are used as your opening
-              balances before Firebook starts tracking activity.
+              Enter the balances you are starting with in Hallix. These are used as your opening
+              balances before Hallix starts tracking activity.
             </p>
           </div>
           {!showAddBalance && (
@@ -5352,7 +5352,7 @@ function Settings({
 
         {bankAccounts.length > 0 && (
           <div className="fb-onboarding-existing-section">
-            <p className="fb-onboarding-section-label">Your Firebook accounts</p>
+            <p className="fb-onboarding-section-label">Your Hallix accounts</p>
             <div className="fb-onboarding-account-list">
               {bankAccounts.map((account) => {
                 const existingBalance = beginningBalances.find(
@@ -5582,7 +5582,7 @@ function Settings({
             <h2 className="fb-settings-panel-title">Upload Prior Records</h2>
             <p className="fb-settings-panel-subtitle">
               Upload photos, PDFs, or spreadsheets of old registers, notebooks, statements, or
-              logs. Firebook will use them to suggest categories and accounts.
+              logs. Hallix will use them to suggest categories and accounts.
             </p>
           </div>
         </div>
@@ -5718,7 +5718,7 @@ function Settings({
           <div>
             <h2 className="fb-settings-panel-title">Review Suggestions</h2>
             <p className="fb-settings-panel-subtitle">
-              Firebook found possible accounts, categories, vendors, and transaction types from
+              Hallix found possible accounts, categories, vendors, and transaction types from
               your uploaded records. Accept what looks right and ignore the rest.
             </p>
           </div>
@@ -5729,7 +5729,7 @@ function Settings({
         {!onboardingLoading && suggestions.length === 0 && (
           <div className="fb-onboarding-empty-suggestions">
             <p className="muted">
-              No suggestions yet. Upload prior records in Step 2 and Firebook will generate
+              No suggestions yet. Upload prior records in Step 2 and Hallix will generate
               suggestions from them.
             </p>
             <button
@@ -6137,7 +6137,7 @@ function Settings({
             <div>
               <h2 className="fb-settings-panel-title">Finish setup</h2>
               <p className="fb-settings-panel-subtitle">
-                Add beginning balances and upload prior records so Firebook can learn your
+                Add beginning balances and upload prior records so Hallix can learn your
                 accounts and categories.
               </p>
             </div>
@@ -6209,7 +6209,7 @@ function Settings({
               />
               <span>
                 <strong>2% Funds Account</strong>
-                <span className="fb-settings-helper-text"> — Firebook will treat money here as NYS Foreign Fire Insurance / 2% funds.</span>
+                <span className="fb-settings-helper-text"> — Hallix will treat money here as NYS Foreign Fire Insurance / 2% funds.</span>
               </span>
             </label>
           </div>
@@ -6284,7 +6284,7 @@ function Settings({
               <span>
                 <strong>2% Funds Account</strong>
                 <span className="fb-settings-helper-text">
-                  {" "}Firebook will treat money in this account as NYS Foreign Fire Insurance / 2% funds and apply additional tracking and warnings.
+                  {" "}Hallix will treat money in this account as NYS Foreign Fire Insurance / 2% funds and apply additional tracking and warnings.
                 </span>
               </span>
             </label>
@@ -6526,7 +6526,7 @@ function Settings({
             <div className="fb-settings-section-head">
               <h2>Notifications</h2>
               <p className="muted">
-                Get a text message when a Plaid-imported expense is missing a receipt. Reply with a photo and Firebook attaches it automatically.
+                Get a text message when a Plaid-imported expense is missing a receipt. Reply with a photo and Hallix attaches it automatically.
               </p>
             </div>
 
@@ -6546,7 +6546,7 @@ function Settings({
                     <span>
                       Text me when a receipt is needed
                       <span className="fb-settings-helper-text">
-                        {" "}When enabled, Firebook will send you a text after each Plaid import
+                        {" "}When enabled, Hallix will send you a text after each Plaid import
                         for any expense without a receipt. Reply with a photo to attach it.
                       </span>
                     </span>
@@ -6564,7 +6564,7 @@ function Settings({
                           onChange={(e) => setNotifPhoneDraft(e.target.value)}
                         />
                         <span className="fb-settings-helper-text">
-                          Used only for Firebook receipt request texts. Never shared.
+                          Used only for Hallix receipt request texts. Never shared.
                         </span>
                       </label>
 
@@ -6588,9 +6588,9 @@ function Settings({
                   <h3 className="fb-settings-field-group-title">How it works</h3>
                   <ol className="fb-settings-checklist">
                     <li>Plaid imports a transaction without a receipt</li>
-                    <li>Firebook texts you: "Receipt needed for $52 at Home Depot on Jul 8. Ref: FB-4821"</li>
+                    <li>Hallix texts you: "Receipt needed for $52 at Home Depot on Jul 8. Ref: FB-4821"</li>
                     <li>Reply with a photo of the receipt</li>
-                    <li>Firebook attaches it, runs OCR, and updates reconciliation</li>
+                    <li>Hallix attaches it, runs OCR, and updates reconciliation</li>
                     <li>You get a confirmation text when it's done</li>
                   </ol>
                 </div>

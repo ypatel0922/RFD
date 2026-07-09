@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
 
   if (!receiptRequest) {
     return twimlResponse(
-      "Firebook received your message, but could not match it to a pending receipt request. " +
+      "Hallix received your message, but could not match it to a pending receipt request. " +
       "Reply with the reference code from the original message (e.g. FB-1234).",
     );
   }
@@ -163,7 +163,7 @@ export async function POST(request: NextRequest) {
 
   if (!firstReceiptPath) {
     return twimlResponse(
-      "Firebook received your message but could not save the receipt image. " +
+      "Hallix received your message but could not save the receipt image. " +
       "Please try again with a clearer photo.",
     );
   }
@@ -300,7 +300,7 @@ export async function POST(request: NextRequest) {
   const confirmationMessage = buildReceiptConfirmationMessage({ vendor, amount });
   return twimlResponse(
     ocrMismatch
-      ? `${confirmationMessage} Note: the receipt may need a quick review in Firebook.`
+      ? `${confirmationMessage} Note: the receipt may need a quick review in Hallix.`
       : confirmationMessage,
   );
 }

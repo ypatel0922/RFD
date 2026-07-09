@@ -1,7 +1,7 @@
 /**
  * NYS 2% Foreign Fire Insurance Fund compliance guidance rules.
  *
- * Based on the NYS Two Percent Manual (2024 Edition). Firebook uses these rules
+ * Based on the NYS Two Percent Manual (2024 Edition). Hallix uses these rules
  * to suggest whether an expense is likely appropriate, needs review, or is
  * potentially not appropriate for 2% funds.
  *
@@ -260,7 +260,7 @@ export const TWO_PERCENT_STATUS_CLASS: Record<TwoPercentStatus, string> = {
 };
 
 export const TWO_PERCENT_DISCLAIMER =
-  "Firebook provides guidance based on NYS 2% fund materials. Confirm final decisions with your department policy, meeting minutes, and counsel if needed.";
+  "Hallix provides guidance based on NYS 2% fund materials. Confirm final decisions with your department policy, meeting minutes, and counsel if needed.";
 
 // ── Suggested categories list ─────────────────────────────────────────────────
 

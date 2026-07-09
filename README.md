@@ -1,7 +1,7 @@
-# RFD Expense Tracker
+# Hallix
 
 RFD is a Next.js + Supabase app for fire departments that need lightweight
-bookkeeping around receipts and recurring weekly expenses.
+bookkeeping around receipts and recurring weekly expenses. The product is branded as **Hallix**.
 
 This version includes:
 
