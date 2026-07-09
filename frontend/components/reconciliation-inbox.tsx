@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 
 import { supabase } from "../lib/supabase";
+import { expenseAuditSnapshot, logAuditFromBrowser } from "../lib/audit";
 import type { BankAccount, DepartmentMembership, ExpenseRecord, ReceiptRequest } from "../lib/types";
 
 function expenseNumericAmount(total: ExpenseRecord["total_amount"]): number | null {
@@ -750,6 +751,7 @@ export function ReconciliationInboxSection({
           expense={selectedExpense}
           receiptUrls={receiptUrls}
           user={user}
+          membership={membership}
           onClose={() => setSelectedId(null)}
           onExpensesChanged={onExpensesChanged}
           showErrorMessage={showErrorMessage}
@@ -853,6 +855,7 @@ function ReconciliationDetailDrawer({
   expense,
   receiptUrls,
   user,
+  membership,
   onClose,
   onExpensesChanged,
   showErrorMessage,
@@ -863,6 +866,7 @@ function ReconciliationDetailDrawer({
   expense: ExpenseRecord;
   receiptUrls: Record<string, string>;
   user: User;
+  membership: DepartmentMembership;
   onClose: () => void;
   onExpensesChanged: () => Promise<void>;
   showErrorMessage: (message: string) => void;
@@ -904,6 +908,7 @@ function ReconciliationDetailDrawer({
       showErrorMessage("Enter a reason for manual edits.");
       return;
     }
+    const beforeSnap = expenseAuditSnapshot(expense);
     const { error } = await supabase
       .from("expenses")
       .update({
@@ -925,6 +930,24 @@ function ReconciliationDetailDrawer({
     }
     setEditing(false);
     showSuccessMessage("Expense updated.");
+    void logAuditFromBrowser({
+      departmentId: membership.department_id,
+      userRole: membership.role,
+      action: "transaction.edited",
+      resourceType: "expense",
+      resourceId: expense.id,
+      resourceLabel: editValues.payee || expense.payee || undefined,
+      beforeData: beforeSnap,
+      afterData: expenseAuditSnapshot({
+        payee: editValues.payee,
+        total_amount: editValues.total_amount,
+        transaction_date: editValues.transaction_date,
+        category: editValues.category,
+        bank_account_name: editValues.bank_account_name,
+        description: editValues.description,
+      }),
+      metadata: { reason: editReason.trim(), context: "reconciliation" },
+    });
     await onExpensesChanged();
   }
 
