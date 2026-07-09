@@ -274,7 +274,7 @@ function isIncomeRecord(exp: ExpenseRecord): boolean {
 }
 
 /**
- * Compute auto-populated financial fields from Firebook expenses.
+ * Compute auto-populated financial fields from Hallix expenses.
  * Returns:
  *   - fields: patches for NysFormFields (top 3 exp categories, top 4 rev sources)
  *   - extraExpLines: any expenditure categories beyond the 3 form slots
@@ -1468,7 +1468,7 @@ function NysFieldsPanel({
           descVal={fields.rev_src1_desc} amtVal={fields.rev_src1_amt}
           onChangeDesc={(v) => onChange("rev_src1_desc", v)}
           onChangeAmt={(v)  => onChange("rev_src1_amt",  v)}
-          autoHint="Auto-filled from Firebook"
+          autoHint="Auto-filled from Hallix"
         />
         <NysSourceRow
           descId="rev_src2_desc" descLabel="Source 2" amtId="rev_src2_amt" amtLabel="Amount"
@@ -1530,7 +1530,7 @@ function NysFieldsPanel({
           descVal={fields.exp1_desc} amtVal={fields.exp1_amt}
           onChangeDesc={(v) => onChange("exp1_desc", v)}
           onChangeAmt={(v)  => onChange("exp1_amt",  v)}
-          autoHint="Auto-filled from Firebook"
+          autoHint="Auto-filled from Hallix"
         />
         <NysSourceRow
           descId="exp2_desc" descLabel="Line 2" amtId="exp2_amt" amtLabel="Amount"

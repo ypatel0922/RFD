@@ -1,5 +1,5 @@
 -- Tax Form Filings: tracks all NYS 2% (and future) tax form filings,
--- whether generated inside Firebook or uploaded as a prior-year document.
+-- whether generated inside Hallix or uploaded as a prior-year document.
 create table if not exists public.tax_form_filings (
   id                uuid        primary key default gen_random_uuid(),
   department_id     uuid        not null references public.departments(id) on delete cascade,

@@ -3,8 +3,8 @@ import type { Metadata } from "next";
 import { LegalPageLayout, LegalSection } from "../../components/public-site";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy — Firebook",
-  description: "How Firebook collects, uses, and protects information for fire department bookkeeping.",
+  title: "Privacy Policy — Hallix",
+  description: "How Hallix collects, uses, and protects information for fire department bookkeeping.",
 };
 
 export default function PrivacyPage() {
@@ -12,18 +12,18 @@ export default function PrivacyPage() {
     <LegalPageLayout title="Privacy Policy">
       <LegalSection title="Overview">
         <p>
-          Firebook (&quot;we,&quot; &quot;us,&quot; or &quot;our&quot;) provides bookkeeping software for fire
+          Hallix (&quot;we,&quot; &quot;us,&quot; or &quot;our&quot;) provides bookkeeping software for fire
           departments. This Privacy Policy describes how we collect, use, store, and protect information when
-          you visit our website, request a demo, or use the Firebook service.
+          you visit our website, request a demo, or use the Hallix service.
         </p>
       </LegalSection>
 
       <LegalSection title="Information We Collect">
-        <p>Depending on how you interact with Firebook, we may collect the following types of information:</p>
+        <p>Depending on how you interact with Hallix, we may collect the following types of information:</p>
         <ul className="list-disc space-y-2 pl-5">
           <li>
             <strong className="text-zinc-900">Account information</strong> — name, email address, login
-            credentials, and role or permission settings associated with your Firebook account.
+            credentials, and role or permission settings associated with your Hallix account.
           </li>
           <li>
             <strong className="text-zinc-900">Department information</strong> — fire department name, address,
@@ -46,7 +46,7 @@ export default function PrivacyPage() {
           </li>
           <li>
             <strong className="text-zinc-900">Phone numbers and SMS notifications</strong> — mobile phone
-            numbers you provide and SMS delivery status when you enable text notifications in Firebook
+            numbers you provide and SMS delivery status when you enable text notifications in Hallix
             settings.
           </li>
           <li>
@@ -64,7 +64,7 @@ export default function PrivacyPage() {
       <LegalSection title="How We Use Information">
         <p>We use collected information to:</p>
         <ul className="list-disc space-y-2 pl-5">
-          <li>Provide, maintain, and improve the Firebook service</li>
+          <li>Provide, maintain, and improve the Hallix service</li>
           <li>Authenticate users and enforce department permissions</li>
           <li>Import, display, categorize, and reconcile financial transactions</li>
           <li>Process receipts and documents using OCR and related automation</li>
@@ -81,7 +81,7 @@ export default function PrivacyPage() {
         <p>
           We use administrative, technical, and organizational safeguards designed to protect information
           against unauthorized access, loss, misuse, or alteration. Access to department data is limited by
-          role-based permissions within Firebook. No method of transmission or storage is completely secure,
+          role-based permissions within Hallix. No method of transmission or storage is completely secure,
           and we cannot guarantee absolute security.
         </p>
       </LegalSection>
@@ -97,7 +97,7 @@ export default function PrivacyPage() {
 
       <LegalSection title="Third-Party Services">
         <p>
-          Firebook uses trusted third-party providers to operate the service. These providers process data
+          Hallix uses trusted third-party providers to operate the service. These providers process data
           on our behalf and only as needed to deliver their function. Examples include:
         </p>
         <ul className="list-disc space-y-2 pl-5">
@@ -128,11 +128,11 @@ export default function PrivacyPage() {
       <LegalSection title="Your Choices">
         <ul className="list-disc space-y-2 pl-5">
           <li>
-            You may update certain account and department information within Firebook where your role
+            You may update certain account and department information within Hallix where your role
             permits.
           </li>
           <li>
-            You may enable or disable SMS notifications in Firebook settings. You can also reply STOP to
+            You may enable or disable SMS notifications in Hallix settings. You can also reply STOP to
             opt out of SMS messages as described in our{" "}
             <a href="/sms-policy" className="font-semibold text-[#8B0E16] hover:text-[#991B1B]">
               SMS Messaging Policy
@@ -140,7 +140,7 @@ export default function PrivacyPage() {
             .
           </li>
           <li>
-            You may disconnect linked financial institutions through Firebook or your institution&apos;s
+            You may disconnect linked financial institutions through Hallix or your institution&apos;s
             connected-app settings, subject to bookkeeping and retention needs.
           </li>
           <li>
@@ -151,7 +151,7 @@ export default function PrivacyPage() {
 
       <LegalSection title="Children&apos;s Privacy">
         <p>
-          Firebook is intended for use by fire departments and authorized personnel. It is not directed to
+          Hallix is intended for use by fire departments and authorized personnel. It is not directed to
           children under 13, and we do not knowingly collect personal information from children.
         </p>
       </LegalSection>
@@ -159,7 +159,7 @@ export default function PrivacyPage() {
       <LegalSection title="Changes to This Policy">
         <p>
           We may update this Privacy Policy from time to time. When we do, we will revise the &quot;Last
-          updated&quot; date above. Continued use of Firebook after changes become effective constitutes
+          updated&quot; date above. Continued use of Hallix after changes become effective constitutes
           acceptance of the updated policy.
         </p>
       </LegalSection>
@@ -168,10 +168,10 @@ export default function PrivacyPage() {
         <p>
           If you have questions about this Privacy Policy or our data practices, contact us at{" "}
           <a
-            href="mailto:support@firebook.app"
+            href="mailto:support@hallix.app"
             className="font-semibold text-[#8B0E16] hover:text-[#991B1B]"
           >
-            support@firebook.app
+            support@hallix.app
           </a>
           .
         </p>

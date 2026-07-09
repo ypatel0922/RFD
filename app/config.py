@@ -9,7 +9,7 @@ ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 
 
 class Settings(BaseModel):
-    app_name: str = "RFD Expense Tracker"
+    app_name: str = "Hallix"
     data_dir: Path
     receipt_dir: Path
     database_path: Path

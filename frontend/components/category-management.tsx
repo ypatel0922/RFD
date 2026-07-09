@@ -176,7 +176,7 @@ function CategoryFormPanel({
             placeholder="Comma-separated vendor names (optional)"
           />
           <span className="fb-settings-helper-text">
-            When these vendors are used, Firebook will suggest this category.
+            When these vendors are used, Hallix will suggest this category.
           </span>
         </label>
         <label className="fb-settings-checkbox">
@@ -604,7 +604,7 @@ export function CategoryManagementSection({
       <div className="fb-cat-intro">
         <h2 className="fb-settings-panel-title">Categories</h2>
         <p className="fb-settings-panel-subtitle">
-          Manage the categories Firebook uses to classify expenses, receipts, vendors, and 2% fund
+          Manage the categories Hallix uses to classify expenses, receipts, vendors, and 2% fund
           activity.
         </p>
       </div>

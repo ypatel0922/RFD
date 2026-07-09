@@ -156,7 +156,7 @@ export function buildReceiptRequestMessage({
   const amountStr = formatAmountForSms(amount);
   const link = baseUrl ? ` ${baseUrl}/receipt-request/${requestCode}` : "";
   return (
-    `Firebook: Receipt needed for ${amountStr} at ${vendor} on ${date}.` +
+    `Hallix: Receipt needed for ${amountStr} at ${vendor} on ${date}.` +
     ` Reply with a photo of the receipt.` +
     ` Ref: ${requestCode}${link}`
   );
@@ -171,13 +171,13 @@ export function buildReceiptConfirmationMessage({
   amount: number | string | null;
 }): string {
   const amountStr = formatAmountForSms(amount);
-  return `Firebook received the receipt for ${vendor} ${amountStr}. You're all set.`;
+  return `Hallix received the receipt for ${vendor} ${amountStr}. You're all set.`;
 }
 
 /** Build the "needs reference code" reply when multiple pending requests exist. */
 export function buildAmbiguousReceiptMessage(): string {
   return (
-    "Firebook received your receipt, but I could not tell which transaction it belongs to. " +
+    "Hallix received your receipt, but I could not tell which transaction it belongs to. " +
     "Reply with the reference code from the original message (e.g. FB-1234)."
   );
 }

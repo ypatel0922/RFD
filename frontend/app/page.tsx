@@ -18,6 +18,7 @@ import {
 import Link from "next/link";
 
 import { PublicFooter } from "../components/public-site";
+import { BrandLogo } from "../components/brand-logo";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
@@ -148,9 +149,8 @@ export default function HomePage() {
         <div className="mx-auto w-full min-w-0 max-w-7xl px-4 py-3 md:px-5 md:py-4 lg:px-10">
           <div className="relative">
             <div className="flex min-w-0 items-center justify-between gap-2 rounded-2xl border border-slate-700/90 bg-gradient-to-r from-[#172033] via-[#1e293b] to-[#172033] px-4 py-3 shadow-lg shadow-slate-900/20 md:gap-3 md:px-6 md:py-4">
-              <Link href="/" className="shrink-0 flex min-w-0 items-center gap-2 text-lg font-semibold tracking-tight text-white">
-                <span className="rounded-md bg-slate-700/90 px-2 py-1 text-xs font-bold text-white">RFD</span>
-                Firebook
+              <Link href="/" className="shrink-0 flex min-w-0 items-center">
+                <BrandLogo className="h-8 w-auto" priority />
               </Link>
               <nav className="hidden flex-1 items-center justify-center gap-4 text-sm font-semibold md:flex md:gap-5" aria-label="Desktop">
                 <a href="#features" className="!text-white hover:!text-white">
@@ -372,7 +372,7 @@ export default function HomePage() {
           <div className="rounded-3xl border border-zinc-200 bg-white p-6 md:p-8">
             <h2 className="text-3xl font-semibold tracking-tight">Organize receipts, track expenses, and generate reports automatically</h2>
             <p className="mt-3 max-w-3xl text-base leading-relaxed text-zinc-700">
-              Capture receipts as you go. Firebook keeps each receipt with the matching transaction so records are easy
+              Capture receipts as you go. Hallix keeps each receipt with the matching transaction so records are easy
               to review. No more searching through papers and emails to find last years donation amounts.
             </p>
           </div>
@@ -383,7 +383,7 @@ export default function HomePage() {
             <div className="space-y-3">
               <h2 className="text-3xl font-semibold tracking-tight text-white">Reconcile in minutes, not days</h2>
               <p className="text-base leading-relaxed text-slate-200">
-                Connect your bank through Plaid or upload a statement. Firebook matches bank activity with receipts
+                Connect your bank through Plaid or upload a statement. Hallix matches bank activity with receipts
                 and flags anything that needs review. No more lapses in funds or missing receipts.
               </p>
             </div>

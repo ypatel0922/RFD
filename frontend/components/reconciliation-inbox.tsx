@@ -738,7 +738,7 @@ export function ReconciliationInboxSection({
             <button type="button" className="link-button" onClick={onOpenFullReport}>
               View reconciliation guide
             </button>
-            <a className="link-button" href="mailto:support@firebook.app">
+            <a className="link-button" href="mailto:support@hallix.app">
               Contact support
             </a>
           </section>

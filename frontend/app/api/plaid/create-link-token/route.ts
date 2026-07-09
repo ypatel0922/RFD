@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
     const client = plaidClient();
     const response = await client.linkTokenCreate({
       user: { client_user_id: userId },
-      client_name: "RFD Expense Tracker",
+      client_name: "Hallix",
       products: [Products.Transactions],
       country_codes: [CountryCode.Us],
       language: "en",

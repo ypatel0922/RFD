@@ -4,7 +4,7 @@
 
 ### Project overview
 
-RFD Expense Tracker — a receipt-first expense tracking web app for fire departments. Two services:
+Hallix — a receipt-first expense tracking web app for fire departments. Two services:
 
 | Service | Stack | Port | Purpose |
 |---------|-------|------|---------|

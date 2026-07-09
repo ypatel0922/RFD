@@ -19,7 +19,7 @@ function fmtDate(iso: string | null | undefined): string {
 
 function sourceLabel(source: TaxFormFiling["source"]): string {
   return source === "generated_firebook"
-    ? "Generated in Firebook"
+    ? "Generated in Hallix"
     : "Uploaded prior filing";
 }
 

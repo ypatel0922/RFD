@@ -26,7 +26,7 @@ from app.storage import LocalReceiptStorage, SupabaseReceiptStorage
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 templates = Jinja2Templates(directory=PROJECT_ROOT / "templates")
 
-app = FastAPI(title="RFD Expense Tracker")
+app = FastAPI(title="Hallix")
 app.mount("/static", StaticFiles(directory=PROJECT_ROOT / "static"), name="static")
 
 
