@@ -261,7 +261,7 @@ function ReconciliationRowMenu({
   );
 }
 
-type ReconciliationQueueFilter =
+export type ReconciliationQueueFilter =
   | "all"
   | "missing_receipt"
   | "pending_bank_match"
@@ -407,6 +407,8 @@ export function ReconciliationInboxSection({
   onOpenStatementReconciliation,
   receiptRequests = [],
   onReceiptRequestsChanged,
+  initialQueueFilter,
+  onInitialQueueFilterApplied,
 }: {
   expenses: ExpenseRecord[];
   receiptUrls: Record<string, string>;
@@ -423,10 +425,22 @@ export function ReconciliationInboxSection({
   onOpenStatementReconciliation: (bankAccountId: string | null) => void;
   receiptRequests?: ReceiptRequest[];
   onReceiptRequestsChanged?: () => Promise<void>;
+  /**
+   * The queue to open on, used when another screen links here to show a
+   * specific set of items. It seeds the normal queue control.
+   */
+  initialQueueFilter?: ReconciliationQueueFilter | null;
+  onInitialQueueFilterApplied?: () => void;
 }) {
   const [accountFilter, setAccountFilter] = useState("");
   const [periodFilter, setPeriodFilter] = useState("");
   const [queueFilter, setQueueFilter] = useState<ReconciliationQueueFilter>("all");
+
+  useEffect(() => {
+    if (!initialQueueFilter) return;
+    setQueueFilter(initialQueueFilter);
+    onInitialQueueFilterApplied?.();
+  }, [initialQueueFilter, onInitialQueueFilterApplied]);
   const [moreOpen, setMoreOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [lastBankSync, setLastBankSync] = useState<string | null>(null);
