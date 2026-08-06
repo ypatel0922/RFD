@@ -4,9 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
-    "build": "next build --webpack",
+    "build": "node scripts/copy-pdf-worker.mjs && next build --webpack",
+    "predev": "node scripts/copy-pdf-worker.mjs",
     "start": "next start",
-    "lint": "next typegen && tsc --noEmit"
+    "lint": "next typegen && tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "postinstall": "node scripts/copy-pdf-worker.mjs"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.2.4",
@@ -18,6 +22,7 @@
     "next": "^16.2.5",
     "openai": "^6.36.0",
     "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^4.10.38",
     "plaid": "^42.2.0",
     "postcss": "^8.5.14",
     "react": "^19.2.6",
@@ -25,7 +30,8 @@
     "react-plaid-link": "^4.1.1",
     "resend": "^6.12.4",
     "tailwind-merge": "^3.5.0",
-    "tailwindcss": "^4.2.4"
+    "tailwindcss": "^4.2.4",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
@@ -33,6 +39,7 @@
     "@types/react-dom": "^19.2.3",
     "eslint": "^10.3.0",
     "eslint-config-next": "^16.2.5",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
   }
 }

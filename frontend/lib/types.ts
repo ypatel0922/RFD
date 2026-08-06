@@ -39,6 +39,10 @@ export type BankAccount = {
   is_two_percent_account: boolean;
   fund_type: string | null;
   created_at: string;
+  account_type?: string | null;
+  last_reconciled_at?: string | null;
+  last_reconciled_statement_end_date?: string | null;
+  last_reconciled_ending_balance?: number | string | null;
 };
 
 export type BankStatementTransaction = {
