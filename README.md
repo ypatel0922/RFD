@@ -153,7 +153,7 @@ create:
   belong to
 - `reconciliation_sessions`, `reconciliation_session_pages`,
   `reconciliation_statement_lines` and `reconciliation_audit_events`, added by
-  `020_monthly_statement_reconciliation.sql` for monthly statement
+  `022_monthly_statement_reconciliation.sql` for monthly statement
   reconciliation. That migration also adds the atomic
   `confirm_statement_reconciliation` function and the
   `purge_expired_reconciliation_drafts` cleanup routine.
