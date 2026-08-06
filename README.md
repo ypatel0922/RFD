@@ -24,6 +24,11 @@ This version includes:
   bank transactions when they post.
 - Reconciliation report generation with summary/detail sections and a
   `Reconciled on report` flag for each expense.
+- Monthly statement reconciliation for accounts that are not connected through
+  Plaid: photograph every page of a paper statement, read the transaction lines,
+  validate the statement balances, and review proposed matches before anything
+  is marked reconciled. See
+  [Monthly statement reconciliation](#monthly-statement-reconciliation).
 
 ## Run locally
 
@@ -97,8 +102,12 @@ Primary Next.js environment variables:
 | `NEXT_PUBLIC_SUPABASE_URL` | unset | Supabase project URL. |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | unset | Supabase publishable/anon key used by the browser client. |
 | `NEXT_PUBLIC_SUPABASE_RECEIPTS_BUCKET` | `receipts` | Private Supabase Storage bucket for receipt files. |
-| `OPENAI_API_KEY` | unset | Server-only key used by `frontend/app/api/extract-receipt`. |
-| `OPENAI_RECEIPT_MODEL` | `gpt-4o-mini` | Vision-capable model for extraction. |
+| `OPENAI_API_KEY` | unset | Server-only key used by `frontend/app/api/extract-receipt` and by statement reconciliation. |
+| `OPENAI_RECEIPT_MODEL` | `gpt-4o-mini` | Vision-capable model for receipt extraction. |
+| `BANK_STATEMENT_VISION_MODEL` | `gpt-4.1` | Vision model used to read bank-statement pages. Stronger than the receipt model because statement pages are dense multi-column tables. Must support image input and structured (JSON schema) output. |
+| `RECONCILIATION_DATE_TOLERANCE_DAYS` | `7` | How far a bank posting date may sit from the Hallix transaction date and still match. Values above 45 are ignored. |
+| `RECONCILIATION_VENDOR_MATCH_MIN_SIMILARITY` | `0.62` | How closely the statement's vendor wording must resemble the recorded name to count as a strong signal. Accepts 0.3–0.95. |
+| `RECONCILIATION_TIP_TOLERANCE_PERCENT` | `30` | How much larger a card charge may be than the recorded amount and still be offered as a possible match, covering a handwritten tip. Capped at $150 of overage. |
 
 Legacy FastAPI environment variables:
 
@@ -142,6 +151,12 @@ create:
 - Row Level Security policies that only allow authenticated users to access
   departments, members, expenses, and receipt objects for departments they
   belong to
+- `reconciliation_sessions`, `reconciliation_session_pages`,
+  `reconciliation_statement_lines` and `reconciliation_audit_events`, added by
+  `020_monthly_statement_reconciliation.sql` for monthly statement
+  reconciliation. That migration also adds the atomic
+  `confirm_statement_reconciliation` function and the
+  `purge_expired_reconciliation_drafts` cleanup routine.
 
 ### Onboarding a new fire department (app owner)
 
@@ -181,6 +196,90 @@ summary/detail shape with cleared transactions, new/unmatched transactions,
 totals, register balance, and a `Reconciled on report` column. Use
 `/reports/reconciliation.csv` with the same query parameters to export the
 detail rows.
+
+## Monthly statement reconciliation
+
+Departments that do not connect an account through Plaid can reconcile from the
+paper statement instead. From the **Reconciliation** tab, **Reconcile Monthly
+Statement** opens a wizard: choose the account, photograph or select every page,
+and review what matched before confirming.
+
+Requires `OPENAI_API_KEY`. Without it the wizard explains that statement reading
+is unavailable and the rest of the Reconciliation tab is unaffected.
+
+### How a statement is read
+
+Pages are read one at a time by a vision model (`BANK_STATEMENT_VISION_MODEL`,
+default `gpt-4.1`) constrained to a JSON schema, and every response is
+re-validated server-side with Zod before it is used. The model only reads what is
+printed; all arithmetic, date normalization, deduplication, balance validation
+and matching is done by deterministic code in `frontend/lib/reconciliation/`.
+Monetary values are carried as integer cents throughout, never as floats.
+
+A second pass then combines the pages: it orders them, joins descriptions that
+wrapped onto another line, drops repeated headers and subtotal rows, detects
+duplicate or overlapping photos, flags gaps in "Page X of Y", and checks
+chronological and running-balance continuity. The statement must satisfy
+`beginning balance + credits − debits = ending balance` within one cent before it
+can be confirmed, unless a treasurer records a written override reason.
+
+### Third-party processing and image retention
+
+Statement page images are sent to OpenAI for text extraction. This is the only
+third party that receives them, the request is made server-side, and the API key
+is never exposed to the browser.
+
+Bank PDFs from online banking are converted to page images in the browser before
+upload, then read as images. The original PDF is not stored. Without this step,
+vision models often return only the statement header and skip the transaction
+table.
+
+**Hallix does not keep the statement images.** Pages are prepared in the browser
+(EXIF orientation, PDF rasterization, downscale, compress), posted to an
+authenticated endpoint, held in memory while the model reads them, and discarded
+when the response returns. Nothing is written to Supabase Storage, no base64 is
+stored in the database, and no temporary file is written. Each page keeps only a
+SHA-256 digest of its bytes, used to notice that the same photo was added twice.
+
+What is retained is the structured result: the extracted transaction rows, the
+balance validation findings, the match scores and their plain-language reasons,
+and an audit trail of who confirmed what and when. Account numbers are truncated
+to the last four digits at extraction time. Server logs never include image
+bytes, statement contents, or account numbers.
+
+### Matching
+
+Statement lines are compared against unreconciled Hallix transactions for the
+selected account, within the statement period plus a date buffer. Scoring is
+deterministic and every match carries its reasons.
+
+| Threshold | Value | Meaning |
+| --- | --- | --- |
+| Balance tolerance | 1 cent | Largest accepted difference between the statement's arithmetic and its printed ending balance. |
+| Date tolerance | 7 days | Default gap allowed between the Hallix date and the bank posting date. |
+| Vendor tolerance | 0.62 similarity | How closely the statement's wording of a vendor must resemble the recorded name. |
+| Amount tolerance | $1 or 1% | Rounding-sized gap still treated as a near match. |
+| Gratuity tolerance | 30%, max $150 | Extra a card charge may carry over the recorded amount when the vendor and date agree. |
+| Auto-match score | 0.72 | Minimum normalized score for a high-confidence suggestion. |
+| Possible-match score | 0.40 | Minimum score to surface a line for review. |
+| Uniqueness margin | 0.10 | The best candidate must beat the runner-up by this much to auto-match. |
+| Ambiguity margin | 0.05 | Two candidates this close are flagged as an ambiguous duplicate. |
+
+Vendor names are compared after the bank's decoration is stripped: the card
+processor's prefix, the legal suffix and the trailing city and state all come
+off, so a receipt logged as "Employees Only" still matches a statement line
+reading "SQ *EMPLOYEES ONLY LLC NEW YORK NY". Where the vendor and date agree but
+the card charge is larger — a tip written on a restaurant receipt after it was
+printed — the pairing is offered for review with the gap spelled out, never
+applied automatically.
+
+An automatic suggestion additionally requires an exact amount and direction match
+to the cent, plus a supporting vendor, check-number, or reference-number signal.
+Matching is strictly one-to-one; a bank withdrawal covering several Hallix
+entries is flagged for manual review rather than split automatically. Nothing is
+marked reconciled until the treasurer confirms, and confirmation runs as a single
+atomic database function. All thresholds live in
+`frontend/lib/reconciliation/config.ts`.
 
 ## Next production steps
 

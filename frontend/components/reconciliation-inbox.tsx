@@ -324,6 +324,72 @@ function ReconciliationProgress({ expenses }: { expenses: ExpenseRecord[] }) {
   );
 }
 
+/**
+ * The two ways a department can reconcile. Plaid is offered when the department
+ * has linked accounts; the statement path is always available, both for
+ * departments without Plaid and as a fallback for a month Plaid did not cover.
+ */
+function ReconciliationMethods({
+  bankAccounts,
+  connectedAccountCount,
+  selectedAccountName,
+  onStartStatement,
+}: {
+  bankAccounts: BankAccount[];
+  connectedAccountCount: number;
+  selectedAccountName: string;
+  onStartStatement: (bankAccountId: string | null) => void;
+}) {
+  const preselected =
+    bankAccounts.find((account) => account.name === selectedAccountName)?.id ?? null;
+
+  const neverReconciled = bankAccounts.filter(
+    (account) => !account.last_reconciled_statement_end_date,
+  ).length;
+
+  return (
+    <section className="fb-recon-methods">
+      <div className="fb-recon-method fb-recon-method--primary">
+        <div className="fb-recon-method-body">
+          <p className="eyebrow">Monthly statement</p>
+          <h2>Reconcile Monthly Statement</h2>
+          <p className="fb-recon-method-desc">
+            Upload photos of every page of your monthly bank statement. Hallix will read the
+            statement, compare it with your recorded transactions, and show you what matched or
+            needs review.
+          </p>
+          {neverReconciled > 0 && bankAccounts.length ? (
+            <p className="fb-recon-method-hint">
+              {neverReconciled} of your {bankAccounts.length}{" "}
+              {bankAccounts.length === 1 ? "account has" : "accounts have"} never been reconciled.
+            </p>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          className="fb-primary-btn fb-recon-method-cta"
+          onClick={() => onStartStatement(preselected)}
+          disabled={!bankAccounts.length}
+        >
+          Reconcile Monthly Statement
+        </button>
+      </div>
+
+      <div className="fb-recon-method">
+        <div className="fb-recon-method-body">
+          <p className="eyebrow">Connected bank</p>
+          <h2>{connectedAccountCount ? "Automatic bank feed" : "Connect your bank"}</h2>
+          <p className="fb-recon-method-desc">
+            {connectedAccountCount
+              ? `${connectedAccountCount} ${connectedAccountCount === 1 ? "account is" : "accounts are"} connected. Transactions arrive automatically and are matched as they post.`
+              : "Connect an account to have transactions arrive automatically. Not every bank supports this, and the statement method works either way."}
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function ReconciliationInboxSection({
   expenses,
   receiptUrls,
@@ -337,6 +403,7 @@ export function ReconciliationInboxSection({
   onOpenUploadStatement,
   onOpenTransactions,
   onOpenNewExpense,
+  onOpenStatementReconciliation,
   receiptRequests = [],
   onReceiptRequestsChanged,
 }: {
@@ -352,6 +419,7 @@ export function ReconciliationInboxSection({
   onOpenUploadStatement: () => void;
   onOpenTransactions: () => void;
   onOpenNewExpense: () => void;
+  onOpenStatementReconciliation: (bankAccountId: string | null) => void;
   receiptRequests?: ReceiptRequest[];
   onReceiptRequestsChanged?: () => Promise<void>;
 }) {
@@ -361,6 +429,7 @@ export function ReconciliationInboxSection({
   const [moreOpen, setMoreOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [lastBankSync, setLastBankSync] = useState<string | null>(null);
+  const [connectedAccountCount, setConnectedAccountCount] = useState(0);
   const [statementPeriods, setStatementPeriods] = useState<Array<{ key: string; label: string }>>([]);
   const [sendingReceiptText, setSendingReceiptText] = useState<string | null>(null);
 
@@ -383,7 +452,7 @@ export function ReconciliationInboxSection({
   useEffect(() => {
     let cancelled = false;
     async function loadMeta() {
-      const [{ data: txRows }, { data: uploadRows }] = await Promise.all([
+      const [{ data: txRows }, { data: uploadRows }, { count: linkedCount }] = await Promise.all([
         supabase
           .from("external_transactions")
           .select("created_at")
@@ -396,9 +465,14 @@ export function ReconciliationInboxSection({
           .eq("department_id", membership.department_id)
           .order("created_at", { ascending: false })
           .limit(12),
+        supabase
+          .from("external_accounts")
+          .select("id", { count: "exact", head: true })
+          .eq("department_id", membership.department_id),
       ]);
       if (cancelled) return;
       setLastBankSync(txRows?.[0]?.created_at ? String(txRows[0].created_at) : null);
+      setConnectedAccountCount(linkedCount ?? 0);
       const periods: Array<{ key: string; label: string }> = [];
       for (const row of uploadRows || []) {
         const start = row.statement_start_date;
@@ -591,6 +665,13 @@ export function ReconciliationInboxSection({
           </div>
         </div>
       </div>
+
+      <ReconciliationMethods
+        bankAccounts={bankAccounts}
+        connectedAccountCount={connectedAccountCount}
+        selectedAccountName={accountFilter}
+        onStartStatement={onOpenStatementReconciliation}
+      />
 
       <div className="fb-recon-controls">
         <label className="fb-recon-control">

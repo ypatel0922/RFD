@@ -52,12 +52,14 @@ import {
   seedDepartmentCategories,
   suggestCategory,
 } from "../lib/categories";
+import { StatementWizard } from "./reconciliation/statement-wizard";
 
 type AuthMode = "login" | "signup";
 type AppView =
   | "dashboard"
   | "transactions"
   | "reconciliation"
+  | "reconcile_statement"
   | "accounts"
   | "reports_documents"
   | "tax_forms"
@@ -68,7 +70,25 @@ type AppView =
 type ReportsDocumentsMode = "hub" | "reconciliation" | "statements" | "two_percent_activity";
 type MessageVariant = "success" | "error";
 
-type ExpenseEntryLaunch = { tab: "receipt" | "manual" } | null;
+/**
+ * Values carried over when a transaction is started from somewhere else, such as
+ * a bank statement line the reconciliation wizard could not match.
+ */
+type ManualExpensePrefill = {
+  transaction_date: string;
+  payee: string;
+  amount: string;
+  /** "in" is a deposit; Hallix stores those as a negative total_amount. */
+  direction: "in" | "out";
+  description: string;
+  bank_account_name: string;
+  payment_reference: string;
+};
+
+type ExpenseEntryLaunch = {
+  tab: "receipt" | "manual";
+  prefill?: ManualExpensePrefill;
+} | null;
 
 const EMPTY_EXTRACTION: ExtractedReceiptData = {
   merchant_name: null,
@@ -844,6 +864,7 @@ function ManualExpenseForm({
   showTwoPercentPanel,
   departmentCategories,
   departmentVendors,
+  prefill,
 }: {
   expenses: ExpenseRecord[];
   bankAccounts: BankAccount[];
@@ -853,19 +874,22 @@ function ManualExpenseForm({
   showTwoPercentPanel?: boolean;
   departmentCategories?: DepartmentCategory[];
   departmentVendors?: DepartmentVendor[];
+  prefill?: ManualExpensePrefill;
 }) {
-  const [payee, setPayee] = useState("");
-  const [totalAmount, setTotalAmount] = useState("");
+  const [payee, setPayee] = useState(prefill?.payee || "");
+  const [totalAmount, setTotalAmount] = useState(prefill?.amount || "");
   const [category, setCategory] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("");
-  const [bankAccount, setBankAccount] = useState(defaultBankAccount);
-  const [description, setDescription] = useState("");
+  const [bankAccount, setBankAccount] = useState(prefill?.bank_account_name || defaultBankAccount);
+  const [description, setDescription] = useState(prefill?.description || "");
   const [memberVoteRecorded, setMemberVoteRecorded] = useState(false);
   const [meetingDate, setMeetingDate] = useState("");
   const [supportNote, setSupportNote] = useState("");
   const [showMoreDetails, setShowMoreDetails] = useState(false);
+  const [moneyIn, setMoneyIn] = useState(prefill?.direction === "in");
   const [isTwoPctTagged, setIsTwoPctTagged] = useState(() => {
-    const acct = bankAccounts.find((a) => a.name.toLowerCase() === defaultBankAccount.toLowerCase());
+    const name = prefill?.bank_account_name || defaultBankAccount;
+    const acct = bankAccounts.find((a) => a.name.toLowerCase() === name.toLowerCase());
     return Boolean(acct?.is_two_percent_account);
   });
 
@@ -915,10 +939,13 @@ function ManualExpenseForm({
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const amountCents = amountStringToCents(totalAmount);
+    // Hallix stores money coming in as a negative total_amount, the opposite of
+    // an expense. Deposits reach this form only from a statement line.
+    const signedCents = moneyIn ? -amountCents : amountCents;
     await onSubmit({
       transaction_date: String(form.get("transaction_date") || ""),
       payee: payee.trim(),
-      total_amount: amountCents > 0 ? amountCents / 100 : null,
+      total_amount: amountCents > 0 ? signedCents / 100 : null,
       payment_method: paymentMethod,
       category: category.trim(),
       bank_account_name: bankAccount.trim(),
@@ -932,11 +959,23 @@ function ManualExpenseForm({
 
   return (
     <form className="upload-form fb-expense-form fb-new-expense-manual-form" onSubmit={handleSubmit}>
+      {prefill ? (
+        <div className="fb-stmt-prefill-note">
+          <strong>From your bank statement.</strong> Check the details below, then save it to add
+          this transaction to Hallix.
+        </div>
+      ) : null}
+
       {/* Core fields always visible */}
       <div className="form-grid two-column">
         <label>
           Date
-          <input type="date" name="transaction_date" required defaultValue={formatLocalYMD(new Date())} />
+          <input
+            type="date"
+            name="transaction_date"
+            required
+            defaultValue={prefill?.transaction_date || formatLocalYMD(new Date())}
+          />
         </label>
         <VendorAutocompleteField
           label="Vendor / payee"
@@ -958,6 +997,29 @@ function ManualExpenseForm({
         />
         <CategoryComboboxField label="Category" value={category} onChange={setCategory} expenses={expenses} departmentCategories={departmentCategories} twoPctMode={isTwoPctTagged} />
       </div>
+      {prefill ? (
+        <fieldset className="fb-stmt-direction">
+          <legend>Is this money in or money out?</legend>
+          <label>
+            <input
+              type="radio"
+              name="money_direction"
+              checked={!moneyIn}
+              onChange={() => setMoneyIn(false)}
+            />
+            <span>Money out (expense, check, fee)</span>
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="money_direction"
+              checked={moneyIn}
+              onChange={() => setMoneyIn(true)}
+            />
+            <span>Money in (deposit, interest, refund)</span>
+          </label>
+        </fieldset>
+      ) : null}
       <div className="fb-2pct-tag-row">
         <label className="fb-2pct-tag-label">
           <input type="checkbox" checked={isTwoPctTagged} onChange={(e) => handleTwoPctToggle(e.target.checked)} />
@@ -1043,6 +1105,7 @@ export default function Home() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [expenseEntryLaunch, setExpenseEntryLaunch] = useState<ExpenseEntryLaunch>(null);
   const [reportsDocumentsMode, setReportsDocumentsMode] = useState<ReportsDocumentsMode>("hub");
+  const [statementAccountId, setStatementAccountId] = useState<string | null>(null);
   const [ledgerBankAccountFilter, setLedgerBankAccountFilter] = useState("");
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>("overview");
   const transactionsPanelRef = useRef<HTMLDivElement | null>(null);
@@ -1768,8 +1831,44 @@ export default function Home() {
                 setView("new_expense");
                 setMobileNavOpen(false);
               }}
+              onOpenStatementReconciliation={(bankAccountId) => {
+                setStatementAccountId(bankAccountId || null);
+                setView("reconcile_statement");
+                setMobileNavOpen(false);
+              }}
               receiptRequests={receiptRequests}
               onReceiptRequestsChanged={() => loadReceiptRequests(membership.department_id)}
+            />
+          ) : view === "reconcile_statement" ? (
+            <StatementWizard
+              bankAccounts={bankAccounts}
+              membership={membership}
+              accessToken={session.access_token}
+              initialBankAccountId={statementAccountId}
+              onClose={() => {
+                setStatementAccountId(null);
+                setView("reconciliation");
+              }}
+              onCreateTransaction={(prefill) => {
+                setExpenseEntryLaunch({
+                  tab: "manual",
+                  prefill: {
+                    transaction_date: prefill.date || "",
+                    payee: prefill.description.slice(0, 120),
+                    amount: prefill.amountDollars == null ? "" : prefill.amountDollars.toFixed(2),
+                    direction: prefill.isDeposit ? "in" : "out",
+                    description: prefill.description,
+                    bank_account_name: prefill.bankAccountName || "",
+                    payment_reference: prefill.checkNumber || "",
+                  },
+                });
+                setView("new_expense");
+                setMobileNavOpen(false);
+              }}
+              onReconciled={async () => {
+                await loadExpenses(membership.department_id);
+                await handleBankAccountsChanged();
+              }}
             />
           ) : view === "accounts" ? (
             <AccountsTabSection
@@ -2558,6 +2657,7 @@ function NewExpensePage({
   const [manualWorking, setManualWorking] = useState(false);
   const [working, setWorking] = useState(false);
   const [manualFormKey, setManualFormKey] = useState(0);
+  const [manualPrefill, setManualPrefill] = useState<ManualExpensePrefill | undefined>(undefined);
   const [isMobileDevice, setIsMobileDevice] = useState(false);
 
   useEffect(() => {
@@ -2581,6 +2681,9 @@ function NewExpensePage({
     setEntryTab(launchTab.tab);
     setDraft(null);
     setReviewForm(null);
+    setManualPrefill(launchTab.prefill);
+    // Remount the manual form so its fields pick up the new starting values.
+    if (launchTab.prefill) setManualFormKey((key) => key + 1);
     onLaunchConsumed();
   }, [launchTab, onLaunchConsumed]);
 
@@ -2589,6 +2692,7 @@ function NewExpensePage({
     setEntryTab(next);
     setDraft(null);
     setReviewForm(null);
+    setManualPrefill(undefined);
     setMessage(null);
   }
 
@@ -2797,6 +2901,7 @@ function NewExpensePage({
       category: optionalValue(values.category),
       description: optionalValue(values.description),
       bank_account_name: optionalValue(values.bank_account_name),
+      payment_reference: optionalValue(manualPrefill?.payment_reference || ""),
       extraction_status: "needs_review",
       extraction_confidence: 0,
       extraction_notes: "Manual entry without receipt",
@@ -2815,7 +2920,8 @@ function NewExpensePage({
       setManualWorking(false);
       return;
     }
-    showSuccessMessage("Manual expense logged.");
+    showSuccessMessage(manualPrefill ? "Transaction added from your statement." : "Manual expense logged.");
+    setManualPrefill(undefined);
     setManualFormKey((k) => k + 1);
     await onExpensesChanged();
     setManualWorking(false);
@@ -2904,6 +3010,7 @@ function NewExpensePage({
               showTwoPercentPanel={showTwoPercentPanel}
               departmentCategories={departmentCategories}
               departmentVendors={departmentVendors}
+              prefill={manualPrefill}
             />
           </>
         )}
