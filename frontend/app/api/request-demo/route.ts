@@ -46,11 +46,11 @@ export async function POST(request: NextRequest) {
     const phoneLine = phoneNumber ? `Phone Number: ${phoneNumber}` : "Phone Number: (not provided)";
 
     const { error } = await resend.emails.send({
-      from: "Firebook <onboarding@resend.dev>",
+      from: "Hallix <onboarding@resend.dev>",
       to: toEmail,
-      subject: "New Firebook Demo Request",
+      subject: "New Hallix Demo Request",
       text: [
-        "New Firebook Demo Request",
+        "New Hallix Demo Request",
         "",
         `Full Name: ${fullName}`,
         `Department Name: ${departmentName}`,

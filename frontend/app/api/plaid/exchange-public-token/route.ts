@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { plaidClient, supabaseAdmin } from "../_lib";
+import { logAuditEvent } from "../../../../lib/audit-server";
 
 export async function POST(request: NextRequest) {
   try {
@@ -55,6 +56,14 @@ export async function POST(request: NextRequest) {
       .update({ setup_completed_at: new Date().toISOString() })
       .eq("id", departmentId)
       .is("setup_completed_at", null);
+
+    await logAuditEvent({
+      departmentId,
+      action: "plaid.connected",
+      resourceType: "plaid",
+      metadata: { accountsImported: accountRows.length, institutionName },
+      request,
+    });
 
     return NextResponse.json({ ok: true, accounts: accountRows.length });
   } catch (error) {

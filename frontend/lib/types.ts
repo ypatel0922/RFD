@@ -24,6 +24,7 @@ export type DepartmentMembership = {
 export type DepartmentSetting = {
   department_id: string;
   auto_log_statement_expenses: boolean;
+  audit_trail_enabled: boolean;
   created_at: string;
   updated_at: string;
 };

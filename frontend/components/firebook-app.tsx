@@ -47,6 +47,9 @@ import { TransactionsLedger } from "./TransactionsLedger";
 import { NysFFReportPage } from "./nys-foreign-fire-report";
 import { TaxFormFilingsSection } from "./tax-form-filings";
 import { CategoryManagementSection } from "./category-management";
+import { BrandLogo } from "./brand-logo";
+import { AuditTrailSection } from "./audit-trail";
+import { expenseAuditSnapshot, invalidateAuditTrailEnabledCache, logAuditFromBrowser } from "../lib/audit";
 import {
   buildCategoryOptions,
   seedDepartmentCategories,
@@ -1127,6 +1130,20 @@ export default function Home() {
     setMessage(nextMessage);
   }
 
+  async function handleLogout() {
+    if (membership && session?.user) {
+      void logAuditFromBrowser({
+        departmentId: membership.department_id,
+        userRole: membership.role,
+        action: "auth.logout",
+        resourceType: "auth",
+        resourceId: session.user.id,
+        resourceLabel: session.user.email || undefined,
+      });
+    }
+    await supabase.auth.signOut();
+  }
+
   useEffect(() => {
     if (typeof window === "undefined" || !window.matchMedia) return;
     const mq = window.matchMedia("(max-width: 900px)");
@@ -1429,7 +1446,7 @@ export default function Home() {
     return (
       <div className="auth-page">
         <main className="auth-layout auth-layout--loading">
-          <p className="auth-loading">Loading Firebook…</p>
+          <p className="auth-loading">Loading Hallix…</p>
         </main>
       </div>
     );
@@ -1454,6 +1471,22 @@ export default function Home() {
           if (!nextSession.user) return;
           try {
             await loadMembership(nextSession.user);
+            const { data: memberRow } = await supabase
+              .from("department_members")
+              .select("department_id, role")
+              .eq("user_id", nextSession.user.id)
+              .limit(1)
+              .maybeSingle();
+            if (memberRow) {
+              void logAuditFromBrowser({
+                departmentId: memberRow.department_id,
+                userRole: memberRow.role,
+                action: "auth.login_success",
+                resourceType: "auth",
+                resourceId: nextSession.user.id,
+                resourceLabel: nextSession.user.email || undefined,
+              });
+            }
           } catch (error) {
             await supabase.auth.signOut();
             const message =
@@ -1491,9 +1524,8 @@ export default function Home() {
               <path d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <div className="fb-brand" aria-label="Firebook">
-            <span className="fb-brand-mark">Fire</span>
-            <span className="fb-brand-accent">book</span>
+          <div className="fb-brand" aria-label="Hallix">
+            <BrandLogo variant="icon" className="fb-brand-icon" />
           </div>
         </div>
 
@@ -1538,7 +1570,7 @@ export default function Home() {
               <span className="fb-user-chip-role">{membership.role}</span>
             </div>
           </div>
-          <button type="button" className="fb-topbar-logout" onClick={() => void supabase.auth.signOut()}>
+          <button type="button" className="fb-topbar-logout" onClick={() => void handleLogout()}>
             Log out
           </button>
         </div>
@@ -1731,7 +1763,7 @@ export default function Home() {
               <p className="fb-sidebar-dept">{membership.departments?.name || "Fire Department"}</p>
               <p className="fb-sidebar-email">{session.user.email}</p>
               <p className="fb-sidebar-role">{membership.role}</p>
-              <button type="button" className="fb-sidebar-signout" onClick={() => void supabase.auth.signOut()}>
+              <button type="button" className="fb-sidebar-signout" onClick={() => void handleLogout()}>
                 Sign out
               </button>
             </div>
@@ -1786,6 +1818,8 @@ export default function Home() {
                 expenses={expenses}
                 receiptUrls={receiptUrls}
                 user={session.user}
+                departmentId={membership.department_id}
+                userRole={membership.role}
                 onExpensesChanged={() => loadExpenses(membership.department_id)}
                 showErrorMessage={showErrorMessage}
                 showSuccessMessage={showSuccessMessage}
@@ -1956,9 +1990,9 @@ function AuthScreen({
     <div className="auth-page">
       <main className="auth-layout">
         <section className="card auth-card">
-          <div className="firebook-brand" aria-label="Firebook">
-            <span className="firebook-brand__wordmark">Firebook</span>
-            <span className="firebook-brand__tagline">Fire department bookkeeping</span>
+          <div className="firebook-brand" aria-label="Hallix">
+            <BrandLogo className="firebook-brand__logo" tone="dark" priority />
+            <span className="firebook-brand__tagline">AI bookkeeping for fire departments</span>
           </div>
           <h1 className="auth-title">{mode === "login" ? "Log in to your department" : "Create your account"}</h1>
           <p className="auth-lede">
@@ -2050,6 +2084,15 @@ function LoginForm({
       }
       setForgotIsError(false);
       setForgotMessage("Check your email for a password reset link.");
+      void fetch("/api/audit-log/public", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "auth.password_reset_requested",
+          email,
+          resourceType: "auth",
+        }),
+      });
     } catch (error) {
       setForgotIsError(true);
       setForgotMessage(
@@ -2418,7 +2461,7 @@ function TaxFormsSection({
         <p className="eyebrow">Compliance</p>
         <h1 className="fb-dash-title">Tax Forms</h1>
         <p className="fb-dash-subtitle">
-          Generate New York State filings directly from your Firebook transaction data. Select a report to get started.
+          Generate New York State filings directly from your Hallix transaction data. Select a report to get started.
         </p>
       </section>
 
@@ -2433,7 +2476,7 @@ function TaxFormsSection({
           </div>
           <h2>NYS Foreign Fire Insurance Report (2%)</h2>
           <p className="muted">
-            Generate the Annual Report of Foreign Fire Insurance Premiums using your Firebook transaction data. Includes OCR extraction from prior year filings.
+            Generate the Annual Report of Foreign Fire Insurance Premiums using your Hallix transaction data. Includes OCR extraction from prior year filings.
             {bankAccounts.some((a) => a.is_two_percent_account)
               ? " Financial figures auto-populate from your tagged 2% account."
               : " Tag a 2% account in Settings → Bank Accounts to enable auto-population."}
@@ -2857,6 +2900,80 @@ function NewExpensePage({
       setDraft(null);
       setReviewForm(null);
       showSuccessMessage("Expense logged. It is waiting for a bank transaction match.");
+      const ocrFields = ["payee", "total_amount", "transaction_date", "category", "bank_account_name", "description"] as const;
+      const extracted = draft.extracted;
+      const ocrOverridden = ocrFields.some((field) => {
+        const ocrVal = String(
+          field === "payee"
+            ? extracted.payee || extracted.merchant_name || ""
+            : (extracted as Record<string, unknown>)[field] || "",
+        ).trim();
+        const formVal = String(
+          field === "payee"
+            ? reviewForm.payee || ""
+            : (reviewForm as Record<string, unknown>)[field] || "",
+        ).trim();
+        return ocrVal !== formVal;
+      });
+      void logAuditFromBrowser({
+        departmentId: membership.department_id,
+        userRole: membership.role,
+        action: "receipt.uploaded",
+        resourceType: "expense",
+        resourceId: draft.id,
+        resourceLabel: reviewForm.payee || draft.receiptFile.name,
+        afterData: expenseAuditSnapshot({
+          payee: reviewForm.payee,
+          total_amount: reviewForm.total_amount,
+          transaction_date: reviewForm.transaction_date,
+          category: reviewForm.category,
+          bank_account_name: reviewForm.bank_account_name,
+          description: reviewForm.description,
+          uses_two_percent_funds: reviewForm.uses_two_percent_funds,
+        }),
+        metadata: { filename: draft.receiptFile.name },
+      });
+      void logAuditFromBrowser({
+        departmentId: membership.department_id,
+        userRole: membership.role,
+        action: "transaction.created",
+        resourceType: "expense",
+        resourceId: draft.id,
+        resourceLabel: reviewForm.payee || "Receipt expense",
+        afterData: expenseAuditSnapshot({
+          payee: reviewForm.payee,
+          total_amount: reviewForm.total_amount,
+          transaction_date: reviewForm.transaction_date,
+          category: reviewForm.category,
+          bank_account_name: reviewForm.bank_account_name,
+          description: reviewForm.description,
+          uses_two_percent_funds: reviewForm.uses_two_percent_funds,
+        }),
+      });
+      void logAuditFromBrowser({
+        departmentId: membership.department_id,
+        userRole: membership.role,
+        action: ocrOverridden ? "ocr.fields_overridden" : "ocr.fields_accepted",
+        resourceType: "expense",
+        resourceId: draft.id,
+        resourceLabel: reviewForm.payee || "Receipt OCR",
+        beforeData: {
+          payee: extracted.payee || extracted.merchant_name,
+          total_amount: extracted.total_amount,
+          transaction_date: extracted.transaction_date,
+          category: extracted.category,
+          bank_account_name: extracted.bank_account_name,
+          description: extracted.description,
+        },
+        afterData: {
+          payee: reviewForm.payee,
+          total_amount: reviewForm.total_amount,
+          transaction_date: reviewForm.transaction_date,
+          category: reviewForm.category,
+          bank_account_name: reviewForm.bank_account_name,
+          description: reviewForm.description,
+        },
+      });
       void onExpensesChanged().catch((error: unknown) => {
         const message = error instanceof Error ? error.message : "Expense saved, but refresh failed.";
         showErrorMessage(message);
@@ -2919,6 +3036,35 @@ function NewExpensePage({
       showErrorMessage(result.error.message);
       setManualWorking(false);
       return;
+    }
+    const expenseId = payload.id as string;
+    void logAuditFromBrowser({
+      departmentId: membership.department_id,
+      userRole: membership.role,
+      action: "transaction.created",
+      resourceType: "expense",
+      resourceId: expenseId,
+      resourceLabel: values.payee || "Manual expense",
+      afterData: expenseAuditSnapshot({
+        payee: values.payee,
+        total_amount: values.total_amount,
+        transaction_date: values.transaction_date,
+        category: values.category,
+        bank_account_name: values.bank_account_name,
+        description: values.description,
+        uses_two_percent_funds: values.uses_two_percent_funds,
+      }),
+      metadata: { source: manualPrefill ? "statement_reconciliation" : "manual" },
+    });
+    if (values.uses_two_percent_funds) {
+      void logAuditFromBrowser({
+        departmentId: membership.department_id,
+        userRole: membership.role,
+        action: "transaction.two_percent_included",
+        resourceType: "expense",
+        resourceId: expenseId,
+        resourceLabel: values.payee || "Manual expense",
+      });
     }
     showSuccessMessage(manualPrefill ? "Transaction added from your statement." : "Manual expense logged.");
     setManualPrefill(undefined);
@@ -3897,6 +4043,14 @@ function Reports({
     link.download = `reconciliation-${startDate}-${endDate}.csv`;
     link.click();
     URL.revokeObjectURL(url);
+    void logAuditFromBrowser({
+      departmentId: membership.department_id,
+      userRole: membership.role,
+      action: "report.downloaded",
+      resourceType: "report",
+      resourceLabel: `Reconciliation ${startDate} to ${endDate}`,
+      metadata: { reportType: "reconciliation", startDate, endDate, bankAccountName },
+    });
   }
 
   async function handleStatementUpload(event: ChangeEvent<HTMLInputElement>) {
@@ -4104,7 +4258,8 @@ type SettingsSectionId =
   | "permissions"
   | "compliance"
   | "notifications"
-  | "security";
+  | "security"
+  | "audit_trail";
 
 const SETTINGS_NAV: { id: SettingsSectionId; label: string }[] = [
   { id: "overview", label: "Overview" },
@@ -4116,6 +4271,7 @@ const SETTINGS_NAV: { id: SettingsSectionId; label: string }[] = [
   { id: "compliance", label: "Compliance" },
   { id: "notifications", label: "Notifications" },
   { id: "security", label: "Security" },
+  { id: "audit_trail", label: "Audit Trail" },
 ];
 
 type ExternalPlaidAccount = {
@@ -4715,6 +4871,29 @@ function Settings({
       return;
     }
     showSuccessMessage("Bank account saved.");
+    void logAuditFromBrowser({
+      departmentId: membership.department_id,
+      userRole: membership.role,
+      action: "bank_account.added",
+      resourceType: "bank_account",
+      resourceLabel: name,
+      afterData: {
+        name,
+        institution_name: institution || null,
+        account_mask: accountMask || null,
+        is_default: isDefault,
+        is_two_percent_account: isTwoPct,
+      },
+    });
+    if (isTwoPct) {
+      void logAuditFromBrowser({
+        departmentId: membership.department_id,
+        userRole: membership.role,
+        action: "bank_account.nys_tagged",
+        resourceType: "bank_account",
+        resourceLabel: name,
+      });
+    }
   }
 
   async function makeDefault(accountId: string) {
@@ -4726,6 +4905,15 @@ function Settings({
     }
     await onBankAccountsChanged();
     showSuccessMessage("Default account updated.");
+    void logAuditFromBrowser({
+      departmentId: membership.department_id,
+      userRole: membership.role,
+      action: "bank_account.edited",
+      resourceType: "bank_account",
+      resourceId: accountId,
+      resourceLabel: "Default account changed",
+      afterData: { is_default: true },
+    });
   }
 
   async function setTwoPercentAccount(accountId: string, value: boolean) {
@@ -4748,6 +4936,14 @@ function Settings({
     }
     await onBankAccountsChanged();
     showSuccessMessage(value ? "Account tagged as 2% Funds account." : "2% Funds tag removed.");
+    void logAuditFromBrowser({
+      departmentId: membership.department_id,
+      userRole: membership.role,
+      action: value ? "bank_account.nys_tagged" : "bank_account.nys_untagged",
+      resourceType: "bank_account",
+      resourceId: accountId,
+      resourceLabel: bankAccounts.find((a) => a.id === accountId)?.name,
+    });
   }
 
   async function toggleAutoLog(autoLog: boolean) {
@@ -4762,6 +4958,23 @@ function Settings({
     }
     await onDepartmentSettingsChanged();
     showSuccessMessage("Statement auto-log setting saved.");
+  }
+
+  async function toggleAuditTrail(enabled: boolean) {
+    const { error } = await supabase.from("department_settings").upsert({
+      department_id: membership.department_id,
+      audit_trail_enabled: enabled,
+      updated_at: new Date().toISOString(),
+    });
+    if (error) {
+      showErrorMessage(error.message);
+      return;
+    }
+    invalidateAuditTrailEnabledCache(membership.department_id);
+    await onDepartmentSettingsChanged();
+    showSuccessMessage(
+      enabled ? "Audit Trail enabled. Important actions will now be recorded." : "Audit Trail turned off.",
+    );
   }
 
   // ── Onboarding actions ────────────────────────────────────────────────────
@@ -5011,6 +5224,14 @@ function Settings({
           });
           if (error) throw error;
           feedbackMsg = `"${value}" added to Categories.`;
+          void logAuditFromBrowser({
+            departmentId: membership.department_id,
+            userRole: membership.role,
+            action: "category.created",
+            resourceType: "category",
+            resourceLabel: value,
+            metadata: { source: "onboarding" },
+          });
           await onCategoriesChanged();
         }
       } else if (suggestion.suggestion_type === "vendor") {
@@ -5032,6 +5253,14 @@ function Settings({
           });
           if (error) throw error;
           feedbackMsg = `"${value}" added to Vendors.`;
+          void logAuditFromBrowser({
+            departmentId: membership.department_id,
+            userRole: membership.role,
+            action: "vendor.created",
+            resourceType: "vendor",
+            resourceLabel: value,
+            metadata: { source: "onboarding" },
+          });
           await onVendorsChanged();
         }
       } else if (suggestion.suggestion_type === "account") {
@@ -5050,6 +5279,14 @@ function Settings({
           if (error) throw error;
           await onBankAccountsChanged();
           feedbackMsg = `"${value}" added to Accounts.`;
+          void logAuditFromBrowser({
+            departmentId: membership.department_id,
+            userRole: membership.role,
+            action: "bank_account.added",
+            resourceType: "bank_account",
+            resourceLabel: value,
+            metadata: { source: "onboarding" },
+          });
         }
       }
 
@@ -5179,8 +5416,8 @@ function Settings({
           <div>
             <h2 className="fb-settings-panel-title">Beginning Balances</h2>
             <p className="fb-settings-panel-subtitle">
-              Enter the balances you are starting with in Firebook. These are used as your opening
-              balances before Firebook starts tracking activity.
+              Enter the balances you are starting with in Hallix. These are used as your opening
+              balances before Hallix starts tracking activity.
             </p>
           </div>
           {!showAddBalance && (
@@ -5222,7 +5459,7 @@ function Settings({
 
         {bankAccounts.length > 0 && (
           <div className="fb-onboarding-existing-section">
-            <p className="fb-onboarding-section-label">Your Firebook accounts</p>
+            <p className="fb-onboarding-section-label">Your Hallix accounts</p>
             <div className="fb-onboarding-account-list">
               {bankAccounts.map((account) => {
                 const existingBalance = beginningBalances.find(
@@ -5452,7 +5689,7 @@ function Settings({
             <h2 className="fb-settings-panel-title">Upload Prior Records</h2>
             <p className="fb-settings-panel-subtitle">
               Upload photos, PDFs, or spreadsheets of old registers, notebooks, statements, or
-              logs. Firebook will use them to suggest categories and accounts.
+              logs. Hallix will use them to suggest categories and accounts.
             </p>
           </div>
         </div>
@@ -5588,7 +5825,7 @@ function Settings({
           <div>
             <h2 className="fb-settings-panel-title">Review Suggestions</h2>
             <p className="fb-settings-panel-subtitle">
-              Firebook found possible accounts, categories, vendors, and transaction types from
+              Hallix found possible accounts, categories, vendors, and transaction types from
               your uploaded records. Accept what looks right and ignore the rest.
             </p>
           </div>
@@ -5599,7 +5836,7 @@ function Settings({
         {!onboardingLoading && suggestions.length === 0 && (
           <div className="fb-onboarding-empty-suggestions">
             <p className="muted">
-              No suggestions yet. Upload prior records in Step 2 and Firebook will generate
+              No suggestions yet. Upload prior records in Step 2 and Hallix will generate
               suggestions from them.
             </p>
             <button
@@ -6007,7 +6244,7 @@ function Settings({
             <div>
               <h2 className="fb-settings-panel-title">Finish setup</h2>
               <p className="fb-settings-panel-subtitle">
-                Add beginning balances and upload prior records so Firebook can learn your
+                Add beginning balances and upload prior records so Hallix can learn your
                 accounts and categories.
               </p>
             </div>
@@ -6079,7 +6316,7 @@ function Settings({
               />
               <span>
                 <strong>2% Funds Account</strong>
-                <span className="fb-settings-helper-text"> — Firebook will treat money here as NYS Foreign Fire Insurance / 2% funds.</span>
+                <span className="fb-settings-helper-text"> — Hallix will treat money here as NYS Foreign Fire Insurance / 2% funds.</span>
               </span>
             </label>
           </div>
@@ -6154,7 +6391,7 @@ function Settings({
               <span>
                 <strong>2% Funds Account</strong>
                 <span className="fb-settings-helper-text">
-                  {" "}Firebook will treat money in this account as NYS Foreign Fire Insurance / 2% funds and apply additional tracking and warnings.
+                  {" "}Hallix will treat money in this account as NYS Foreign Fire Insurance / 2% funds and apply additional tracking and warnings.
                 </span>
               </span>
             </label>
@@ -6322,6 +6559,7 @@ function Settings({
         return (
           <CategoryManagementSection
             departmentId={membership.department_id}
+            userRole={membership.role}
             departmentCategories={departmentCategories}
             departmentVendors={departmentVendors}
             expenses={expenses}
@@ -6367,7 +6605,7 @@ function Settings({
               </li>
               <li className="muted">NYS 2% annual report — see Tax Forms tab</li>
               <li className="muted">IRS Form 990 package — in preparation</li>
-              <li className="muted">Audit trail via Transactions and Reports</li>
+              <li className="muted">Audit trail — see Settings → Audit Trail</li>
             </ul>
             <div style={{ marginTop: 16, borderTop: "1px solid var(--fb-border)", paddingTop: 14 }}>
               <p className="eyebrow" style={{ marginBottom: 8 }}>2% Expense Guidance</p>
@@ -6395,7 +6633,7 @@ function Settings({
             <div className="fb-settings-section-head">
               <h2>Notifications</h2>
               <p className="muted">
-                Get a text message when a Plaid-imported expense is missing a receipt. Reply with a photo and Firebook attaches it automatically.
+                Get a text message when a Plaid-imported expense is missing a receipt. Reply with a photo and Hallix attaches it automatically.
               </p>
             </div>
 
@@ -6415,7 +6653,7 @@ function Settings({
                     <span>
                       Text me when a receipt is needed
                       <span className="fb-settings-helper-text">
-                        {" "}When enabled, Firebook will send you a text after each Plaid import
+                        {" "}When enabled, Hallix will send you a text after each Plaid import
                         for any expense without a receipt. Reply with a photo to attach it.
                       </span>
                     </span>
@@ -6433,7 +6671,7 @@ function Settings({
                           onChange={(e) => setNotifPhoneDraft(e.target.value)}
                         />
                         <span className="fb-settings-helper-text">
-                          Used only for Firebook receipt request texts. Never shared.
+                          Used only for Hallix receipt request texts. Never shared.
                         </span>
                       </label>
 
@@ -6457,9 +6695,9 @@ function Settings({
                   <h3 className="fb-settings-field-group-title">How it works</h3>
                   <ol className="fb-settings-checklist">
                     <li>Plaid imports a transaction without a receipt</li>
-                    <li>Firebook texts you: "Receipt needed for $52 at Home Depot on Jul 8. Ref: FB-4821"</li>
+                    <li>Hallix texts you: "Receipt needed for $52 at Home Depot on Jul 8. Ref: FB-4821"</li>
                     <li>Reply with a photo of the receipt</li>
-                    <li>Firebook attaches it, runs OCR, and updates reconciliation</li>
+                    <li>Hallix attaches it, runs OCR, and updates reconciliation</li>
                     <li>You get a confirmation text when it's done</li>
                   </ol>
                 </div>
@@ -6498,7 +6736,30 @@ function Settings({
               Signed in as <strong>{user.email}</strong> · role <strong>{membership.role}</strong>
             </p>
             <p className="muted">Password changes and active session management will be available here soon.</p>
+            <div style={{ marginTop: 16, borderTop: "1px solid var(--fb-border)", paddingTop: 14 }}>
+              <label className="fb-settings-toggle">
+                <input
+                  type="checkbox"
+                  checked={Boolean(departmentSettings?.audit_trail_enabled)}
+                  onChange={(event) => void toggleAuditTrail(event.target.checked)}
+                />
+                <span>
+                  Enable Audit Trail
+                  <span className="fb-settings-helper-text">
+                    {" "}When enabled, Firebook records important user actions like transaction edits, receipt uploads, bank account changes, and report generation.
+                  </span>
+                </span>
+              </label>
+            </div>
           </>,
+        );
+      case "audit_trail":
+        return (
+          <AuditTrailSection
+            membership={membership}
+            auditTrailEnabled={Boolean(departmentSettings?.audit_trail_enabled)}
+            onOpenSettings={() => onSectionChange("security")}
+          />
         );
       default:
         return null;
@@ -7032,6 +7293,20 @@ async function applyStatementReconciliation({
         })
         .eq("id", top.expense.id);
       matched += 1;
+      void logAuditFromBrowser({
+        departmentId: membership.department_id,
+        userRole: membership.role,
+        action: "transaction.reconciled",
+        resourceType: "expense",
+        resourceId: top.expense.id,
+        resourceLabel: top.expense.payee || top.expense.merchant_name || undefined,
+        afterData: {
+          reconciliation_status: "matched",
+          bank_posted_date: tx.posted_date,
+          bank_description: tx.description,
+        },
+        metadata: { source: "statement" },
+      });
       txResults.push({
         tx,
         status: "matched",

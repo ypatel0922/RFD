@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 import { supabaseAdmin } from "../plaid/_lib";
+import { logAuditEvent } from "../../../lib/audit-server";
 
 function supabaseFromRequest(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -84,6 +85,13 @@ export async function POST(request: NextRequest) {
   const admin = supabaseAdmin();
   const now = new Date().toISOString();
 
+  const { data: existing } = await admin
+    .from("user_notification_prefs")
+    .select("sms_receipt_requests_enabled, phone_number")
+    .eq("user_id", user.id)
+    .eq("department_id", departmentId)
+    .maybeSingle();
+
   const { data, error } = await admin
     .from("user_notification_prefs")
     .upsert(
@@ -101,6 +109,30 @@ export async function POST(request: NextRequest) {
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  const smsEnabled = smsReceiptRequestsEnabled ?? true;
+  if (existing?.sms_receipt_requests_enabled !== smsEnabled) {
+    await logAuditEvent({
+      departmentId,
+      userId: user.id,
+      userEmail: user.email,
+      action: smsEnabled ? "sms_reminders.enabled" : "sms_reminders.disabled",
+      resourceType: "settings",
+      request,
+    });
+  }
+  if ((existing?.phone_number || null) !== (phoneNumber ?? null)) {
+    await logAuditEvent({
+      departmentId,
+      userId: user.id,
+      userEmail: user.email,
+      action: "phone.changed",
+      resourceType: "settings",
+      beforeData: { phone_number: existing?.phone_number ?? null },
+      afterData: { phone_number: phoneNumber ?? null },
+      request,
+    });
   }
 
   return NextResponse.json(data);

@@ -3,7 +3,9 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 
+import { BrandLogo } from "../../components/brand-logo";
 import { supabase } from "../../lib/supabase";
+import { logAuditFromBrowser } from "../../lib/audit";
 
 type PageState = "loading" | "ready" | "success" | "invalid";
 
@@ -213,6 +215,18 @@ export default function ResetPasswordPage() {
         setError(updateError.message);
         return;
       }
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user) {
+        void logAuditFromBrowser({
+          departmentId: "",
+          action: "auth.password_reset_completed",
+          resourceType: "auth",
+          resourceId: user.id,
+          resourceLabel: user.email || undefined,
+        });
+      }
       await supabase.auth.signOut();
       setPageState("success");
     } catch (submitError) {
@@ -228,12 +242,12 @@ export default function ResetPasswordPage() {
     <div className="auth-page">
       <main className="auth-layout">
         <section className="card auth-card">
-          <div className="firebook-brand" aria-label="Firebook">
-            <span className="firebook-brand__wordmark">Firebook</span>
-            <span className="firebook-brand__tagline">Fire department bookkeeping</span>
+          <div className="firebook-brand" aria-label="Hallix">
+            <BrandLogo className="firebook-brand__logo" tone="dark" priority />
+            <span className="firebook-brand__tagline">AI bookkeeping for fire departments</span>
           </div>
           <h1 className="auth-title">Reset your password</h1>
-          <p className="auth-lede">Choose a new password for your Firebook account.</p>
+          <p className="auth-lede">Choose a new password for your Hallix account.</p>
 
           {pageState === "loading" ? (
             <p className="auth-loading" style={{ color: "var(--muted)" }}>

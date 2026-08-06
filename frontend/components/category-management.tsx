@@ -23,6 +23,7 @@ import type {
   ExpenseRecord,
   TwoPercentGuidance,
 } from "../lib/types";
+import { logAuditFromBrowser } from "../lib/audit";
 
 type CategoryFormState = {
   name: string;
@@ -176,7 +177,7 @@ function CategoryFormPanel({
             placeholder="Comma-separated vendor names (optional)"
           />
           <span className="fb-settings-helper-text">
-            When these vendors are used, Firebook will suggest this category.
+            When these vendors are used, Hallix will suggest this category.
           </span>
         </label>
         <label className="fb-settings-checkbox">
@@ -324,6 +325,7 @@ function CategoryTableRow({
 
 export function CategoryManagementSection({
   departmentId,
+  userRole = "",
   departmentCategories,
   departmentVendors,
   expenses,
@@ -332,6 +334,7 @@ export function CategoryManagementSection({
   showSuccessMessage,
 }: {
   departmentId: string;
+  userRole?: string;
   departmentCategories: DepartmentCategory[];
   departmentVendors: DepartmentVendor[];
   expenses: ExpenseRecord[];
@@ -488,15 +491,38 @@ export function CategoryManagementSection({
           .eq("id", editingCategory.id);
         if (error) throw error;
         showSuccessMessage(`Updated "${name}".`);
+        void logAuditFromBrowser({
+          departmentId,
+          userRole,
+          action: "category.edited",
+          resourceType: "category",
+          resourceId: editingCategory.id,
+          resourceLabel: name,
+          beforeData: {
+            name: editingCategory.name,
+            description: editingCategory.description,
+            is_active: editingCategory.is_active,
+          },
+          afterData: payload,
+        });
       } else {
-        const { error } = await supabase.from("department_categories").insert({
+        const { data: inserted, error } = await supabase.from("department_categories").insert({
           department_id: departmentId,
           ...payload,
           is_system_default: false,
           created_from: "manual",
-        });
+        }).select("id").single();
         if (error) throw error;
         showSuccessMessage(`Added "${name}".`);
+        void logAuditFromBrowser({
+          departmentId,
+          userRole,
+          action: "category.created",
+          resourceType: "category",
+          resourceId: inserted?.id,
+          resourceLabel: name,
+          afterData: payload,
+        });
       }
 
       await applyVendorMappings(name, values.vendorMappings);
@@ -562,6 +588,16 @@ export function CategoryManagementSection({
         .eq("id", category.id);
       if (error) throw error;
       showSuccessMessage(active ? `Restored "${category.name}".` : `Hidden "${category.name}".`);
+      void logAuditFromBrowser({
+        departmentId,
+        userRole,
+        action: active ? "category.restored" : "category.hidden",
+        resourceType: "category",
+        resourceId: category.id,
+        resourceLabel: category.name,
+        beforeData: { is_active: category.is_active },
+        afterData: { is_active: active },
+      });
       await onCategoriesChanged();
     } catch (err) {
       showErrorMessage(err instanceof Error ? err.message : "Could not update category.");
@@ -587,6 +623,14 @@ export function CategoryManagementSection({
       const { error } = await supabase.from("department_categories").delete().eq("id", category.id);
       if (error) throw error;
       showSuccessMessage(`Deleted "${category.name}".`);
+      void logAuditFromBrowser({
+        departmentId,
+        userRole,
+        action: "category.deleted",
+        resourceType: "category",
+        resourceId: category.id,
+        resourceLabel: category.name,
+      });
       await onCategoriesChanged();
     } catch (err) {
       showErrorMessage(err instanceof Error ? err.message : "Could not delete category.");
@@ -604,7 +648,7 @@ export function CategoryManagementSection({
       <div className="fb-cat-intro">
         <h2 className="fb-settings-panel-title">Categories</h2>
         <p className="fb-settings-panel-subtitle">
-          Manage the categories Firebook uses to classify expenses, receipts, vendors, and 2% fund
+          Manage the categories Hallix uses to classify expenses, receipts, vendors, and 2% fund
           activity.
         </p>
       </div>

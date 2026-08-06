@@ -10,6 +10,7 @@ import {
 } from "react";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { supabase, taxFormsBucket } from "../lib/supabase";
+import { logAuditFromBrowser } from "../lib/audit";
 import type { BankAccount, DepartmentMembership, ExpenseRecord } from "../lib/types";
 
 // ─────────────────────────────────────────────────────────
@@ -274,7 +275,7 @@ function isIncomeRecord(exp: ExpenseRecord): boolean {
 }
 
 /**
- * Compute auto-populated financial fields from Firebook expenses.
+ * Compute auto-populated financial fields from Hallix expenses.
  * Returns:
  *   - fields: patches for NysFormFields (top 3 exp categories, top 4 rev sources)
  *   - extraExpLines: any expenditure categories beyond the 3 form slots
@@ -982,6 +983,15 @@ export function NysFFReportPage({
           },
           { onConflict: "department_id" },
         );
+
+        void logAuditFromBrowser({
+          departmentId,
+          userRole: membership.role,
+          action: replaceId ? "report.prior_year_replaced" : "report.prior_year_uploaded",
+          resourceType: "tax_filing",
+          resourceLabel: `NYS 2% ${priorYear}`,
+          metadata: { filename: file.name, taxYear: priorYear },
+        });
       } catch {
         setUploadError("OCR extraction failed. Fields were not updated.");
       } finally {
@@ -992,7 +1002,7 @@ export function NysFFReportPage({
         if (fileInputRef.current) fileInputRef.current.value = "";
       }
     },
-    [departmentId, departmentName, taxYear],
+    [departmentId, departmentName, membership.role, taxYear],
   );
 
   // ── OCR upload — entry point with replace-confirm ─────
@@ -1090,12 +1100,21 @@ export function NysFFReportPage({
       );
 
       setSaveStatus("saved");
+      void logAuditFromBrowser({
+        departmentId,
+        userRole: membership.role,
+        action: formRunId ? "report.nys_edited" : "report.nys_draft_created",
+        resourceType: "tax_report",
+        resourceId: formRunId || undefined,
+        resourceLabel: `NYS 2% ${taxYear}`,
+        metadata: { taxYear, status: "draft" },
+      });
     } catch {
       setSaveStatus("error");
     } finally {
       setIsSaving(false);
     }
-  }, [departmentId, departmentName, effectiveTotals, extraExpLines, extraRevLines, fields, formRunId, taxYear]);
+  }, [departmentId, departmentName, effectiveTotals, extraExpLines, extraRevLines, fields, formRunId, membership.role, taxYear]);
 
   // ── Download filled PDF ───────────────────────────────
   const handleDownload = useCallback(async () => {
@@ -1117,6 +1136,23 @@ export function NysFFReportPage({
       a.download = `nys-foreign-fire-insurance-${taxYear}.pdf`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 5000);
+
+      void logAuditFromBrowser({
+        departmentId,
+        userRole: membership.role,
+        action: "report.nys_downloaded",
+        resourceType: "tax_report",
+        resourceLabel: `NYS 2% ${taxYear}`,
+        metadata: { taxYear },
+      });
+      void logAuditFromBrowser({
+        departmentId,
+        userRole: membership.role,
+        action: "report.generated",
+        resourceType: "tax_report",
+        resourceLabel: `NYS Foreign Fire Insurance ${taxYear}`,
+        metadata: { taxYear, source: "generated_firebook" },
+      });
 
       // Save to storage and record filing (fire-and-forget, non-blocking)
       const storagePath = `${departmentId}/nys-2-percent/${taxYear}/generated.pdf`;
@@ -1144,7 +1180,7 @@ export function NysFFReportPage({
     } catch {
       /* download failed silently */
     }
-  }, [departmentId, effectiveTotals, extraExpLines, extraRevLines, fields, signElectronically, taxYear]);
+  }, [departmentId, effectiveTotals, extraExpLines, extraRevLines, fields, membership.role, signElectronically, taxYear]);
 
   // ── Print filled PDF ──────────────────────────────────
   const handlePrint = useCallback(async () => {
@@ -1166,10 +1202,18 @@ export function NysFFReportPage({
           setTimeout(() => URL.revokeObjectURL(url), 10000);
         });
       }
+      void logAuditFromBrowser({
+        departmentId,
+        userRole: membership.role,
+        action: "report.nys_printed",
+        resourceType: "tax_report",
+        resourceLabel: `NYS 2% ${taxYear}`,
+        metadata: { taxYear },
+      });
     } catch {
       /* print failed silently */
     }
-  }, [effectiveTotals, extraExpLines, extraRevLines, fields, signElectronically]);
+  }, [departmentId, effectiveTotals, extraExpLines, extraRevLines, fields, membership.role, signElectronically, taxYear]);
 
   return (
     <div className="fb-tab-stack nys-report-root">
@@ -1468,7 +1512,7 @@ function NysFieldsPanel({
           descVal={fields.rev_src1_desc} amtVal={fields.rev_src1_amt}
           onChangeDesc={(v) => onChange("rev_src1_desc", v)}
           onChangeAmt={(v)  => onChange("rev_src1_amt",  v)}
-          autoHint="Auto-filled from Firebook"
+          autoHint="Auto-filled from Hallix"
         />
         <NysSourceRow
           descId="rev_src2_desc" descLabel="Source 2" amtId="rev_src2_amt" amtLabel="Amount"
@@ -1530,7 +1574,7 @@ function NysFieldsPanel({
           descVal={fields.exp1_desc} amtVal={fields.exp1_amt}
           onChangeDesc={(v) => onChange("exp1_desc", v)}
           onChangeAmt={(v)  => onChange("exp1_amt",  v)}
-          autoHint="Auto-filled from Firebook"
+          autoHint="Auto-filled from Hallix"
         />
         <NysSourceRow
           descId="exp2_desc" descLabel="Line 2" amtId="exp2_amt" amtLabel="Amount"
