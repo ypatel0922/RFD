@@ -56,19 +56,18 @@ import {
   suggestCategory,
 } from "../lib/categories";
 import { StatementWizard } from "./reconciliation/statement-wizard";
+import { AnalyticsDashboard } from "./analytics/analytics-dashboard";
+import type { LedgerInitialFilters } from "./TransactionsLedger";
+import type { ReconciliationQueueFilter } from "./reconciliation-inbox";
+import {
+  PRIMARY_NAV_ITEMS,
+  resolveViewFromTab,
+  type AnalyticsSectionId,
+  type AppView,
+} from "../lib/navigation";
+import type { DrilldownTarget } from "../lib/analytics/types";
 
 type AuthMode = "login" | "signup";
-type AppView =
-  | "dashboard"
-  | "transactions"
-  | "reconciliation"
-  | "reconcile_statement"
-  | "accounts"
-  | "reports_documents"
-  | "tax_forms"
-  | "vendors"
-  | "settings"
-  | "new_expense";
 
 type ReportsDocumentsMode = "hub" | "reconciliation" | "statements" | "two_percent_activity";
 type MessageVariant = "success" | "error";
@@ -1110,6 +1109,9 @@ export default function Home() {
   const [reportsDocumentsMode, setReportsDocumentsMode] = useState<ReportsDocumentsMode>("hub");
   const [statementAccountId, setStatementAccountId] = useState<string | null>(null);
   const [ledgerBankAccountFilter, setLedgerBankAccountFilter] = useState("");
+  const [ledgerInitialFilters, setLedgerInitialFilters] = useState<LedgerInitialFilters | null>(null);
+  const [reconciliationQueue, setReconciliationQueue] = useState<ReconciliationQueueFilter | null>(null);
+  const [analyticsSection, setAnalyticsSection] = useState<AnalyticsSectionId | null>(null);
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>("overview");
   const transactionsPanelRef = useRef<HTMLDivElement | null>(null);
   const [useCompactAppHeader, setUseCompactAppHeader] = useState(false);
@@ -1119,6 +1121,61 @@ export default function Home() {
   });
 
   const clearExpenseEntryLaunch = useCallback(() => setExpenseEntryLaunch(null), []);
+  const clearLedgerInitialFilters = useCallback(() => setLedgerInitialFilters(null), []);
+  const clearReconciliationQueue = useCallback(() => setReconciliationQueue(null), []);
+
+  /**
+   * Opens the records behind an analytics figure.
+   *
+   * Analytics never renders its own transaction or reconciliation experience;
+   * it hands the filter to the existing screens so there is only ever one place
+   * to look at a transaction.
+   */
+  const handleAnalyticsDrilldown = useCallback((target: DrilldownTarget) => {
+    setMobileNavOpen(false);
+
+    if (target.kind === "transactions") {
+      setLedgerBankAccountFilter(target.filters.accountName ?? "");
+      setLedgerVendorQuery(target.filters.vendorQuery ?? "");
+      setLedgerInitialFilters({
+        category: target.filters.category ?? "",
+        dateFrom: target.filters.dateFrom ?? "",
+        dateTo: target.filters.dateTo ?? "",
+        quickFilter: target.filters.quickFilter ?? "all",
+      });
+      setLedgerScope("all");
+      setView("transactions");
+      return;
+    }
+
+    if (target.kind === "reconciliation") {
+      // The analytics vocabulary and the inbox's queue names differ slightly;
+      // this is the only place the two are mapped.
+      const queue: ReconciliationQueueFilter =
+        target.queue === "unreconciled"
+          ? "pending_bank_match"
+          : target.queue === "missing_receipt"
+            ? "missing_receipt"
+            : target.queue === "duplicate"
+              ? "duplicate"
+              : target.queue === "needs_review"
+                ? "needs_review"
+                : "all";
+      setReconciliationQueue(queue);
+      setView("reconciliation");
+      return;
+    }
+
+    if (target.kind === "accounts") {
+      setView("accounts");
+      return;
+    }
+
+    if (target.kind === "settings_accounts") {
+      setSettingsSection("bank_accounts");
+      setView("settings");
+    }
+  }, []);
 
   function showSuccessMessage(nextMessage: string | null) {
     setMessageVariant("success");
@@ -1404,6 +1461,26 @@ export default function Home() {
     }
   }, [view]);
 
+  /**
+   * Opens the view named in `?tab=`, once, after sign-in.
+   *
+   * Vendors used to be its own tab. A saved `?tab=vendors` link now opens the
+   * vendor section of Analytics rather than falling back to the dashboard with
+   * no explanation.
+   */
+  const hasResolvedInitialTab = useRef(false);
+  useEffect(() => {
+    if (hasResolvedInitialTab.current || !membership) return;
+    hasResolvedInitialTab.current = true;
+
+    const params = new URLSearchParams(window.location.search);
+    const resolved = resolveViewFromTab(params.get("tab"), params.get("section"));
+    if (!resolved) return;
+
+    setView(resolved.view);
+    setAnalyticsSection(resolved.analyticsSection);
+  }, [membership]);
+
   useEffect(() => {
     if (view !== "reports_documents") {
       setReportsDocumentsMode("hub");
@@ -1602,116 +1679,30 @@ export default function Home() {
               </button>
             </div>
             <nav className="fb-sidebar-nav" aria-label="Primary">
-              <button
-                type="button"
-                className={`fb-sidebar-link ${view === "dashboard" ? "fb-sidebar-link-active" : ""}`}
-                onClick={() => {
-                  setView("dashboard");
-                  setMobileNavOpen(false);
-                }}
-              >
-                <NavGlyph>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5Z" />
-                  </svg>
-                </NavGlyph>
-                <span className="fb-sidebar-link-label">Dashboard</span>
-              </button>
-              <button
-                type="button"
-                className={`fb-sidebar-link ${view === "transactions" ? "fb-sidebar-link-active" : ""}`}
-                onClick={() => {
-                  setView("transactions");
-                  setLedgerBankAccountFilter("");
-                  setMobileNavOpen(false);
-                }}
-              >
-                <NavGlyph>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M4 6h16M4 12h16M4 18h10" />
-                  </svg>
-                </NavGlyph>
-                <span className="fb-sidebar-link-label">Transactions</span>
-              </button>
-              <button
-                type="button"
-                className={`fb-sidebar-link ${view === "reconciliation" ? "fb-sidebar-link-active" : ""}`}
-                onClick={() => {
-                  setView("reconciliation");
-                  setMobileNavOpen(false);
-                }}
-              >
-                <NavGlyph>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-                  </svg>
-                </NavGlyph>
-                <span className="fb-sidebar-link-label">Reconciliation</span>
-              </button>
-              <button
-                type="button"
-                className={`fb-sidebar-link ${view === "accounts" ? "fb-sidebar-link-active" : ""}`}
-                onClick={() => {
-                  setView("accounts");
-                  setMobileNavOpen(false);
-                }}
-              >
-                <NavGlyph>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M3 10h18v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V10Z" />
-                    <path d="M7 10V7a5 5 0 0 1 10 0v3" />
-                  </svg>
-                </NavGlyph>
-                <span className="fb-sidebar-link-label">Accounts</span>
-              </button>
-              <button
-                type="button"
-                className={`fb-sidebar-link ${view === "reports_documents" ? "fb-sidebar-link-active" : ""}`}
-                onClick={() => {
-                  setView("reports_documents");
-                  setReportsDocumentsMode("hub");
-                  setMobileNavOpen(false);
-                }}
-              >
-                <NavGlyph>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M7 3h8l3 3v15H7V3Z" />
-                    <path d="M14 3v4h4M9 13h6M9 17h6" />
-                  </svg>
-                </NavGlyph>
-                <span className="fb-sidebar-link-label">Reports &amp; Documents</span>
-              </button>
-              <button
-                type="button"
-                className={`fb-sidebar-link ${view === "tax_forms" ? "fb-sidebar-link-active" : ""}`}
-                onClick={() => {
-                  setView("tax_forms");
-                  setMobileNavOpen(false);
-                }}
-              >
-                <NavGlyph>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Z" />
-                    <path d="M14 2v6h6M8 13h8M8 17h8" />
-                  </svg>
-                </NavGlyph>
-                <span className="fb-sidebar-link-label">Tax Forms</span>
-              </button>
-              <button
-                type="button"
-                className={`fb-sidebar-link ${view === "vendors" ? "fb-sidebar-link-active" : ""}`}
-                onClick={() => {
-                  setView("vendors");
-                  setMobileNavOpen(false);
-                }}
-              >
-                <NavGlyph>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
-                  </svg>
-                </NavGlyph>
-                <span className="fb-sidebar-link-label">Vendors</span>
-              </button>
+              {PRIMARY_NAV_ITEMS.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`fb-sidebar-link ${view === item.id ? "fb-sidebar-link-active" : ""}`}
+                  aria-current={view === item.id ? "page" : undefined}
+                  onClick={() => {
+                    setView(item.id);
+                    if (item.id === "transactions") setLedgerBankAccountFilter("");
+                    if (item.id === "reports_documents") setReportsDocumentsMode("hub");
+                    if (item.id === "analytics") setAnalyticsSection(null);
+                    setMobileNavOpen(false);
+                  }}
+                >
+                  <NavGlyph>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      {item.iconPaths.map((path) => (
+                        <path key={path} d={path} />
+                      ))}
+                    </svg>
+                  </NavGlyph>
+                  <span className="fb-sidebar-link-label">{item.label}</span>
+                </button>
+              ))}
 
               <div className="fb-sidebar-divider" />
 
@@ -1833,6 +1824,8 @@ export default function Home() {
                 departmentVendors={departmentVendors}
                 onCategoriesChanged={() => loadDepartmentCategories(membership.department_id)}
                 receiptRequests={receiptRequests}
+                initialFilters={ledgerInitialFilters}
+                onInitialFiltersApplied={clearLedgerInitialFilters}
               />
             </div>
           ) : view === "reconciliation" ? (
@@ -1872,6 +1865,8 @@ export default function Home() {
               }}
               receiptRequests={receiptRequests}
               onReceiptRequestsChanged={() => loadReceiptRequests(membership.department_id)}
+              initialQueueFilter={reconciliationQueue}
+              onInitialQueueFilterApplied={clearReconciliationQueue}
             />
           ) : view === "reconcile_statement" ? (
             <StatementWizard
@@ -1935,8 +1930,17 @@ export default function Home() {
             />
           ) : view === "tax_forms" ? (
             <TaxFormsSection membership={membership} expenses={expenses} bankAccounts={bankAccounts} />
-          ) : view === "vendors" ? (
-            <VendorsSection expenses={expenses} departmentVendors={departmentVendors} />
+          ) : view === "analytics" ? (
+            <AnalyticsDashboard
+              departmentId={membership.department_id}
+              departmentName={membership.departments?.name || "your department"}
+              userId={session.user.id}
+              // Hallix does not gate settings by role anywhere else; department
+              // membership is the permission, and RLS enforces it server-side.
+              canManage
+              initialSection={analyticsSection}
+              onDrilldown={handleAnalyticsDrilldown}
+            />
           ) : view === "settings" ? (
             <Settings
               membership={membership}
@@ -2504,94 +2508,6 @@ function TaxFormsSection({
 
       {/* Previous filings */}
       <TaxFormFilingsSection membership={membership} refreshKey={filingsKey} />
-    </div>
-  );
-}
-
-type VendorSort = "recent" | "count" | "spend" | "category";
-
-function VendorsSection({
-  expenses,
-  departmentVendors,
-}: {
-  expenses: ExpenseRecord[];
-  departmentVendors?: DepartmentVendor[];
-}) {
-  const [sort, setSort] = useState<VendorSort>("spend");
-  const rows = useMemo(() => {
-    const list = buildVendorAggregates(expenses, departmentVendors);
-    const sorted = [...list];
-    if (sort === "count") sorted.sort((a, b) => b.count - a.count);
-    else if (sort === "spend") sorted.sort((a, b) => b.totalSpend - a.totalSpend);
-    else if (sort === "recent") sorted.sort((a, b) => b.lastUsed.localeCompare(a.lastUsed));
-    else sorted.sort((a, b) => (a.topCategory || "").localeCompare(b.topCategory || ""));
-    return sorted;
-  }, [expenses, sort]);
-
-  return (
-    <div className="fb-tab-stack">
-      <section className="card fb-dash-welcome">
-        <p className="eyebrow">Directory</p>
-        <h1 className="fb-dash-title">Vendors</h1>
-        <p className="fb-dash-subtitle">
-          Vendors from logged expenses and onboarding setup. Sorting helps treasurers see who you
-          pay most often.
-        </p>
-      </section>
-      <section className="card">
-        <div className="fb-vendor-toolbar">
-          <span className="muted">Sort by</span>
-          <div className="fb-chip-row">
-            {(
-              [
-                ["spend", "Total spend"],
-                ["count", "Most used"],
-                ["recent", "Most recent"],
-                ["category", "Category A–Z"],
-              ] as const
-            ).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                className={`fb-chip ${sort === key ? "fb-chip-active" : ""}`}
-                onClick={() => setSort(key)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-        {rows.length ? (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Vendor</th>
-                  <th>Transactions</th>
-                  <th>Total spend</th>
-                  <th>Top category</th>
-                  <th>Last activity</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => (
-                  <tr key={row.key}>
-                    <td>{row.label}</td>
-                    <td>{row.count}</td>
-                    <td>{formatUsd(row.totalSpend)}</td>
-                    <td>{row.topCategory || "—"}</td>
-                    <td>{row.lastUsed || "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p className="empty-state">
-            No vendors yet. Vendors appear from logged expenses and from accepted vendor suggestions in Settings → Onboarding.
-          </p>
-        )}
-      </section>
     </div>
   );
 }

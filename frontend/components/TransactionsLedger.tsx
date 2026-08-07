@@ -36,6 +36,14 @@ type QuickFilter =
   | "two_percent"
   | "this_month";
 
+/** A filter set another screen can hand to the ledger when linking into it. */
+export type LedgerInitialFilters = {
+  category?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  quickFilter?: QuickFilter;
+};
+
 type StatusKey =
   | "reconciled"
   | "matched"
@@ -265,6 +273,8 @@ export function TransactionsLedger({
   departmentVendors = [],
   onCategoriesChanged,
   receiptRequests = [],
+  initialFilters,
+  onInitialFiltersApplied,
 }: {
   expenses: ExpenseRecord[];
   receiptUrls: Record<string, string>;
@@ -284,6 +294,13 @@ export function TransactionsLedger({
   departmentVendors?: DepartmentVendor[];
   onCategoriesChanged?: () => Promise<void>;
   receiptRequests?: ReceiptRequest[];
+  /**
+   * Filters to open with, used when another screen links here to show a
+   * specific set of transactions. They seed the normal filter controls, so the
+   * user can adjust or clear them exactly as if they had typed them.
+   */
+  initialFilters?: LedgerInitialFilters | null;
+  onInitialFiltersApplied?: () => void;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editReason, setEditReason] = useState("");
@@ -311,6 +328,20 @@ export function TransactionsLedger({
   const [catReviewOpen, setCatReviewOpen] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const filtersRef = useRef<HTMLDivElement>(null);
+
+  // Applied once per hand-off. After this the filters behave like any other, so
+  // clearing them does not snap back to what the linking screen asked for.
+  useEffect(() => {
+    if (!initialFilters) return;
+    if (initialFilters.category != null) setCategoryFilter(initialFilters.category);
+    if (initialFilters.dateFrom != null) setDateFrom(initialFilters.dateFrom);
+    if (initialFilters.dateTo != null) setDateTo(initialFilters.dateTo);
+    if (initialFilters.quickFilter != null) setQuickFilter(initialFilters.quickFilter);
+    if (initialFilters.category || initialFilters.dateFrom || initialFilters.dateTo) {
+      setFiltersOpen(true);
+    }
+    onInitialFiltersApplied?.();
+  }, [initialFilters, onInitialFiltersApplied]);
 
   const selectedExpense = useMemo(
     () => expenses.find((e) => e.id === selectedId) ?? null,
