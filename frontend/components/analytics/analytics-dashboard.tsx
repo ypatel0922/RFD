@@ -75,9 +75,6 @@ const ReadinessSection = lazy(() =>
 const CashFlowChartCard = lazy(() =>
   import("./cash-flow-section").then((module) => ({ default: module.CashFlowChartCard })),
 );
-const CashFlowOutlookCard = lazy(() =>
-  import("./cash-flow-section").then((module) => ({ default: module.CashFlowOutlookCard })),
-);
 
 type LoadState = "idle" | "loading" | "ready" | "error";
 
@@ -322,21 +319,13 @@ export function AnalyticsDashboard({
 
   return (
     <div className="fb-tab-stack fb-an-page">
-      <section className="card fb-dash-welcome">
-        <p className="eyebrow">Analytics</p>
-        <h1 className="fb-dash-title">Financial health</h1>
-        <p className="fb-dash-subtitle">
-          How {departmentName} is doing with its money, its 2% funds, its records and its vendors —
-          in plain language, from the department's own data.
-        </p>
-      </section>
-
       <AnalyticsControls
         state={controls}
         period={period}
         asOf={result.asOf}
         accounts={result.accounts}
         categories={categoryOptions}
+        departmentName={departmentName}
         isRefreshing={loadState === "loading"}
         onChange={setControls}
         onRefresh={refresh}
@@ -403,7 +392,7 @@ export function AnalyticsDashboard({
           </div>
 
           <div className="fb-an-grid-primary">
-            <div className="fb-an-stack">
+            <div className="fb-an-stack fb-an-insights-column">
               <InsightsSection
                 insights={result.insights}
                 sectionId={analyticsSectionAnchor("insights")}
@@ -429,7 +418,7 @@ export function AnalyticsDashboard({
             </Suspense>
           </div>
 
-          <div className="fb-an-row-3">
+          <div className="fb-an-grid-halves fb-an-row-bottom">
             <Suspense fallback={<DeferredSection label="Loading vendors" />}>
               <VendorsSection
                 result={result}
@@ -443,23 +432,19 @@ export function AnalyticsDashboard({
             <Suspense fallback={<DeferredSection label="Loading cash flow" />}>
               <CashFlowChartCard result={result} sectionId={analyticsSectionAnchor("cash_flow")} />
             </Suspense>
-
-            <Suspense fallback={<DeferredSection label="Loading outlook" />}>
-              <CashFlowOutlookCard result={result} />
-            </Suspense>
           </div>
 
-          <section
+          <details
             id={analyticsSectionAnchor("budgets")}
-            className="card fb-an-section fb-an-section--compact"
-            aria-label="Budget status and more analytics"
+            className="card fb-an-section fb-an-section--compact fb-an-more-panel"
           >
-            <div className="fb-section-head fb-an-section-head">
-              <div>
-                <p className="eyebrow">Planning</p>
-                <h3>Budget status</h3>
-              </div>
-            </div>
+            <summary className="fb-an-more-summary">
+              <span>
+                <span className="eyebrow">Planning</span>
+                <strong>Budget status & more</strong>
+              </span>
+              <span className="muted">Optional detail</span>
+            </summary>
             <Suspense fallback={<SectionSkeleton label="Loading budgets" rows={2} />}>
               <BudgetSection
                 result={result}
@@ -470,8 +455,6 @@ export function AnalyticsDashboard({
                 onDrilldown={handleDrilldown}
               />
             </Suspense>
-
-            <h4 className="fb-an-subheading">More analytics</h4>
             <nav className="fb-an-more" aria-label="Jump to more analytics">
               <MoreLink label="Records" targetSection="readiness" />
               <MoreLink label="Accounts" targetSection="accounts" />
@@ -485,7 +468,7 @@ export function AnalyticsDashboard({
                 Transactions
               </button>
             </nav>
-          </section>
+          </details>
         </>
       )}
     </div>

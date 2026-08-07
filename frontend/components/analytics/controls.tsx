@@ -4,8 +4,8 @@
  * The global analytics controls: date range, comparison, account and category
  * filters. Everything the dashboard shows below is scoped by these.
  *
- * The selections live in the URL query string so a view can be bookmarked or
- * pasted to another officer and open the same way.
+ * Title, as-of, refresh, and range chips share one compact toolbar so the
+ * dashboard can stay above the fold.
  */
 
 import { useMemo, useState } from "react";
@@ -41,6 +41,7 @@ export function AnalyticsControls({
   asOf,
   accounts,
   categories,
+  departmentName,
   isRefreshing,
   onChange,
   onRefresh,
@@ -51,6 +52,7 @@ export function AnalyticsControls({
   asOf: string;
   accounts: ClassifiedAccount[];
   categories: string[];
+  departmentName: string;
   isRefreshing: boolean;
   onChange: (next: ControlsState) => void;
   onRefresh: () => void;
@@ -94,52 +96,57 @@ export function AnalyticsControls({
   }
 
   return (
-    <section className="card fb-an-controls" aria-label="Analytics filters">
-      <div className="fb-an-controls-compact">
-        <fieldset className="fb-an-control">
-          <legend className="fb-an-control-label">Date range</legend>
-          <div className="fb-chip-row" role="group">
-            {DATE_RANGE_PRESETS.map((preset) => (
-              <button
-                key={preset.id}
-                type="button"
-                className={`fb-chip ${state.preset === preset.id ? "fb-chip-active" : ""}`}
-                aria-pressed={state.preset === preset.id}
-                onClick={() =>
-                  onChange({
-                    ...state,
-                    preset: preset.id,
-                    customRange: preset.id === "custom" ? state.customRange : null,
-                  })
-                }
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
-        </fieldset>
-
-        <div className="fb-an-controls-summary">
+    <section className="fb-an-toolbar" aria-label="Analytics filters">
+      <div className="fb-an-toolbar-top">
+        <div className="fb-an-toolbar-title">
+          <h1>Analytics</h1>
+          <p>Executive overview of {departmentName}&apos;s 2% fund.</p>
+        </div>
+        <div className="fb-an-toolbar-meta">
           <p className="fb-an-asof">
-            <span className="fb-an-asof-label">Showing</span>
-            <strong>{formatRangeLabel(period.range)}</strong>
-            <span className="muted">as of {formatIsoDate(asOf)}</span>
+            <span className="fb-an-asof-label">Data as of</span>
+            <strong>{formatIsoDate(asOf)}</strong>
           </p>
-          {period.comparison ? (
-            <p className="muted fb-an-compare-note">
-              Compared with {formatRangeLabel(period.comparison)}
-            </p>
-          ) : null}
-          <button type="button" className="fb-secondary-btn" onClick={() => setShowFilters(true)}>
-            Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
-          </button>
           <button
             type="button"
-            className="fb-secondary-btn"
+            className="fb-secondary-btn fb-an-toolbar-btn"
             onClick={onRefresh}
             disabled={isRefreshing}
           >
             {isRefreshing ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
+      </div>
+
+      <div className="fb-an-toolbar-filters">
+        <div className="fb-chip-row fb-an-range-chips" role="group" aria-label="Date range">
+          {DATE_RANGE_PRESETS.map((preset) => (
+            <button
+              key={preset.id}
+              type="button"
+              className={`fb-chip ${state.preset === preset.id ? "fb-chip-active" : ""}`}
+              aria-pressed={state.preset === preset.id}
+              onClick={() =>
+                onChange({
+                  ...state,
+                  preset: preset.id,
+                  customRange: preset.id === "custom" ? state.customRange : null,
+                })
+              }
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="fb-an-toolbar-actions">
+          {period.comparison ? (
+            <span className="muted fb-an-compare-note">
+              vs {formatRangeLabel(period.comparison)}
+            </span>
+          ) : null}
+          <button type="button" className="fb-secondary-btn fb-an-toolbar-btn" onClick={() => setShowFilters(true)}>
+            Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
           </button>
         </div>
       </div>
@@ -285,10 +292,6 @@ function FilterGroup({
   );
 }
 
-/**
- * Accounts are grouped by fund designation when the department has recorded
- * one, because "which fund" is the question officers actually ask.
- */
 function groupAccounts(accounts: ClassifiedAccount[]) {
   const groups = new Map<string, ClassifiedAccount[]>();
   for (const account of accounts) {

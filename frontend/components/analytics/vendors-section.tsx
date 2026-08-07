@@ -8,9 +8,9 @@
  * and adds the comparison, documentation and drill-down that the standalone
  * page could not offer. Vendor records themselves are untouched.
  *
- * The dashboard card shows only the top five vendors by spend, as a bar chart
- * and a compact list. Search, sort, filter and the full table live behind
- * "View all vendors", in the same detail drawer every other section uses.
+ * The dashboard card shows the top five vendors by spend as a horizontal bar
+ * chart with totals on each bar. Search, sort, filter and the full table live
+ * behind "View all vendors", in the same detail drawer every other section uses.
  */
 
 import { useMemo, useState } from "react";
@@ -68,32 +68,16 @@ export function VendorsSection({
           message="Vendors appear from logged expenses and imported bank activity. Widen the date range, or record an expense, and they will show up here."
         />
       ) : (
-        <div className="fb-an-vendor-split">
-          <RankedBarChart
-            title="By total spend"
-            rows={topVendors.map((vendor) => ({ label: vendor.name, amountCents: vendor.totalSpendCents }))}
-            emptyMessage="No vendor spending in this period."
-            onSelect={(label) => {
-              const vendor = topVendors.find((entry) => entry.name === label);
-              if (vendor) onSelectVendor(vendor.key);
-            }}
-          />
-
-          <ul className="fb-an-top-list">
-            {topVendors.map((vendor) => (
-              <li key={vendor.key} className="fb-an-top-row">
-                <button type="button" className="fb-an-top-row-name" onClick={() => onSelectVendor(vendor.key)}>
-                  {vendor.name}
-                </button>
-                <span className="fb-an-top-row-meta">
-                  <span className="fb-an-top-row-amount">{formatMoney(vendor.totalSpendCents)}</span>
-                  {vendor.transactionCount} txn{vendor.transactionCount === 1 ? "" : "s"} ·{" "}
-                  {vendor.topCategories[0]?.category ?? "Not categorized"}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
+        <RankedBarChart
+          title=""
+          rows={topVendors.map((vendor) => ({ label: vendor.name, amountCents: vendor.totalSpendCents }))}
+          emptyMessage="No vendor spending in this period."
+          height={200}
+          onSelect={(label) => {
+            const vendor = topVendors.find((entry) => entry.name === label);
+            if (vendor) onSelectVendor(vendor.key);
+          }}
+        />
       )}
 
       {result.vendorsWithoutActivity.length > 0 ? (

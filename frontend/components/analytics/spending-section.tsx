@@ -13,10 +13,10 @@
  * increase/decrease rankings, largest transactions) is in the detail drawer.
  */
 
-import { describeChange, formatMoney, formatPercent, formatSignedMoney } from "../../lib/analytics/format";
+import { describeChange, formatMoney, formatPercent, formatSignedMoney, formatSignedPercent } from "../../lib/analytics/format";
 import type { AnalyticsResult } from "../../lib/analytics/engine";
-import type { DrilldownTarget } from "../../lib/analytics/types";
-import { CategoryDonut } from "./charts";
+import type { DrilldownTarget, PeriodChange } from "../../lib/analytics/types";
+import { CATEGORY_COLORS, CategoryDonut } from "./charts";
 import { AnalyticsSection, Drawer, EmptyState, InfoTip, MetricCard } from "./primitives";
 import { useState } from "react";
 
@@ -36,10 +36,6 @@ export function SpendingSection({
   const [showDetail, setShowDetail] = useState(false);
   const topCategories = categories.slice(0, TOP_COUNT);
 
-  const notableChange = categoryIncreases.find(
-    (row) => row.change.hasComparison && row.change.percent != null,
-  );
-
   return (
     <AnalyticsSection
       id={sectionId}
@@ -58,57 +54,76 @@ export function SpendingSection({
         />
       ) : (
         <>
-          {notableChange ? (
-            <p className="fb-an-callout muted">
-              <strong>{notableChange.category}</strong> spending is{" "}
-              {describeChange(notableChange.change).toLowerCase()} compared with{" "}
-              {result.period.comparisonLabel ?? "the comparison period"}.
-            </p>
-          ) : null}
+          <div className="fb-an-spend-layout">
+            <div className="fb-an-spend-chart">
+              <CategoryDonut
+                title="Total out"
+                slices={categoriesForChart.map((category) => ({
+                  label: category.category,
+                  amountCents: category.amountCents,
+                  percent: category.percentOfTotal,
+                  count: category.transactionCount,
+                }))}
+                centerLabel="total out"
+                centerValue={formatMoney(totals.expenseCents)}
+                emptyMessage="No categorized spending in this period."
+                height={200}
+                onSelect={(label) => {
+                  if (label === "Other") return;
+                  onDrilldown({ kind: "transactions", filters: { category: label } });
+                }}
+              />
+            </div>
 
-          <div className="fb-an-compact-two-col">
-            <CategoryDonut
-              title="Spending by category"
-              slices={categoriesForChart.map((category) => ({
-                label: category.category,
-                amountCents: category.amountCents,
-                percent: category.percentOfTotal,
-                count: category.transactionCount,
-              }))}
-              centerLabel="total out"
-              centerValue={formatMoney(totals.expenseCents)}
-              emptyMessage="No categorized spending in this period."
-              onSelect={(label) => {
-                if (label === "Other") return;
-                onDrilldown({ kind: "transactions", filters: { category: label } });
-              }}
-            />
-
-            <ul className="fb-an-top-list">
-              {topCategories.map((category) => (
-                <li key={category.category} className="fb-an-top-row">
+            <ul className="fb-an-legend-list">
+              {topCategories.map((category, index) => (
+                <li key={category.category}>
                   <button
                     type="button"
-                    className="fb-an-top-row-name"
-                    onClick={() => onDrilldown({ kind: "transactions", filters: { category: category.category } })}
+                    className="fb-an-legend-row"
+                    onClick={() =>
+                      onDrilldown({ kind: "transactions", filters: { category: category.category } })
+                    }
                   >
-                    {category.category}
+                    <span
+                      className="fb-an-swatch"
+                      style={{ background: CATEGORY_COLORS[index % CATEGORY_COLORS.length] }}
+                      aria-hidden="true"
+                    />
+                    <span className="fb-an-legend-copy">
+                      <span className="fb-an-legend-line">
+                        <span className="fb-an-legend-name">{category.category}</span>
+                        <span className="fb-an-legend-amount">{formatMoney(category.amountCents)}</span>
+                      </span>
+                      <span className="fb-an-legend-meta">
+                        {formatPercent(category.percentOfTotal, 0)} of spend
+                        {category.change.hasComparison ? (
+                          <>
+                            {" · "}
+                            <span
+                              className={
+                                category.change.deltaCents > 0
+                                  ? "fb-an-legend-change--up"
+                                  : category.change.deltaCents < 0
+                                    ? "fb-an-legend-change--down"
+                                    : undefined
+                              }
+                            >
+                              {compactChange(category.change)}
+                            </span>
+                          </>
+                        ) : null}
+                      </span>
+                    </span>
                   </button>
-                  <span className="fb-an-top-row-meta">
-                    <span className="fb-an-top-row-amount">{formatMoney(category.amountCents)}</span>
-                    {formatPercent(category.percentOfTotal, 0)}
-                    {category.change.hasComparison ? ` · ${describeChange(category.change)}` : ""}
-                  </span>
                 </li>
               ))}
             </ul>
           </div>
 
-          <div className="fb-an-more">
-            <button type="button" className="fb-secondary-btn" onClick={() => setShowDetail(true)}>
-              View all categories
-            </button>
-          </div>
+          <button type="button" className="fb-secondary-btn fb-an-view-all" onClick={() => setShowDetail(true)}>
+            View all categories
+          </button>
         </>
       )}
 
@@ -268,6 +283,13 @@ export function SpendingSection({
       ) : null}
     </AnalyticsSection>
   );
+}
+
+/** Short change label for the compact legend — never a full sentence. */
+function compactChange(change: PeriodChange): string {
+  if (!change.hasComparison || change.deltaCents === 0) return "no change";
+  if (change.percent != null) return formatSignedPercent(change.percent);
+  return change.deltaCents > 0 ? "new" : "ended";
 }
 
 function ChangeList({

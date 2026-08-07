@@ -27,8 +27,6 @@ import type { ClassifiedAccount, DrilldownTarget, StatusLevel } from "../../lib/
 import { BalanceTrendChart } from "./charts";
 import { AnalyticsSection, Drawer, EmptyState, InfoTip, StatusPill } from "./primitives";
 
-const ATTENTION_LIMIT = 3;
-
 export function AccountsSection({
   result,
   sectionId,
@@ -69,9 +67,13 @@ export function AccountsSection({
         />
       ) : (
         <>
-          <div className="fb-an-compact-metrics">
+          <div className="fb-an-cash-grid">
             <CompactMetric label="Cash and savings" value={formatMoney(cash.totalCashCents)} />
-            <CompactMetric label="Owed on cards" value={formatMoney(cash.creditCardBalanceCents)} out={cash.creditCardBalanceCents > 0} />
+            <CompactMetric
+              label="Owed on cards"
+              value={formatMoney(cash.creditCardBalanceCents)}
+              out={cash.creditCardBalanceCents > 0}
+            />
             <CompactMetric label="Available after cards" value={formatMoney(cash.netLiquidCents)} />
             <CompactMetric
               label="Accounts needing attention"
@@ -80,32 +82,15 @@ export function AccountsSection({
             />
           </div>
 
-          <BalanceTrendChart
-            title="Balance over time"
-            points={cashFlow.months
-              .filter((month) => month.balanceCents != null)
-              .map((month) => ({ monthKey: month.monthKey, balanceCents: month.balanceCents as number }))}
-            emptyMessage="A balance trend needs a recorded starting balance on at least one account. Add one in Settings and the trend will fill in."
-          />
-
-          {needingAttention.length > 0 ? (
-            <ul className="fb-an-top-list">
-              {needingAttention.slice(0, ATTENTION_LIMIT).map((row) => (
-                <li key={row.account.id} className="fb-an-top-row">
-                  <button
-                    type="button"
-                    className="fb-an-top-row-name"
-                    onClick={() => onDrilldown({ kind: "transactions", filters: { accountName: row.account.name } })}
-                  >
-                    {row.account.name}
-                  </button>
-                  <span className="fb-an-top-row-meta">{accountStatusLabel(row)}</span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="muted">Every account is up to date.</p>
-          )}
+          <div className="fb-an-cash-chart">
+            <BalanceTrendChart
+              title="Balance over time (last 12 months)"
+              points={cashFlow.months
+                .filter((month) => month.balanceCents != null)
+                .map((month) => ({ monthKey: month.monthKey, balanceCents: month.balanceCents as number }))}
+              emptyMessage="A balance trend needs a recorded starting balance on at least one account."
+            />
+          </div>
 
           {unclassified.length > 0 ? (
             <div className="notice fb-an-classify-alert">

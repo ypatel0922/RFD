@@ -20,6 +20,7 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  LabelList,
   Legend,
   Line,
   LineChart,
@@ -207,6 +208,7 @@ export function CategoryDonut({
   emptyMessage,
   centerLabel,
   centerValue,
+  height = 168,
   onSelect,
 }: {
   title: string;
@@ -215,6 +217,7 @@ export function CategoryDonut({
   emptyMessage: string;
   centerLabel?: string;
   centerValue?: string;
+  height?: number;
   onSelect?: (label: string) => void;
 }) {
   const total = slices.reduce((sum, slice) => sum + slice.amountCents, 0);
@@ -230,7 +233,7 @@ export function CategoryDonut({
       summary={`${title}. ${formatMoney(total)} across ${slices.length} categories. Largest: ${leaders}.`}
       isEmpty={slices.length === 0}
       emptyMessage={emptyMessage}
-      height={280}
+      height={height}
       rows={slices}
       rowKey={(slice) => slice.label}
       columns={[
@@ -330,6 +333,7 @@ export function IncomeExpenseChart({
       summary={`${title}. ${formatMoney(totalIncome)} in and ${formatMoney(totalExpense)} out across ${points.length} months.`}
       isEmpty={points.length === 0}
       emptyMessage={emptyMessage}
+      height={180}
       rows={points}
       rowKey={(point) => point.monthKey}
       columns={[
@@ -443,11 +447,13 @@ export function BalanceTrendChart({
   description,
   points,
   emptyMessage,
+  height = 96,
 }: {
   title: string;
   description?: string;
   points: { monthKey: string; balanceCents: Cents }[];
   emptyMessage: string;
+  height?: number;
 }) {
   const last = points.at(-1);
 
@@ -458,7 +464,7 @@ export function BalanceTrendChart({
       summary={`${title}. Ending balance ${last ? formatMoney(last.balanceCents) : "unavailable"} across ${points.length} months.`}
       isEmpty={points.length === 0}
       emptyMessage={emptyMessage}
-      height={220}
+      height={height}
       rows={points}
       rowKey={(point) => point.monthKey}
       columns={[
@@ -583,6 +589,7 @@ export function RankedBarChart({
   rows,
   emptyMessage,
   seriesName = "Total spend",
+  height,
   onSelect,
 }: {
   title: string;
@@ -590,8 +597,12 @@ export function RankedBarChart({
   rows: { label: string; amountCents: Cents }[];
   emptyMessage: string;
   seriesName?: string;
+  /** Defaults to a height that fills a dashboard half-card alongside cash flow. */
+  height?: number;
   onSelect?: (label: string) => void;
 }) {
+  const chartHeight = height ?? Math.max(180, rows.length * 44);
+
   return (
     <ChartFrame
       title={title}
@@ -599,7 +610,7 @@ export function RankedBarChart({
       summary={`${title}. ${rows.map((row) => `${row.label} ${formatMoney(row.amountCents)}`).join(", ")}.`}
       isEmpty={rows.length === 0}
       emptyMessage={emptyMessage}
-      height={Math.max(140, rows.length * 40)}
+      height={chartHeight}
       rows={rows}
       rowKey={(row) => row.label}
       columns={[
@@ -607,7 +618,7 @@ export function RankedBarChart({
         { header: seriesName, cell: (row) => formatMoney(row.amountCents), numeric: true },
       ]}
     >
-      <BarChart data={rows} layout="vertical" margin={{ top: 4, right: 16, bottom: 4, left: 8 }}>
+      <BarChart data={rows} layout="vertical" margin={{ top: 8, right: 72, bottom: 4, left: 4 }}>
         <CartesianGrid stroke={GRID_COLOR} horizontal={false} />
         <XAxis
           type="number"
@@ -622,7 +633,7 @@ export function RankedBarChart({
           tick={AXIS_STYLE}
           tickLine={false}
           axisLine={false}
-          width={104}
+          width={128}
         />
         <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(value: unknown) => moneyTooltip(value, seriesName)} />
         <Bar
@@ -630,6 +641,7 @@ export function RankedBarChart({
           name={seriesName}
           fill={SERIES_COLORS.expense}
           radius={[0, 3, 3, 0]}
+          barSize={22}
           isAnimationActive={false}
           onClick={
             onSelect
@@ -640,7 +652,14 @@ export function RankedBarChart({
               : undefined
           }
           cursor={onSelect ? "pointer" : undefined}
-        />
+        >
+          <LabelList
+            dataKey="amountCents"
+            position="right"
+            formatter={(value: unknown) => formatMoney(toCents(value))}
+            style={{ fill: "#101828", fontSize: 12, fontWeight: 700 }}
+          />
+        </Bar>
       </BarChart>
     </ChartFrame>
   );
@@ -685,7 +704,7 @@ export function UtilizationDonut({
   return (
     <div className="fb-an-util">
       <div className="fb-an-util-chart" role="img" aria-label={caption}>
-        <ResponsiveContainer width="100%" height={200}>
+        <ResponsiveContainer width="100%" height={132}>
           <PieChart>
             <Pie
               data={slices}

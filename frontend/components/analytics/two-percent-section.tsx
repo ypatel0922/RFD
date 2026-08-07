@@ -96,7 +96,6 @@ export function TwoPercentSection({
   }
 
   const pace = twoPercentSpendPaceStatus(summary);
-  const topCategories = result.twoPercentCategories.slice(0, 3);
 
   return (
     <AnalyticsSection
@@ -116,7 +115,50 @@ export function TwoPercentSection({
           message={`The department has identified ${summary.accounts.map((account) => account.name).join(", ")} as its 2% account, but no 2% receipts or expenses have been recorded for ${summary.reportYear} yet.`}
         />
       ) : (
-        <div className="fb-an-compact-two-col">
+        <div className="fb-an-two-kpi">
+          <div className="fb-an-two-kpi-copy">
+            <p className="fb-an-two-kpi-label">Spent in {summary.reportYear}</p>
+            <p className="fb-an-two-kpi-spend">{formatMoney(summary.expendituresCents)}</p>
+            <div className="fb-an-two-kpi-meta">
+              <div>
+                <span className="fb-an-compact-metric-label">Received</span>
+                <strong>{formatMoney(summary.receiptsCents)}</strong>
+              </div>
+              <div>
+                <span className="fb-an-compact-metric-label">Still available</span>
+                <strong>
+                  {summary.availableCents == null ? "—" : formatMoney(summary.availableCents)}
+                </strong>
+              </div>
+            </div>
+            <p className="fb-an-two-kpi-foot muted">
+              Projected year-end:{" "}
+              {summary.projectedUtilizationPercent == null
+                ? "Insufficient data"
+                : formatPercent(summary.projectedUtilizationPercent, 0)}
+            </p>
+            {summary.readiness.openItemCount > 0 || canManage ? (
+              <div className="fb-an-more">
+                {summary.readiness.openItemCount > 0 ? (
+                  <button type="button" className="fb-secondary-btn" onClick={() => setShowDetail(true)}>
+                    Review {summary.readiness.openItemCount} open item
+                    {summary.readiness.openItemCount === 1 ? "" : "s"}
+                  </button>
+                ) : null}
+                {canManage ? (
+                  <button
+                    type="button"
+                    className="fb-secondary-btn"
+                    aria-label="2% settings: utilization basis and department target"
+                    onClick={() => setShowDetail(true)}
+                  >
+                    Settings
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+
           <div className="fb-an-two-visual">
             <UtilizationDonut
               usedCents={summary.expendituresCents}
@@ -130,72 +172,6 @@ export function TwoPercentSection({
               }
               caption={`${formatPercent(summary.utilizationPercent, 0)} of ${TWO_PERCENT_BASIS_LABELS[summary.basis].toLowerCase()} used in ${summary.reportYear}.`}
             />
-          </div>
-
-          <div className="fb-an-two-figures">
-            <div className="fb-an-compact-metrics">
-              <CompactMetric
-                label={`Received in ${summary.reportYear}`}
-                value={formatMoney(summary.receiptsCents)}
-              />
-              <CompactMetric label={`Spent in ${summary.reportYear}`} value={formatMoney(summary.expendituresCents)} out />
-              <CompactMetric
-                label="Still available"
-                value={summary.availableCents == null ? "—" : formatMoney(summary.availableCents)}
-              />
-              <CompactMetric
-                label="Projected year-end"
-                value={
-                  summary.projectedUtilizationPercent == null
-                    ? "Insufficient data"
-                    : formatPercent(summary.projectedUtilizationPercent, 0)
-                }
-              />
-            </div>
-
-            {topCategories.length > 0 ? (
-              <ul className="fb-an-top-list">
-                {topCategories.map((row) => (
-                  <li key={row.category} className="fb-an-top-row">
-                    <button
-                      type="button"
-                      className="fb-an-top-row-name"
-                      onClick={() =>
-                        onDrilldown({
-                          kind: "transactions",
-                          filters: { category: row.category, quickFilter: "two_percent" },
-                        })
-                      }
-                    >
-                      {row.category}
-                    </button>
-                    <span className="fb-an-top-row-meta">
-                      <span className="fb-an-top-row-amount">{formatMoney(row.amountCents)}</span>
-                      {formatPercent(row.percentOfExpenditures, 0)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-
-            <div className="fb-an-more">
-              {summary.readiness.openItemCount > 0 ? (
-                <button type="button" className="fb-secondary-btn" onClick={() => setShowDetail(true)}>
-                  Review {summary.readiness.openItemCount} open item
-                  {summary.readiness.openItemCount === 1 ? "" : "s"}
-                </button>
-              ) : null}
-              {canManage ? (
-                <button
-                  type="button"
-                  className="fb-secondary-btn"
-                  aria-label="2% settings: utilization basis and department target"
-                  onClick={() => setShowDetail(true)}
-                >
-                  Settings
-                </button>
-              ) : null}
-            </div>
           </div>
         </div>
       )}
@@ -402,15 +378,6 @@ export function TwoPercentSection({
         </Drawer>
       ) : null}
     </AnalyticsSection>
-  );
-}
-
-function CompactMetric({ label, value, out }: { label: string; value: string; out?: boolean }) {
-  return (
-    <div className="fb-an-compact-metric">
-      <p className="fb-an-compact-metric-label">{label}</p>
-      <p className={`fb-an-compact-metric-value ${out ? "fb-an-compact-metric-value--out" : ""}`}>{value}</p>
-    </div>
   );
 }
 

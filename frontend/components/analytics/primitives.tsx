@@ -26,7 +26,7 @@ export function AnalyticsSection({
 }: {
   id: string;
   eyebrow: string;
-  title: string;
+  title: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;

@@ -3,23 +3,17 @@
 /**
  * Documentation, reconciliation and audit readiness.
  *
- * "Audit readiness" here means how complete the department's own records are.
- * Hallix does not perform an audit and does not issue an opinion, and the
- * section says so plainly rather than burying it.
- *
- * This is the canonical home for every operational exception Hallix tracks —
- * missing receipts, missing descriptions, uncategorized transactions,
- * unreconciled transactions, stale items, duplicates, and accounts that need
- * reconciling. Other cards may show a short badge that links back here, but
- * the full breakdown lives in exactly one place.
+ * Compact dashboard summary with icon metrics and a clear CTA, matching the
+ * mockup. Full exception breakdown lives in the detail drawer.
  */
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import { STALE_RECONCILIATION_DAYS } from "../../lib/analytics/documentation";
 import { formatPercent, formatTimestamp } from "../../lib/analytics/format";
 import type { AnalyticsResult } from "../../lib/analytics/engine";
 import type { DrilldownTarget } from "../../lib/analytics/types";
+import { AlertTriangleIcon, CheckCircleIcon, ReceiptIcon } from "./icons";
 import { Drawer, InfoTip, MetricCard, ProgressMeter, StatusPill } from "./primitives";
 
 const AUDIT_DISCLAIMER =
@@ -39,14 +33,6 @@ export function ReadinessSection({
   const { documentation: docs } = result;
   const [showDetail, setShowDetail] = useState(false);
 
-  const topExceptions = [
-    { label: "Missing receipts", count: docs.missingReceiptCount, queue: "missing_receipt" as const },
-    { label: "Not reconciled", count: docs.unreconciledCount, queue: "unreconciled" as const },
-    { label: "Not categorized", count: docs.uncategorizedCount, queue: "needs_review" as const },
-  ]
-    .filter((entry) => entry.count > 0)
-    .slice(0, 3);
-
   return (
     <div id={sectionId} className="card fb-an-section fb-an-section--compact" aria-label="Records and readiness">
       <div className="fb-section-head fb-an-section-head">
@@ -57,40 +43,56 @@ export function ReadinessSection({
             <InfoTip text={AUDIT_DISCLAIMER} label="What Audit Readiness means in Hallix" />
           </h3>
         </div>
-        <StatusPill level={docs.readiness.level} label={docs.readiness.label} />
-      </div>
-      <div className="fb-an-readiness-compact-row">
-        <div className="fb-an-readiness-compact-figures">
-          <MiniFigure label="Receipts on file" value={formatPercent(docs.receiptCompletionPercent, 0)} />
-          <MiniFigure label="Reconciled" value={formatPercent(docs.reconciliationCompletionPercent, 0)} />
-          <MiniFigure label="Open items" value={String(docs.openExceptionCount)} />
+        <div className="fb-an-readiness-actions">
+          <StatusPill level={docs.readiness.level} label={docs.readiness.label} />
+          <button
+            type="button"
+            className="fb-primary-btn fb-an-readiness-cta"
+            onClick={() => setShowDetail(true)}
+          >
+            Review open items
+          </button>
         </div>
       </div>
 
-      {topExceptions.length > 0 ? (
-        <div className="fb-an-badge-row">
-          {topExceptions.map((entry) => (
-            <button
-              key={entry.label}
-              type="button"
-              className="fb-an-exception-badge fb-an-exception-badge--action"
-              onClick={() => onDrilldown({ kind: "reconciliation", queue: entry.queue })}
-            >
-              {entry.count} {entry.label.toLowerCase()}
-            </button>
-          ))}
-        </div>
-      ) : (
-        <p className="muted">Nothing outstanding for this period.</p>
-      )}
-
-      <div className="fb-an-more">
-        <button type="button" className="fb-secondary-btn" onClick={() => setShowDetail(true)}>
-          Review records
-        </button>
-        <button type="button" className="fb-primary-btn" onClick={() => setShowDetail(true)}>
-          Review open items
-        </button>
+      <div className="fb-an-readiness-metrics">
+        <ReadinessMetric
+          chipClass="fb-an-icon-chip--green"
+          icon={<ReceiptIcon size={14} />}
+          label="Receipts on file"
+          value={formatPercent(docs.receiptCompletionPercent, 0)}
+          tip={
+            docs.missingReceiptCount > 0
+              ? { count: docs.missingReceiptCount, text: "missing receipts" }
+              : null
+          }
+          onTipClick={() => onDrilldown({ kind: "reconciliation", queue: "missing_receipt" })}
+        />
+        <ReadinessMetric
+          chipClass="fb-an-icon-chip--blue"
+          icon={<CheckCircleIcon size={14} />}
+          label="Reconciled"
+          value={formatPercent(docs.reconciliationCompletionPercent, 0)}
+          tip={
+            docs.unreconciledCount > 0
+              ? { count: docs.unreconciledCount, text: "not reconciled" }
+              : null
+          }
+          onTipClick={() => onDrilldown({ kind: "reconciliation", queue: "unreconciled" })}
+        />
+        <ReadinessMetric
+          chipClass="fb-an-icon-chip--orange"
+          icon={<AlertTriangleIcon size={14} />}
+          label="Open items"
+          value={String(docs.openExceptionCount)}
+          valueOut={docs.openExceptionCount > 0}
+          tip={
+            docs.uncategorizedCount > 0
+              ? { count: docs.uncategorizedCount, text: "not categorized" }
+              : null
+          }
+          onTipClick={() => onDrilldown({ kind: "reconciliation", queue: "needs_review" })}
+        />
       </div>
 
       {showDetail ? (
@@ -248,11 +250,57 @@ export function ReadinessSection({
   );
 }
 
-function MiniFigure({ label, value }: { label: string; value: string }) {
+function ReadinessMetric({
+  chipClass,
+  icon,
+  label,
+  value,
+  valueOut = false,
+  tip,
+  onTipClick,
+}: {
+  chipClass: string;
+  icon: ReactNode;
+  label: string;
+  value: string;
+  valueOut?: boolean;
+  tip: { count: number; text: string } | null;
+  onTipClick: () => void;
+}) {
+  const tipLabel = tip ? `${tip.count} ${tip.text}` : null;
+
+  const body = (
+    <>
+      <span className={`fb-an-icon-chip ${chipClass}`} aria-hidden="true">
+        {icon}
+      </span>
+      <div className="fb-an-readiness-metric-copy">
+        <p className="fb-an-compact-metric-label">{label}</p>
+        <p className={`fb-an-compact-metric-value ${valueOut ? "fb-an-compact-metric-value--out" : ""}`}>
+          {value}
+        </p>
+      </div>
+      {tipLabel ? (
+        <span className="fb-an-readiness-metric-tip" role="tooltip">
+          {tipLabel}
+        </span>
+      ) : null}
+    </>
+  );
+
+  if (!tip || !tipLabel) {
+    return <div className="fb-an-readiness-metric">{body}</div>;
+  }
+
   return (
-    <div className="fb-an-compact-metric">
-      <p className="fb-an-compact-metric-label">{label}</p>
-      <p className="fb-an-compact-metric-value">{value}</p>
-    </div>
+    <button
+      type="button"
+      className="fb-an-readiness-metric fb-an-readiness-metric--tip"
+      onClick={onTipClick}
+      title={tipLabel}
+      aria-label={`${label}: ${value}. ${tipLabel}. Open queue.`}
+    >
+      {body}
+    </button>
   );
 }

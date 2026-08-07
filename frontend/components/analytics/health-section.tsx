@@ -3,28 +3,27 @@
 /**
  * Department Health.
  *
- * The score is a Hallix planning indicator, never an audit opinion, and the
- * wording throughout is chosen to keep that distinction obvious. When there is
- * too little activity to judge fairly, the section says so instead of printing
- * a number.
- *
- * The dashboard shows one compact strip — score, status, the single biggest
- * issue, and four at-a-glance component dots. Every calculation, the full
- * component list, and the methodology live in a detail drawer opened from
- * here, so nothing is duplicated elsewhere on the page.
+ * Compact KPI card matching the mockup: status headline with shield, four
+ * icon chips for component scores, and a detail drawer for methodology.
  */
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import { describeChange, formatMoney, formatPercent, STATUS_LABELS } from "../../lib/analytics/format";
 import type { AnalyticsResult } from "../../lib/analytics/engine";
-import type { DrilldownTarget } from "../../lib/analytics/types";
+import type { DrilldownTarget, StatusLevel } from "../../lib/analytics/types";
+import {
+  CheckCircleIcon,
+  FileTextIcon,
+  FolderIcon,
+  HeartPulseIcon,
+  ShieldCheckIcon,
+} from "./icons";
 import {
   AnalyticsSection,
   Drawer,
   InfoTip,
   MetricCard,
-  MiniStat,
   ProgressMeter,
   StatusPill,
 } from "./primitives";
@@ -33,12 +32,16 @@ const SCORE_DISCLAIMER =
   "Hallix Department Health is a recordkeeping indicator calculated from your own data. " +
   "It is not an audit, an audit opinion, or a determination of legal compliance.";
 
-/** The four components shown in the compact strip, in this fixed order. */
-const STRIP_COMPONENTS: Array<{ id: string; label: string }> = [
-  { id: "reconciliation", label: "Reconciliation" },
-  { id: "receipts", label: "Documentation" },
-  { id: "categorization", label: "Categorization" },
-  { id: "cash", label: "Financial position" },
+const STRIP_COMPONENTS: Array<{
+  id: string;
+  label: string;
+  tone: "blue" | "green" | "orange" | "teal";
+  icon: ReactNode;
+}> = [
+  { id: "reconciliation", label: "Reconciliation", tone: "blue", icon: <CheckCircleIcon size={15} /> },
+  { id: "receipts", label: "Documentation", tone: "green", icon: <FileTextIcon size={15} /> },
+  { id: "categorization", label: "Categorization", tone: "orange", icon: <FolderIcon size={15} /> },
+  { id: "cash", label: "Financial position", tone: "teal", icon: <HeartPulseIcon size={15} /> },
 ];
 
 export function HealthSection({
@@ -53,8 +56,17 @@ export function HealthSection({
   const [showDetail, setShowDetail] = useState(false);
   const { health } = result;
 
-  const strip = STRIP_COMPONENTS.map((entry) => health.components.find((c) => c.id === entry.id))
-    .filter((component): component is (typeof health.components)[number] => component != null);
+  const strip = STRIP_COMPONENTS.map((entry) => {
+    const component = health.components.find((c) => c.id === entry.id);
+    return component ? { ...entry, component } : null;
+  }).filter((entry): entry is NonNullable<typeof entry> => entry != null);
+
+  const statusLabel =
+    health.hasSufficientData && health.status
+      ? health.status
+      : health.hasSufficientData
+        ? STATUS_LABELS[health.level]
+        : "Insufficient data";
 
   return (
     <AnalyticsSection
@@ -67,41 +79,44 @@ export function HealthSection({
         </button>
       }
     >
-      <div className="fb-an-health-strip">
-        <div className="fb-an-health-strip-score">
-          <button type="button" onClick={() => setShowDetail(true)} aria-label="Open the full health calculation">
-            {health.hasSufficientData && health.score != null ? (
-              <>
-                <span className="fb-an-health-strip-value">{health.score}</span>
-                <StatusPill level={health.level} label={health.status ?? undefined} />
-              </>
-            ) : (
-              <StatusPill level="unknown" label="Insufficient data" />
-            )}
-          </button>
-        </div>
+      <div className="fb-an-health-hero">
+        <button
+          type="button"
+          className="fb-an-health-status"
+          onClick={() => setShowDetail(true)}
+          aria-label="Open the full health calculation"
+        >
+          <span className={`fb-an-health-shield ${statusTone(health.level)}`} aria-hidden="true">
+            <ShieldCheckIcon size={22} />
+          </span>
+          <span className="fb-an-health-status-copy">
+            <span className="fb-an-health-status-label">{statusLabel}</span>
+            <span className="fb-an-health-status-sub">
+              {health.insufficientDataReason ?? health.headline}
+            </span>
+          </span>
+        </button>
 
-        <div className="fb-an-health-strip-copy">
-          <p className="fb-an-health-strip-headline">
-            {health.insufficientDataReason ?? health.headline}
-          </p>
-        </div>
-
-        <div className="fb-an-mini-row">
-          {strip.map((component) => (
-            <MiniStat
-              key={component.id}
-              label={STRIP_COMPONENTS.find((entry) => entry.id === component.id)?.label ?? component.label}
-              value={
-                component.score == null
-                  ? STATUS_LABELS.unknown
-                  : component.id === "reconciliation" || component.id === "categorization" || component.id === "receipts"
-                    ? formatPercent(component.score, 0)
-                    : STATUS_LABELS[component.level]
-              }
-              level={component.level}
+        <div className="fb-an-icon-stat-row">
+          {strip.map(({ id, label, tone, icon, component }) => (
+            <button
+              key={id}
+              type="button"
+              className="fb-an-icon-stat"
               onClick={() => setShowDetail(true)}
-            />
+            >
+              <span className={`fb-an-icon-chip fb-an-icon-chip--${tone}`} aria-hidden="true">
+                {icon}
+              </span>
+              <span className="fb-an-icon-stat-label">{label}</span>
+              <span className="fb-an-icon-stat-value">
+                {component.score == null
+                  ? STATUS_LABELS.unknown
+                  : id === "reconciliation" || id === "categorization" || id === "receipts"
+                    ? formatPercent(component.score, 0)
+                    : STATUS_LABELS[component.level]}
+              </span>
+            </button>
           ))}
         </div>
       </div>
@@ -243,4 +258,11 @@ export function HealthSection({
       ) : null}
     </AnalyticsSection>
   );
+}
+
+function statusTone(level: StatusLevel): string {
+  if (level === "positive") return "fb-an-health-shield--positive";
+  if (level === "attention") return "fb-an-health-shield--attention";
+  if (level === "risk") return "fb-an-health-shield--risk";
+  return "fb-an-health-shield--unknown";
 }
