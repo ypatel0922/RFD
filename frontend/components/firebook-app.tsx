@@ -84,6 +84,10 @@ import {
   type AppView,
 } from "../lib/navigation";
 import type { DrilldownTarget } from "../lib/analytics/types";
+import { newEntryTarget } from "../lib/new-entry";
+import { NewEntryButton } from "./new-entry-ribbon";
+import { MoneyInPage, type MoneyInLaunch, type MoneyInPrefill } from "./money-in/money-in-page";
+import { isLedgerInflow } from "../lib/reconciliation/ledger";
 
 type AuthMode = "login" | "signup";
 
@@ -289,8 +293,43 @@ function buildDashboardMetrics(expenses: ExpenseRecord[]) {
   let openItems = 0;
   for (const expense of expenses) {
     const amt = expenseNumericAmount(expense.total_amount);
-    if (amt != null) totalRecorded += Math.abs(amt);
-    if (isExpenseInCurrentMonth(expense) && amt != null) monthSpend += Math.abs(amt);
+    const isTransfer = expense.transaction_type === "transfer";
+    const isRefund = expense.transaction_type === "refund";
+    // Money In and legacy negative amounts are inflow; transfers never count as either.
+    const isIncome =
+      !isTransfer &&
+      !isRefund &&
+      (expense.transaction_type === "income" || (expense.transaction_type == null && amt != null && isLedgerInflow(expense)));
+
+    if (amt != null && !isTransfer && !isIncome && !isRefund) {
+      // "Total recorded" is spending only — money in and transfers are not expenses.
+      totalRecorded += Math.abs(amt);
+    }
+
+    if (isExpenseInCurrentMonth(expense) && amt != null && !isTransfer) {
+      const magnitude = Math.abs(amt);
+      if (isRefund) {
+        monthSpend -= magnitude;
+        monthBankOut -= magnitude;
+      } else if (isIncome) {
+        monthBankIn += magnitude;
+      } else {
+        monthSpend += magnitude;
+        monthBankOut += magnitude;
+      }
+    }
+
+    // Bank-matched rows can also move In/Out when the ledger type is missing
+    // (legacy imports). Prefer the signed bank amount and never double-count a
+    // typed Money In / expense already handled above.
+    if (isExpenseInCurrentMonth(expense) && !isTransfer && expense.transaction_type == null) {
+      const bankAmt = expenseNumericAmount(expense.bank_amount);
+      if (bankAmt != null && amt == null) {
+        if (bankAmt >= 0) monthBankIn += bankAmt;
+        else monthBankOut += Math.abs(bankAmt);
+      }
+    }
+
     if (expense.extraction_status === "needs_review" || expense.extraction_status === "failed") needsReview += 1;
     if (
       expense.reconciliation_status === "pending_bank_match" ||
@@ -299,15 +338,15 @@ function buildDashboardMetrics(expenses: ExpenseRecord[]) {
     ) {
       openItems += 1;
     }
-    if (isExpenseInCurrentMonth(expense)) {
-      const bankAmt = expenseNumericAmount(expense.bank_amount);
-      if (bankAmt != null) {
-        if (bankAmt >= 0) monthBankIn += bankAmt;
-        else monthBankOut += Math.abs(bankAmt);
-      }
-    }
   }
-  return { totalRecorded, monthSpend, monthBankIn, monthBankOut, needsReview, openItems };
+  return {
+    totalRecorded,
+    monthSpend: Math.max(0, monthSpend),
+    monthBankIn,
+    monthBankOut: Math.max(0, monthBankOut),
+    needsReview,
+    openItems,
+  };
 }
 
 type AccountSnapshot = {
@@ -1187,6 +1226,7 @@ export default function Home() {
   const [ledgerVendorQuery, setLedgerVendorQuery] = useState("");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [expenseEntryLaunch, setExpenseEntryLaunch] = useState<ExpenseEntryLaunch>(null);
+  const [moneyInLaunch, setMoneyInLaunch] = useState<MoneyInLaunch>(null);
   const [reportsDocumentsMode, setReportsDocumentsMode] = useState<ReportsDocumentsMode>("hub");
   const [statementAccountId, setStatementAccountId] = useState<string | null>(null);
   const [ledgerBankAccountFilter, setLedgerBankAccountFilter] = useState("");
@@ -1202,6 +1242,7 @@ export default function Home() {
   });
 
   const clearExpenseEntryLaunch = useCallback(() => setExpenseEntryLaunch(null), []);
+  const clearMoneyInLaunch = useCallback(() => setMoneyInLaunch(null), []);
   const clearLedgerInitialFilters = useCallback(() => setLedgerInitialFilters(null), []);
   const clearReconciliationQueue = useCallback(() => setReconciliationQueue(null), []);
 
@@ -1704,20 +1745,19 @@ export default function Home() {
               Search
             </button>
           </form>
-          <button
-            type="button"
-            className="fb-topbar-new-expense"
-            onClick={() => {
-              setExpenseEntryLaunch({ tab: "receipt" });
-              setView("new_expense");
+          <NewEntryButton
+            onOpen={() => setMobileNavOpen(false)}
+            onSelect={(kind) => {
+              const target = newEntryTarget(kind);
+              if (target.view === "new_expense") {
+                setExpenseEntryLaunch(target.expenseLaunch);
+              } else {
+                setMoneyInLaunch(target.moneyInLaunch);
+              }
+              setView(target.view);
               setMobileNavOpen(false);
             }}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" aria-hidden>
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-            New Expense
-          </button>
+          />
         </div>
 
         <div className="fb-topbar-user">
@@ -1884,6 +1924,20 @@ export default function Home() {
               departmentCategories={departmentCategories}
               departmentVendors={departmentVendors}
             />
+          ) : view === "new_money_in" ? (
+            <MoneyInPage
+              membership={membership}
+              user={session.user}
+              accessToken={session.access_token}
+              expenses={expenses}
+              bankAccounts={bankAccounts}
+              departmentCategories={departmentCategories}
+              launch={moneyInLaunch}
+              onLaunchConsumed={clearMoneyInLaunch}
+              onRecorded={() => loadExpenses(membership.department_id)}
+              showSuccessMessage={showSuccessMessage}
+              showErrorMessage={showErrorMessage}
+            />
           ) : view === "transactions" ? (
             <div ref={transactionsPanelRef} className="fb-tab-stack">
               <TransactionsLedger
@@ -1919,6 +1973,11 @@ export default function Home() {
               onExpensesChanged={() => loadExpenses(membership.department_id)}
               showErrorMessage={showErrorMessage}
               showSuccessMessage={showSuccessMessage}
+              onRecordMoneyIn={(prefill: MoneyInPrefill) => {
+                setMoneyInLaunch({ tab: "manual", prefill });
+                setView("new_money_in");
+                setMobileNavOpen(false);
+              }}
               onOpenFullReport={() => {
                 setView("reports_documents");
                 setReportsDocumentsMode("reconciliation");
@@ -3662,12 +3721,12 @@ function Dashboard({
           <p className="fb-metric-hint">Based on transaction dates in the current month</p>
         </div>
         <div className="fb-metric-card">
-          <p className="fb-metric-label">This month (bank)</p>
+          <p className="fb-metric-label">This month (in / out)</p>
           <p className="fb-metric-split">
             <span className="fb-metric-in">In {formatUsd(metrics.monthBankIn)}</span>
             <span className="fb-metric-out">Out {formatUsd(metrics.monthBankOut)}</span>
           </p>
-          <p className="fb-metric-hint">From imported bank amounts on matched activity</p>
+          <p className="fb-metric-hint">Recorded money in and spending this month</p>
         </div>
         <div className="fb-metric-card">
           <p className="fb-metric-label">Needs attention</p>
@@ -3698,7 +3757,7 @@ function Dashboard({
             <span className="fb-quick-title">Reconciliation report</span>
             <span className="fb-quick-desc">Review matches and export a CSV report.</span>
           </button>
-          <button type="button" className="fb-quick-tile" onClick={() => onOpenReportsPanel("statements")}>
+          <button type="button" className="fb-quick-tile" onClick={() => onNavigateView("reconciliation")}>
             <span className="fb-quick-title">Statements</span>
             <span className="fb-quick-desc">Upload statement pages for reconciliation.</span>
           </button>

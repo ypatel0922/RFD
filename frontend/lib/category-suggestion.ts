@@ -15,6 +15,7 @@
 
 import { normalizeCategoryName, isUncategorizedCategory, suggestCategory } from "./categories";
 import { evaluateTwoPercentStatus } from "./two-percent-rules";
+import { isTypedMoneyInRow } from "./money-in/categories";
 import type { DepartmentCategory, DepartmentVendor, ExpenseRecord } from "./types";
 
 export type CategorySuggestionSource =
@@ -159,6 +160,8 @@ export function buildVendorCategoryHistory(params: {
 
   const usable = scoped.filter((expense) => {
     if (isUncategorizedCategory(expense.category)) return false;
+    // Money In history (payers, refunds, transfers) must not shape expense categories.
+    if (isTypedMoneyInRow(expense)) return false;
     if (looksLikeTransferRecord(expense)) return false;
     return Boolean(expenseVendorKey(expense));
   });

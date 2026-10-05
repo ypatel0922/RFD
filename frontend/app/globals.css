@@ -161,7 +161,9 @@ button.fb-an-kpi-tile:focus-visible,
 button.fb-an-hero:hover,
 button.fb-an-hero:focus-visible,
 button.fb-an-toolbar-btn:hover,
-button.fb-an-toolbar-btn:focus-visible {
+button.fb-an-toolbar-btn:focus-visible,
+button.fb-new-ribbon-item:hover,
+button.fb-new-ribbon-item:focus-visible {
   background: var(--hover-tint);
   color: var(--ink);
   border-color: var(--hover-ring);
@@ -1025,6 +1027,110 @@ th {
 
 .fb-topbar-new-expense:active {
   transform: translateY(1px);
+}
+
+.fb-topbar-new-expense.is-open svg {
+  transform: rotate(45deg);
+}
+
+.fb-topbar-new-expense svg {
+  transition: transform 160ms ease;
+}
+
+.fb-new-ribbon {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 60;
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  box-shadow: 0 18px 44px rgb(15 23 42 / 22%), 0 2px 6px rgb(15 23 42 / 10%);
+  visibility: hidden;
+  overflow-x: auto;
+}
+
+.fb-new-ribbon.is-placed {
+  visibility: visible;
+  animation: fb-new-ribbon-in-left 170ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.fb-new-ribbon--right.is-placed {
+  animation-name: fb-new-ribbon-in-right;
+}
+
+.fb-new-ribbon--below.is-placed {
+  animation-name: fb-new-ribbon-in-below;
+}
+
+@keyframes fb-new-ribbon-in-left {
+  from { opacity: 0; transform: translateX(10px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes fb-new-ribbon-in-right {
+  from { opacity: 0; transform: translateX(-10px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes fb-new-ribbon-in-below {
+  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fb-new-ribbon.is-placed { animation: none; }
+  .fb-topbar-new-expense svg { transition: none; }
+}
+
+.fb-new-ribbon-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 16px 0 8px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--navy);
+  font-weight: 800;
+  font-size: 0.92rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.fb-new-ribbon-item:hover,
+.fb-new-ribbon-item:focus-visible {
+  background: var(--hover-tint);
+  color: var(--navy);
+}
+
+.fb-new-ribbon-item:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.fb-new-ribbon-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+}
+
+.fb-new-ribbon-item--expense .fb-new-ribbon-icon {
+  background: var(--hover-tint);
+  color: var(--primary);
+}
+
+.fb-new-ribbon-item--money_in .fb-new-ribbon-icon {
+  background: #e7f6ee;
+  color: var(--success);
 }
 
 .fb-brand {
@@ -14027,4 +14133,276 @@ button.fb-an-readiness-metric--tip:focus-visible {
   .fb-an-spend-chart {
     margin: 0 auto;
   }
+}
+
+/* ── Money In ──────────────────────────────────────────────────────────── */
+.fb-money-in-page {
+  min-width: 0;
+  overflow-x: clip;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.fb-money-in-page .fb-receipt-dropzone-icon.fb-money-in-dropzone-icon {
+  background: #e7f6ee;
+  color: var(--success);
+}
+
+.fb-money-in-history-line {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.fb-money-in-note {
+  margin: 4px 0 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+
+.fb-money-in-account-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin-top: 8px;
+  font-size: 0.84rem;
+  color: var(--ink-soft);
+}
+
+.fb-money-in-account-hint .link-button {
+  min-height: 44px;
+}
+
+.fb-money-in-mode-switch {
+  align-self: flex-start;
+  min-height: 44px;
+  margin-top: 4px;
+  font-size: 0.86rem;
+}
+
+.fb-money-in-deposit-toggle {
+  max-width: none;
+}
+
+.fb-money-in-deposit-toggle .fb-segment {
+  min-width: 0;
+  white-space: normal;
+  line-height: 1.2;
+}
+
+.fb-money-in-form {
+  min-width: 0;
+}
+
+.fb-money-in-form input,
+.fb-money-in-form select,
+.fb-money-in-form textarea {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.transactions-status-received,
+.transactions-status-awaiting_deposit {
+  background: #fef0c7;
+  color: var(--warning);
+}
+
+.transactions-status-deposited,
+.transactions-status-awaiting_bank_match {
+  background: #e0f2fe;
+  color: #026aa2;
+}
+
+.transactions-deposit-card {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #fffbeb;
+}
+
+.transactions-deposit-card p {
+  margin: 0;
+  font-size: 0.88rem;
+}
+
+.transactions-deposit-card label {
+  display: grid;
+  gap: 4px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.transactions-deposit-card select,
+.transactions-deposit-card input {
+  min-height: 44px;
+  width: 100%;
+}
+
+.transactions-deposit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.transactions-deposit-card .fb-primary-btn,
+.transactions-deposit-card .fb-secondary-btn {
+  min-height: 44px;
+}
+
+.transactions-source-history-totals {
+  margin: 0 0 4px;
+  font-size: 0.9rem;
+}
+
+.transactions-source-history .muted {
+  margin: 0 0 10px;
+  font-size: 0.8rem;
+}
+
+.fb-recon-deposits {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.fb-recon-deposits .section-heading p {
+  margin: 2px 0 0;
+}
+
+.fb-recon-deposit-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fb-recon-deposit {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #fff;
+  min-width: 0;
+}
+
+.fb-recon-deposit-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.fb-recon-deposit-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.fb-recon-deposit-text strong {
+  overflow-wrap: anywhere;
+}
+
+.fb-recon-deposit-text .muted {
+  font-size: 0.8rem;
+}
+
+.fb-recon-deposit-amount {
+  flex-shrink: 0;
+  font-weight: 800;
+  color: var(--success);
+  font-variant-numeric: tabular-nums;
+}
+
+.fb-recon-deposit-suggestion {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f0f9ff;
+  font-size: 0.85rem;
+}
+
+.fb-recon-deposit-suggestion span {
+  min-width: 0;
+  flex: 1 1 200px;
+}
+
+.fb-recon-deposit-suggestion .fb-primary-btn,
+.fb-recon-deposit-actions .link-button {
+  min-height: 44px;
+}
+
+.fb-an-money-in-sources {
+  margin-top: 14px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-muted);
+}
+
+.fb-an-money-in-sources > summary {
+  cursor: pointer;
+  min-height: 28px;
+  font-size: 0.86rem;
+  font-weight: 800;
+  color: var(--primary);
+}
+
+.fb-an-money-in-sources > summary:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.fb-an-money-in-sources p.muted {
+  margin: 8px 0;
+  font-size: 0.82rem;
+}
+
+.fb-an-money-in-sources ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fb-an-money-in-source-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 10px;
+  background: #fff;
+  font: inherit;
+  font-size: 0.88rem;
+  color: var(--ink);
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+
+button.fb-an-money-in-source-row {
+  cursor: pointer;
+}
+
+button.fb-an-money-in-source-row:hover {
+  background: var(--hover-tint);
 }

@@ -20,7 +20,8 @@ export type AppView =
   | "tax_forms"
   | "analytics"
   | "settings"
-  | "new_expense";
+  | "new_expense"
+  | "new_money_in";
 
 export type NavItem = {
   id: AppView;

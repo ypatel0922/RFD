@@ -133,6 +133,9 @@ export function classifyExpenseRow(
   row: AnalyticsExpenseRow,
   accountLookup: Map<string, ClassifiedAccount>,
 ): ClassificationResult {
+  const explicit = explicitClassification(row);
+  if (explicit) return explicit;
+
   const inflow = isLedgerInflow(row);
   const ownAccount = accountLookup.get(normalizeAccountName(row.bank_account_name));
   const text = [row.category, row.payee, row.merchant_name, row.description]
@@ -189,6 +192,30 @@ export function classifyExpenseRow(
 }
 
 /**
+ * A type the treasurer confirmed when recording Money In is authoritative and
+ * outranks every wording heuristic: a confirmed grant is income even if its
+ * memo says "transfer", and a confirmed transfer is never income.
+ */
+function explicitClassification(row: AnalyticsExpenseRow): ClassificationResult | null {
+  switch (row.transaction_type) {
+    case "transfer":
+      return {
+        classification: "internal_transfer",
+        reason: "Recorded as an internal transfer between department accounts, so it changes balances only.",
+      };
+    case "refund":
+      return {
+        classification: "refund",
+        reason: "Recorded as a refund, so it reduces spending instead of counting as income.",
+      };
+    case "income":
+      return { classification: "income", reason: "Recorded as Money In to a department account." };
+    default:
+      return null;
+  }
+}
+
+/**
  * Find the department account on the other side of a transaction.
  *
  * Only an exact normalized-name match counts. A partial match would misread a
@@ -227,6 +254,9 @@ function isTwoPercentRow(
   row: AnalyticsExpenseRow,
   account: ClassifiedAccount | undefined,
 ): boolean {
+  // Recorded Money In is 2% only when the treasurer confirmed it; landing in
+  // the 2% account does not make a donation or rental 2% money.
+  if (row.transaction_type === "income") return Boolean(row.uses_two_percent_funds);
   return Boolean(row.uses_two_percent_funds) || Boolean(account?.isTwoPercent);
 }
 
@@ -300,6 +330,8 @@ export function splitImportedActivity(
   const posted: AnalyticsExternalTransactionRow[] = [];
 
   for (const row of rows) {
+    // A pending row Plaid replaced with its posted version is the same money.
+    if ((row.match_status ?? "").toLowerCase() === "superseded") continue;
     if (row.expense_id) {
       matchedExpenseIds.add(row.expense_id);
       continue;

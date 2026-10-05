@@ -438,7 +438,11 @@ export function AnalyticsDashboard({
             </Suspense>
 
             <Suspense fallback={<DeferredSection label="Loading cash flow" />}>
-              <CashFlowChartCard result={result} sectionId={analyticsSectionAnchor("cash_flow")} />
+              <CashFlowChartCard
+                result={result}
+                sectionId={analyticsSectionAnchor("cash_flow")}
+                onDrilldown={handleDrilldown}
+              />
             </Suspense>
           </div>
 

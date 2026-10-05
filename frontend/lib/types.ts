@@ -129,6 +129,70 @@ export type ExpenseRecord = {
   member_vote_recorded: boolean | null;
   meeting_date: string | null;
   support_note: string | null;
+  /** Explicit economic type. Null on legacy rows, which analytics infers. */
+  transaction_type?: LedgerTransactionType | null;
+  deposit_status?: MoneyInDepositStatus | null;
+  deposit_date?: string | null;
+  counterparty_id?: string | null;
+  transfer_group_id?: string | null;
+  transfer_account_name?: string | null;
+  related_expense_id?: string | null;
+  money_in_details?: MoneyInDetails | null;
+};
+
+export type LedgerTransactionType = "expense" | "income" | "refund" | "transfer";
+
+export type MoneyInDepositStatus = "received" | "deposited";
+
+export type MoneyInDocumentType = "check" | "deposit_slip" | "remittance" | "letter" | "other";
+
+/** Secondary Money In fields. Never holds routing or full account numbers. */
+export type MoneyInDetails = {
+  document_type?: MoneyInDocumentType | null;
+  donor_note?: string | null;
+  grant_reference?: string | null;
+  restriction?: string | null;
+  /** What Hallix suggested, kept for the audit trail. */
+  suggested_category?: string | null;
+  suggested_category_source?: string | null;
+  category_overridden?: boolean | null;
+  two_percent_suggested?: boolean | null;
+  two_percent_confirmed?: boolean | null;
+};
+
+export type DepartmentCounterparty = {
+  id: string;
+  department_id: string;
+  name: string;
+  normalized_name: string;
+  kind: "payer" | "donor" | "grantor" | "government" | "organization";
+  default_category: string | null;
+  notes: string | null;
+  created_from: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** What OCR returns for a check or payment document, already sanitized. */
+export type ExtractedMoneyInData = {
+  document_type: MoneyInDocumentType | null;
+  payer: string | null;
+  amount: string | null;
+  date: string | null;
+  check_number: string | null;
+  memo: string | null;
+  payment_method: string | null;
+  fund_designation: string | null;
+  grant_reference: string | null;
+  suggested_category: string | null;
+  category_confidence: number | null;
+  category_reason: string | null;
+  suggest_two_percent: boolean | null;
+  two_percent_confidence: number | null;
+  two_percent_reason: string | null;
+  extraction_status: "extracted" | "needs_review" | "failed";
+  confidence: number;
+  notes: string | null;
 };
 
 export type ExtractedReceiptData = {

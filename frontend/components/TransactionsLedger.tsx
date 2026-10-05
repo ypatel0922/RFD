@@ -13,7 +13,9 @@ import {
 import { evaluateTwoPercentStatus } from "../lib/two-percent-rules";
 import { expenseAuditSnapshot, logAuditFromBrowser } from "../lib/audit";
 import type { BankAccount, DepartmentCategory, DepartmentVendor, ExpenseRecord, ReceiptRequest } from "../lib/types";
-
+import { isTypedMoneyInRow } from "../lib/money-in/categories";
+import { buildSourceHistory } from "../lib/money-in/history";
+import { markDepositedPatch, moneyInStatus, type MoneyInStatusKey } from "../lib/money-in/record";
 const LEDGER_ALL_LIMIT = 5000;
 
 type TransactionEditValues = {
@@ -52,7 +54,8 @@ type StatusKey =
   | "pending_bank_match"
   | "extracted"
   | "receipt_requested"
-  | "receipt_received";
+  | "receipt_received"
+  | MoneyInStatusKey;
 
 type StatusInfo = { label: string; key: StatusKey };
 
@@ -119,6 +122,23 @@ function formatCurrency(amount: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Math.abs(amount));
 }
 
+function absAmountCents(expense: ExpenseRecord): number {
+  const amount = expenseNumericAmount(expense.total_amount);
+  return amount == null ? 0 : Math.round(Math.abs(amount) * 100);
+}
+
+function minIso(a: string | null, b: string): string {
+  if (!a) return b;
+  if (!b) return a;
+  return a < b ? a : b;
+}
+
+function maxIso(a: string | null, b: string): string {
+  if (!a) return b;
+  if (!b) return a;
+  return a > b ? a : b;
+}
+
 function vendorName(expense: ExpenseRecord) {
   return expense.payee || expense.merchant_name || "Needs review";
 }
@@ -153,7 +173,14 @@ function formatTransactionAmount(expense: ExpenseRecord) {
   return { text: `-${formatCurrency(Math.abs(amount))}`, className: "transactions-amount-expense" };
 }
 
+/** Internal transfer legs move money between department accounts — never income or spend. */
+function isTransferRow(expense: ExpenseRecord) {
+  return expense.transaction_type === "transfer";
+}
+
 function isMissingReceipt(expense: ExpenseRecord, receiptUrls: Record<string, string>) {
+  // Money In and transfers have no receipt to chase; a document is optional.
+  if (isTypedMoneyInRow(expense)) return false;
   if (expense.receipt_path?.includes("no-receipt")) return true;
   if (expense.original_filename === "manual-entry" && !receiptUrls[expense.id]) return true;
   return !receiptUrls[expense.id] && expense.extraction_notes?.toLowerCase().includes("without receipt");
@@ -178,7 +205,11 @@ function transactionStatus(
   expense: ExpenseRecord,
   receiptUrls: Record<string, string>,
   receiptRequests?: ReceiptRequest[],
+  hasBankFeed = false,
 ): StatusInfo {
+  if (isTypedMoneyInRow(expense)) {
+    return moneyInStatus(expense, { hasBankFeed });
+  }
   if (
     expense.extraction_status === "needs_review" ||
     expense.extraction_status === "failed" ||
@@ -348,6 +379,11 @@ export function TransactionsLedger({
     [expenses, selectedId],
   );
 
+  /** A department with bank-matched rows has a feed, so deposits wait for a bank match. */
+  const hasBankFeed = useMemo(() => expenses.some((e) => Boolean(e.bank_transaction_id)), [expenses]);
+  const [depositForm, setDepositForm] = useState<{ id: string; account: string; date: string } | null>(null);
+  const [savingDeposit, setSavingDeposit] = useState(false);
+
   const panelExpense = useMemo(() => {
     if (selectedExpense) return selectedExpense;
     if (!editingId) return null;
@@ -468,7 +504,12 @@ export function TransactionsLedger({
       list = list.filter((expense) => {
         const payee = (expense.payee || expense.merchant_name || "").toLowerCase();
         const desc = (expense.description || "").toLowerCase();
-        return payee.includes(q) || desc.includes(q);
+        if (payee.includes(q) || desc.includes(q)) return true;
+        // Money In is also findable by source category and check / reference number.
+        if (!isTypedMoneyInRow(expense)) return false;
+        const category = (expense.category || "").toLowerCase();
+        const reference = (expense.payment_reference || "").toLowerCase();
+        return category.includes(q) || (reference.length > 0 && reference.includes(q.replace(/^#/, "")));
       });
     }
     if (bankAccountFilter.trim()) {
@@ -507,10 +548,12 @@ export function TransactionsLedger({
         list = list.filter((e) => e.reconciliation_status === "matched");
         break;
       case "income":
-        list = list.filter(isIncomeTransaction);
+        list = list.filter(
+          (e) => isIncomeTransaction(e) && !isTransferRow(e) && e.transaction_type !== "refund",
+        );
         break;
       case "expenses":
-        list = list.filter((e) => !isIncomeTransaction(e));
+        list = list.filter((e) => !isIncomeTransaction(e) && !isTransferRow(e));
         break;
       case "missing_receipt":
         list = list.filter((e) => isMissingReceipt(e, receiptUrls));
@@ -559,13 +602,18 @@ export function TransactionsLedger({
     let monthIncome = 0;
 
     for (const expense of expenses) {
-      const status = transactionStatus(expense, receiptUrls, receiptRequests);
+      const status = transactionStatus(expense, receiptUrls, receiptRequests, hasBankFeed);
       if (status.key === "needs_review") needsReview += 1;
 
       const iso = parseExpenseSortDate(expense);
       if (iso < monthStart || iso > monthEnd) continue;
       const amount = expenseNumericAmount(expense.total_amount);
       if (amount == null) continue;
+      if (isTransferRow(expense)) continue;
+      if (expense.transaction_type === "refund") {
+        monthSpent -= Math.abs(amount);
+        continue;
+      }
       if (isIncomeTransaction(expense)) {
         monthIncome += Math.abs(amount);
       } else {
@@ -576,10 +624,10 @@ export function TransactionsLedger({
     return {
       total: expenses.length,
       needsReview,
-      monthSpent,
+      monthSpent: Math.max(0, monthSpent),
       monthIncome,
     };
-  }, [expenses, receiptUrls]);
+  }, [expenses, receiptUrls, receiptRequests, hasBankFeed]);
 
   const similarTransactions = useMemo(() => {
     if (!selectedExpense) return [];
@@ -701,7 +749,8 @@ export function TransactionsLedger({
       bank_account_name: expense.bank_account_name || "",
       description: expense.description || "",
       uses_two_percent_funds:
-        Boolean(expense.uses_two_percent_funds) || Boolean(linkedAcct?.is_two_percent_account),
+        Boolean(expense.uses_two_percent_funds) ||
+        (!isTypedMoneyInRow(expense) && Boolean(linkedAcct?.is_two_percent_account)),
     });
     setMenuOpenId(null);
   }
@@ -709,7 +758,7 @@ export function TransactionsLedger({
   function handleEditTwoPctToggle(checked: boolean) {
     setEditValues((prev) => {
       const next: TransactionEditValues = { ...prev, uses_two_percent_funds: checked };
-      if (checked) {
+      if (checked && !(panelExpense && isTypedMoneyInRow(panelExpense))) {
         const twoPctAcct = bankAccounts.find((a) => a.is_two_percent_account);
         if (twoPctAcct) {
           next.bank_account_name = twoPctAcct.name;
@@ -734,10 +783,13 @@ export function TransactionsLedger({
     const acct = bankAccounts.find(
       (a) => a.name.toLowerCase() === accountName.trim().toLowerCase(),
     );
+    // Money In is only 2% when the user says so; the account alone never decides it.
+    const editingMoneyIn = panelExpense ? isTypedMoneyInRow(panelExpense) : false;
     setEditValues((prev) => ({
       ...prev,
       bank_account_name: accountName,
-      uses_two_percent_funds: acct?.is_two_percent_account ? true : prev.uses_two_percent_funds,
+      uses_two_percent_funds:
+        acct?.is_two_percent_account && !editingMoneyIn ? true : prev.uses_two_percent_funds,
     }));
   }
 
@@ -1222,12 +1274,127 @@ export function TransactionsLedger({
     );
   }
 
+  async function markDeposited(expense: ExpenseRecord, account: string, date: string) {
+    if (!account.trim() || !date) {
+      showErrorMessage("Choose the deposit account and date.");
+      return;
+    }
+    setSavingDeposit(true);
+    try {
+      const { error } = await supabase
+        .from("expenses")
+        .update(markDepositedPatch({ depositAccount: account.trim(), depositDate: date }))
+        .eq("id", expense.id)
+        .eq("department_id", departmentId);
+      if (error) throw error;
+      void logAuditFromBrowser({
+        departmentId,
+        userRole,
+        action: "money_in.deposited",
+        resourceType: "expense",
+        resourceId: expense.id,
+        resourceLabel: vendorName(expense),
+        beforeData: { deposit_status: expense.deposit_status ?? null, bank_account_name: expense.bank_account_name },
+        afterData: { deposit_status: "deposited", deposit_date: date, bank_account_name: account.trim() },
+      });
+      setDepositForm(null);
+      showSuccessMessage("Marked as deposited. It will match the bank deposit when it posts.");
+      await onExpensesChanged();
+    } catch (err) {
+      showErrorMessage(err instanceof Error ? err.message : "Could not mark as deposited.");
+    } finally {
+      setSavingDeposit(false);
+    }
+  }
+
+  function renderMarkDeposited(expense: ExpenseRecord) {
+    const open = depositForm?.id === expense.id;
+    if (!open) {
+      return (
+        <div className="transactions-deposit-card">
+          <p>This money has been received but not deposited yet.</p>
+          <button
+            type="button"
+            className="fb-secondary-btn"
+            onClick={() =>
+              setDepositForm({
+                id: expense.id,
+                account: expense.bank_account_name || "",
+                date: formatLocalYMD(new Date()),
+              })
+            }
+          >
+            Mark as deposited
+          </button>
+        </div>
+      );
+    }
+    return (
+      <form
+        className="transactions-deposit-card"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void markDeposited(expense, depositForm.account, depositForm.date);
+        }}
+      >
+        <label>
+          Deposit account
+          <select
+            value={depositForm.account}
+            onChange={(e) => setDepositForm({ ...depositForm, account: e.target.value })}
+            required
+          >
+            <option value="">Choose account</option>
+            {bankAccounts.map((account) => (
+              <option key={account.id} value={account.name}>
+                {account.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Deposit date
+          <input
+            type="date"
+            value={depositForm.date}
+            onChange={(e) => setDepositForm({ ...depositForm, date: e.target.value })}
+            required
+          />
+        </label>
+        <div className="transactions-deposit-actions">
+          <button type="submit" className="fb-primary-btn" disabled={savingDeposit}>
+            {savingDeposit ? "Saving…" : "Confirm deposit"}
+          </button>
+          <button type="button" className="fb-secondary-btn" onClick={() => setDepositForm(null)} disabled={savingDeposit}>
+            Cancel
+          </button>
+        </div>
+      </form>
+    );
+  }
+
   function renderDetailPanel() {
     if (!panelExpense) return null;
     const receiptUrl = receiptUrls[panelExpense.id];
     const amount = formatTransactionAmount(panelExpense);
-    const status = transactionStatus(panelExpense, receiptUrls, receiptRequests);
+    const status = transactionStatus(panelExpense, receiptUrls, receiptRequests, hasBankFeed);
     const editing = editingId === panelExpense.id;
+    const isMoneyIn = isTypedMoneyInRow(panelExpense) && !isTransferRow(panelExpense);
+    const sourceHistory = isMoneyIn
+      ? buildSourceHistory({
+          name: vendorName(panelExpense),
+          ledgerRows: expenses,
+          departmentId,
+          excludeId: panelExpense.id,
+        })
+      : null;
+    const typeLabel = isTransferRow(panelExpense)
+      ? "Internal transfer"
+      : panelExpense.transaction_type === "refund"
+        ? "Refund"
+        : panelExpense.transaction_type === "income"
+          ? "Money In"
+          : null;
 
     return (
         <aside className={`transactions-drawer${editing ? " transactions-drawer--editing" : ""}`} role="dialog" aria-label="Transaction details">
@@ -1251,9 +1418,15 @@ export function TransactionsLedger({
 
                 <dl className="transactions-detail-list transactions-detail-list-simple">
                   <div>
-                    <dt>Vendor</dt>
+                    <dt>{isMoneyIn ? "From / Source" : isTransferRow(panelExpense) ? "Other account" : "Vendor"}</dt>
                     <dd>{vendorName(panelExpense)}</dd>
                   </div>
+                  {typeLabel ? (
+                    <div>
+                      <dt>Type</dt>
+                      <dd>{typeLabel}</dd>
+                    </div>
+                  ) : null}
                   <div>
                     <dt>Amount</dt>
                     <dd className={amount.className}>{amount.text}</dd>
@@ -1292,6 +1465,18 @@ export function TransactionsLedger({
                       </span>
                     </dd>
                   </div>
+                  {typeLabel && panelExpense.payment_reference ? (
+                    <div>
+                      <dt>Check / ref #</dt>
+                      <dd>{panelExpense.payment_reference}</dd>
+                    </div>
+                  ) : null}
+                  {isMoneyIn && panelExpense.deposit_date ? (
+                    <div>
+                      <dt>Deposited</dt>
+                      <dd>{formatHumanDate(panelExpense.deposit_date)}</dd>
+                    </div>
+                  ) : null}
                   {(panelExpense.description || panelExpense.payment_reference) && (
                     <div>
                       <dt>Notes</dt>
@@ -1300,7 +1485,46 @@ export function TransactionsLedger({
                   )}
                 </dl>
 
-                <div className="transactions-similar-card">
+                {isMoneyIn && panelExpense.deposit_status === "received" ? renderMarkDeposited(panelExpense) : null}
+
+                {isMoneyIn ? (
+                  <div className="transactions-similar-card transactions-source-history">
+                    <h4>Source history</h4>
+                    {sourceHistory ? (
+                      <>
+                        <p className="transactions-source-history-totals">
+                          <strong>{formatCurrency((sourceHistory.lifetimeCents + absAmountCents(panelExpense)) / 100)}</strong>{" "}
+                          {sourceHistory.totalLabel.toLowerCase()} · {sourceHistory.count + 1} payments
+                        </p>
+                        <p className="muted">
+                          First {formatHumanDate(minIso(sourceHistory.firstDate, parseExpenseSortDate(panelExpense)))} · Most
+                          recent {formatHumanDate(maxIso(sourceHistory.lastDate, parseExpenseSortDate(panelExpense)))}
+                        </p>
+                        <ul>
+                          {sourceHistory.recent.map((item) => (
+                            <li key={item.id}>
+                              <button
+                                type="button"
+                                className="transactions-similar-item"
+                                onClick={() => {
+                                  setEditingId(null);
+                                  setSelectedId(item.id);
+                                }}
+                              >
+                                <span>{formatHumanDate(item.date)}</span>
+                                <span className="transactions-amount-income">+{formatCurrency(item.amountCents / 100)}</span>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : (
+                      <p className="muted">First recorded payment from this source.</p>
+                    )}
+                  </div>
+                ) : null}
+
+                {isMoneyIn ? null : <div className="transactions-similar-card">
                   <h4>Same vendor</h4>
                   {similarTransactions.length ? (
                     <ul>
@@ -1326,7 +1550,7 @@ export function TransactionsLedger({
                   ) : (
                     <p className="muted">No other transactions for this vendor.</p>
                   )}
-                </div>
+                </div>}
               </>
             )}
           </div>
@@ -1602,7 +1826,7 @@ export function TransactionsLedger({
               <tbody>
                 {displayExpenses.map((expense) => {
                   const amount = formatTransactionAmount(expense);
-                  const status = transactionStatus(expense, receiptUrls, receiptRequests);
+                  const status = transactionStatus(expense, receiptUrls, receiptRequests, hasBankFeed);
                   const isSelected = selectedId === expense.id;
                   return (
                     <tr
@@ -1654,7 +1878,7 @@ export function TransactionsLedger({
           <div className="transactions-mobile-list transactions-mobile-only">
             {displayExpenses.map((expense) => {
               const amount = formatTransactionAmount(expense);
-              const status = transactionStatus(expense, receiptUrls, receiptRequests);
+              const status = transactionStatus(expense, receiptUrls, receiptRequests, hasBankFeed);
               return (
                 <article
                   key={expense.id}

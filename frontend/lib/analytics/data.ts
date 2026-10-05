@@ -53,6 +53,9 @@ const EXPENSE_COLUMNS = [
   "two_percent_review_status",
 ].join(",");
 
+/** Added by migration 024; read when present so explicit types win. */
+const MONEY_IN_EXPENSE_COLUMNS = `${EXPENSE_COLUMNS},transaction_type,counterparty_id`;
+
 const BANK_ACCOUNT_COLUMNS = [
   "id",
   "name",
@@ -174,13 +177,19 @@ async function fetchExpenses(
 ): Promise<AnalyticsExpenseRow[]> {
   // Rows with no transaction_date fall back to created_at everywhere else, so
   // they are fetched too rather than silently dropped from every total.
-  const { data, error } = await supabase
-    .from("expenses")
-    .select(EXPENSE_COLUMNS)
-    .eq("department_id", departmentId)
-    .or(`and(transaction_date.gte.${from},transaction_date.lte.${to}),transaction_date.is.null`)
-    .order("transaction_date", { ascending: false })
-    .limit(MAX_ROWS);
+  const query = (columns: string) =>
+    supabase
+      .from("expenses")
+      .select(columns)
+      .eq("department_id", departmentId)
+      .or(`and(transaction_date.gte.${from},transaction_date.lte.${to}),transaction_date.is.null`)
+      .order("transaction_date", { ascending: false })
+      .limit(MAX_ROWS);
+
+  let { data, error } = await query(MONEY_IN_EXPENSE_COLUMNS);
+  if (error && /transaction_type|counterparty_id/i.test(error.message)) {
+    ({ data, error } = await query(EXPENSE_COLUMNS));
+  }
 
   if (error) {
     logAnalyticsError("expenses", error);
