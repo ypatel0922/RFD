@@ -35,13 +35,39 @@ const SCORE_DISCLAIMER =
 const STRIP_COMPONENTS: Array<{
   id: string;
   label: string;
+  /** The narrow mobile card cannot fit the full label without truncating it. */
+  shortLabel: string;
   tone: "blue" | "green" | "orange" | "teal";
   icon: ReactNode;
 }> = [
-  { id: "reconciliation", label: "Reconciliation", tone: "blue", icon: <CheckCircleIcon size={15} /> },
-  { id: "receipts", label: "Documentation", tone: "green", icon: <FileTextIcon size={15} /> },
-  { id: "categorization", label: "Categorization", tone: "orange", icon: <FolderIcon size={15} /> },
-  { id: "cash", label: "Financial position", tone: "teal", icon: <HeartPulseIcon size={15} /> },
+  {
+    id: "reconciliation",
+    label: "Reconciliation",
+    shortLabel: "Reconciled",
+    tone: "blue",
+    icon: <CheckCircleIcon size={15} />,
+  },
+  {
+    id: "receipts",
+    label: "Documentation",
+    shortLabel: "Receipts",
+    tone: "green",
+    icon: <FileTextIcon size={15} />,
+  },
+  {
+    id: "categorization",
+    label: "Categorization",
+    shortLabel: "Categorized",
+    tone: "orange",
+    icon: <FolderIcon size={15} />,
+  },
+  {
+    id: "cash",
+    label: "Financial position",
+    shortLabel: "Cash",
+    tone: "teal",
+    icon: <HeartPulseIcon size={15} />,
+  },
 ];
 
 export function HealthSection({
@@ -72,7 +98,12 @@ export function HealthSection({
     <AnalyticsSection
       id={sectionId}
       eyebrow="Department health"
-      title="Financial position"
+      title={
+        <>
+          <span className="fb-an-desk-only">Financial position</span>
+          <span className="fb-an-mobile-only">Department Health</span>
+        </>
+      }
       actions={
         <button type="button" className="fb-an-view-link" onClick={() => setShowDetail(true)}>
           View details
@@ -90,7 +121,9 @@ export function HealthSection({
             <ShieldCheckIcon size={22} />
           </span>
           <span className="fb-an-health-status-copy">
-            <span className="fb-an-health-status-label">{statusLabel}</span>
+            <span className="fb-an-health-status-label" data-level={health.level}>
+              {statusLabel}
+            </span>
             <span className="fb-an-health-status-sub">
               {health.insufficientDataReason ?? health.headline}
             </span>
@@ -98,7 +131,7 @@ export function HealthSection({
         </button>
 
         <div className="fb-an-icon-stat-row">
-          {strip.map(({ id, label, tone, icon, component }) => (
+          {strip.map(({ id, label, shortLabel, tone, icon, component }) => (
             <button
               key={id}
               type="button"
@@ -108,8 +141,11 @@ export function HealthSection({
               <span className={`fb-an-icon-chip fb-an-icon-chip--${tone}`} aria-hidden="true">
                 {icon}
               </span>
-              <span className="fb-an-icon-stat-label">{label}</span>
-              <span className="fb-an-icon-stat-value">
+              <span className="fb-an-icon-stat-label">
+                <span className="fb-an-desk-only">{label}</span>
+                <span className="fb-an-mobile-only">{shortLabel}</span>
+              </span>
+              <span className="fb-an-icon-stat-value" data-level={component.level}>
                 {component.score == null
                   ? STATUS_LABELS.unknown
                   : id === "reconciliation" || id === "categorization" || id === "receipts"

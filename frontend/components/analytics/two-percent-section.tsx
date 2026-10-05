@@ -125,17 +125,25 @@ export function TwoPercentSection({
                 <strong>{formatMoney(summary.receiptsCents)}</strong>
               </div>
               <div>
-                <span className="fb-an-compact-metric-label">Still available</span>
+                <span className="fb-an-compact-metric-label">
+                  <span className="fb-an-desk-only">Still available</span>
+                  <span className="fb-an-mobile-only">Available</span>
+                </span>
                 <strong>
                   {summary.availableCents == null ? "—" : formatMoney(summary.availableCents)}
                 </strong>
               </div>
             </div>
             <p className="fb-an-two-kpi-foot muted">
-              Projected year-end:{" "}
-              {summary.projectedUtilizationPercent == null
-                ? "Insufficient data"
-                : formatPercent(summary.projectedUtilizationPercent, 0)}
+              <span>
+                <span className="fb-an-desk-only">Projected year-end:</span>
+                <span className="fb-an-mobile-only">Projected</span>
+              </span>{" "}
+              <span className="fb-an-two-kpi-foot-value">
+                {summary.projectedUtilizationPercent == null
+                  ? "Insufficient data"
+                  : formatPercent(summary.projectedUtilizationPercent, 0)}
+              </span>
             </p>
             {summary.readiness.openItemCount > 0 || canManage ? (
               <div className="fb-an-more">

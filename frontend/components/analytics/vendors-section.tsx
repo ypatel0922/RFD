@@ -68,16 +68,42 @@ export function VendorsSection({
           message="Vendors appear from logged expenses and imported bank activity. Widen the date range, or record an expense, and they will show up here."
         />
       ) : (
-        <RankedBarChart
-          title=""
-          rows={topVendors.map((vendor) => ({ label: vendor.name, amountCents: vendor.totalSpendCents }))}
-          emptyMessage="No vendor spending in this period."
-          height={200}
-          onSelect={(label) => {
-            const vendor = topVendors.find((entry) => entry.name === label);
-            if (vendor) onSelectVendor(vendor.key);
-          }}
-        />
+        <>
+          <div className="fb-an-desk-only">
+            <RankedBarChart
+              title=""
+              rows={topVendors.map((vendor) => ({ label: vendor.name, amountCents: vendor.totalSpendCents }))}
+              emptyMessage="No vendor spending in this period."
+              height={200}
+              onSelect={(label) => {
+                const vendor = topVendors.find((entry) => entry.name === label);
+                if (vendor) onSelectVendor(vendor.key);
+              }}
+            />
+          </div>
+
+          <ul className="fb-an-vendor-bars fb-an-mobile-only">
+            {topVendors.map((vendor) => {
+              const max = topVendors[0]?.totalSpendCents || 1;
+              const width = Math.max(4, Math.round((vendor.totalSpendCents / max) * 100));
+              return (
+                <li key={vendor.key}>
+                  <button
+                    type="button"
+                    className="fb-an-vendor-bar-row"
+                    onClick={() => onSelectVendor(vendor.key)}
+                  >
+                    <span className="fb-an-vendor-bar-name">{vendor.name}</span>
+                    <span className="fb-an-vendor-bar-track" aria-hidden="true">
+                      <span className="fb-an-vendor-bar-fill" style={{ width: `${width}%` }} />
+                    </span>
+                    <span className="fb-an-vendor-bar-amount">{formatMoney(vendor.totalSpendCents)}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </>
       )}
 
       {result.vendorsWithoutActivity.length > 0 ? (

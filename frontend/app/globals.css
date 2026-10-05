@@ -14,6 +14,9 @@
   --primary: #7f1d1d;
   --primary-dark: #651717;
   --primary-hover: #8b2424;
+  --hover-tint: #f8ecec;
+  --hover-tint-strong: #f3e0e0;
+  --hover-ring: rgb(127 29 29 / 28%);
   --border: #e1e6ef;
   --shadow-soft: 0 14px 40px rgb(15 23 42 / 9%);
   --shadow-card: 0 1px 2px rgb(15 23 42 / 6%), 0 12px 32px rgb(15 23 42 / 8%);
@@ -63,6 +66,7 @@ button {
 
 button:hover {
   background: var(--primary-hover);
+  color: #ffffff;
 }
 
 button:focus-visible {
@@ -73,6 +77,110 @@ button:focus-visible {
 button:disabled {
   cursor: not-allowed;
   opacity: 0.65;
+}
+
+/*
+ * Soft hover for light / outline / ghost controls.
+ * Global button:hover paints solid Hallix red (fine for filled primary CTAs with
+ * white text), but it makes dark-label buttons unreadable. These selectors keep
+ * dark text and use a light tint + red rim instead.
+ */
+button.fb-secondary-btn:hover,
+button.fb-secondary-btn:focus-visible,
+button.secondary-button:hover,
+button.secondary-action:hover,
+button.link-button:hover,
+button.fb-chip:not(.fb-chip-active):hover,
+button.fb-chip:not(.fb-chip-active):focus-visible,
+button.fb-quick-tile:hover,
+button.fb-quick-tile:focus-visible,
+button.fb-settings-nav-item:hover,
+button.fb-settings-nav-item:focus-visible,
+button.fb-settings-pill-btn:hover,
+button.fb-settings-pill-btn:focus-visible,
+button.fb-settings-overview-manage:hover,
+button.fb-settings-overview-manage:focus-visible,
+button.fb-settings-summary-card:hover,
+button.fb-settings-summary-card:focus-visible,
+button.fb-settings-mgmt-cta:hover,
+button.fb-settings-mgmt-cta:focus-visible,
+button.fb-detail-hit:hover,
+button.fb-detail-hit:focus-visible,
+button.fb-more-details-trigger:hover,
+button.fb-more-details-trigger:focus-visible,
+button.fb-review-cancel:hover,
+button.fb-review-cancel:focus-visible,
+button.fb-row-menu-trigger:hover,
+button.fb-row-menu-trigger:focus-visible,
+button.fb-more-details-toggle:hover,
+button.fb-more-details-toggle:focus-visible,
+button.fb-view-receipt-link:hover,
+button.fb-view-receipt-link:focus-visible,
+button.tf-modal-close:hover,
+button.tf-modal-close:focus-visible,
+button.tf-action-btn--muted:hover,
+button.nys-accordion-header:hover,
+button.nys-add-line-btn:hover,
+button.nys-type-btn:not(.nys-type-btn--active):hover,
+button.nys-remove-line-btn:hover,
+button.fb-segment:not(.fb-segment--active):hover,
+button.nav-btn:not(.nav-btn-active):hover,
+.tabs button:not(.active):hover,
+button.transactions-quick-pill:not(.is-active):hover,
+button.transactions-menu-trigger:hover,
+.transactions-menu-dropdown button:hover,
+.transactions-menu-dropdown a:hover,
+button.transactions-edit-receipt-link:hover,
+button.transactions-receipt-open-btn:hover,
+.fb-recon-more-menu button:hover,
+.fb-row-menu-popover button:hover,
+.fb-row-menu-popover a:hover,
+.fb-expense-form .fb-combobox-menu button:hover,
+button.fb-an-legend-row:hover,
+button.fb-an-legend-row:focus-visible,
+button.fb-an-insight-row:hover,
+button.fb-an-insight-row:focus-visible,
+button.fb-an-icon-stat:hover,
+button.fb-an-icon-stat:focus-visible,
+button.fb-an-view-link:hover,
+button.fb-an-view-link:focus-visible,
+button.fb-an-health-status:hover,
+button.fb-an-health-status:focus-visible,
+button.fb-an-readiness-metric--tip:hover,
+button.fb-an-readiness-metric--tip:focus-visible,
+button.fb-an-metric-card--action:hover,
+button.fb-an-metric-card--action:focus-visible,
+button.fb-an-mini-stat--action:hover,
+button.fb-an-mini-stat--action:focus-visible,
+button.fb-an-exception-badge--action:hover,
+button.fb-an-exception-badge--action:focus-visible,
+button.fb-an-vendor-bar-row:hover,
+button.fb-an-vendor-bar-row:focus-visible,
+button.fb-an-kpi-tile:hover,
+button.fb-an-kpi-tile:focus-visible,
+button.fb-an-hero:hover,
+button.fb-an-hero:focus-visible,
+button.fb-an-toolbar-btn:hover,
+button.fb-an-toolbar-btn:focus-visible {
+  background: var(--hover-tint);
+  color: var(--ink);
+  border-color: var(--hover-ring);
+  box-shadow: inset 0 0 0 1px var(--hover-ring);
+}
+
+button.link-button:hover,
+button.link-button:focus-visible,
+button.fb-an-view-link:hover,
+button.fb-an-view-link:focus-visible,
+button.fb-view-receipt-link:hover,
+button.fb-view-receipt-link:focus-visible,
+button.fb-settings-mgmt-cta:hover,
+button.fb-settings-mgmt-cta:focus-visible {
+  background: var(--hover-tint);
+  color: var(--primary-dark);
+  text-decoration: underline;
+  box-shadow: none;
+  border-color: transparent;
 }
 
 input,
@@ -2924,6 +3032,13 @@ button.nys-type-btn--active {
   color: var(--ink);
 }
 
+.fb-chip:not(.fb-chip-active):hover,
+.fb-chip:not(.fb-chip-active):focus-visible {
+  background: var(--hover-tint);
+  color: var(--ink);
+  border-color: var(--hover-ring);
+}
+
 .fb-chip-active {
   border-color: rgb(127 29 29 / 45%);
   background: linear-gradient(135deg, var(--primary-hover), var(--primary));
@@ -3894,8 +4009,9 @@ button.fb-secondary-btn {
 }
 
 button.fb-secondary-btn:hover {
-  background: var(--surface-muted);
+  background: var(--hover-tint);
   color: var(--ink);
+  border-color: var(--hover-ring);
 }
 
 .fb-bank-summary .summary-grid > div {
@@ -4673,6 +4789,7 @@ button.fb-secondary-btn:hover {
 
 .transactions-quick-pill.is-active:hover {
   background: var(--primary-dark);
+  color: #ffffff;
 }
 
 .transactions-advanced-toggle {
@@ -10066,6 +10183,12 @@ button.fb-onboarding-step-btn.fb-onboarding-step-btn--active:hover {
 .fb-an-page {
   min-width: 0;
   gap: 10px;
+  background: transparent;
+}
+
+/* Light grey canvas behind Analytics cards (desktop + mobile). */
+.fb-main:has(.fb-an-page) {
+  background: #eef1f6;
 }
 
 /* Compact toolbar: title + chips in minimal vertical space */
@@ -11660,8 +11783,9 @@ button.fb-onboarding-step-btn.fb-onboarding-step-btn--active:hover {
 
 .fb-an-insight-row:hover,
 .fb-an-insight-row:focus-visible {
-  border-color: var(--primary);
-  background: var(--surface-muted);
+  border-color: var(--hover-ring);
+  background: var(--hover-tint);
+  box-shadow: inset 0 0 0 1px var(--hover-ring);
 }
 
 .fb-an-insight-row-body {
@@ -12184,8 +12308,8 @@ button.fb-onboarding-step-btn.fb-onboarding-step-btn--active:hover {
 
 .fb-an-icon-stat:hover,
 .fb-an-icon-stat:focus-visible {
-  border-color: #c9d2e0;
-  background: #fff;
+  border-color: var(--hover-ring);
+  background: var(--hover-tint);
 }
 
 .fb-an-icon-chip {
@@ -12366,10 +12490,19 @@ button.fb-onboarding-step-btn.fb-onboarding-step-btn--active:hover {
   border-bottom: none;
 }
 
+.fb-an-legend-row:hover,
+.fb-an-legend-row:focus-visible {
+  background: var(--hover-tint);
+  color: var(--ink);
+  border-bottom-color: transparent;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px var(--hover-ring);
+}
+
 .fb-an-legend-row:hover .fb-an-legend-name,
 .fb-an-legend-row:focus-visible .fb-an-legend-name {
-  color: var(--primary);
-  text-decoration: underline;
+  color: var(--primary-dark);
+  text-decoration: none;
 }
 
 .fb-an-legend-row .fb-an-swatch {
@@ -12666,5 +12799,1232 @@ button.fb-an-readiness-metric--tip:focus-visible {
   .fb-an-toolbar-filters {
     flex-direction: column;
     align-items: stretch;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Analytics — mobile-only dashboard (<= 768px)
+   Everything below applies inside the media query, so tablet and desktop keep
+   the original Analytics layout. Elements marked fb-an-mobile-only are hidden
+   at >= 769px; fb-an-desk-only content is hidden on mobile.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@media (min-width: 769px) {
+  .fb-an-mobile-only {
+    display: none !important;
+  }
+}
+
+.fb-an-desk-only {
+  display: contents;
+}
+
+@media (max-width: 768px) {
+  .fb-an-desk-only {
+    display: none !important;
+  }
+
+  /* ── Page grid: 2 columns so Health + 2% sit side by side ── */
+  .fb-an-page {
+    --m-radius: 16px;
+    --m-radius-sm: 12px;
+    --m-pad: 12px;
+    --m-hairline: #eef1f6;
+    --m-border: #e9edf4;
+    --m-shadow: 0 1px 2px rgb(16 24 40 / 4%), 0 8px 20px -14px rgb(16 24 40 / 18%);
+
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    align-content: start;
+  }
+
+  .fb-an-page > * {
+    grid-column: 1 / -1;
+    min-width: 0;
+  }
+
+  .fb-an-snapshot,
+  .fb-an-kpi-row,
+  .fb-an-grid-primary,
+  .fb-an-insights-column,
+  .fb-an-row-bottom {
+    display: contents;
+  }
+
+  .fb-an-snapshot > *,
+  .fb-an-kpi-row > *,
+  .fb-an-grid-primary > *,
+  .fb-an-insights-column > *,
+  .fb-an-row-bottom > * {
+    grid-column: 1 / -1;
+    min-width: 0;
+    height: auto;
+    align-self: stretch;
+  }
+
+  .fb-an-kpi-row > :nth-child(-n + 2) {
+    grid-column: auto;
+  }
+
+  /* Setup / empty states need the full width. */
+  .fb-an-kpi-row:has(> :nth-child(2) :is(.fb-an-setup, .fb-an-empty)) > :nth-child(-n + 2) {
+    grid-column: 1 / -1;
+  }
+
+  /* Order: heading, filters, hero, KPIs, health + 2%, spending, insights, rest. */
+  .fb-an-toolbar { order: 0; }
+  .fb-an-snapshot > .fb-an-hero { order: 1; }
+  .fb-an-snapshot > .fb-an-kpi-tiles { order: 2; }
+  .fb-an-kpi-row > :nth-child(1),
+  .fb-an-kpi-row > :nth-child(2) { order: 3; }
+  .fb-an-grid-primary > :not(.fb-an-insights-column) { order: 4; }
+  .fb-an-insights-column > :first-child { order: 5; }
+  .fb-an-row-bottom > :nth-child(1) { order: 6; }
+  .fb-an-row-bottom > :nth-child(2) { order: 7; }
+  .fb-an-kpi-row > :nth-child(3) { order: 8; }
+  .fb-an-insights-column > :last-child { order: 9; }
+  .fb-an-more-panel { order: 10; }
+
+  /* ── Cards ── */
+  .fb-an-page .card {
+    padding: var(--m-pad);
+    border-radius: var(--m-radius);
+    border: 1px solid var(--m-border);
+    box-shadow: var(--m-shadow);
+  }
+
+  .fb-an-page .eyebrow {
+    display: none;
+  }
+
+  .fb-an-page .fb-an-section-head {
+    margin-bottom: 8px;
+    gap: 8px;
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+
+  .fb-an-page .fb-an-section-head > :first-child {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .fb-an-page .fb-an-section-desc {
+    display: none;
+  }
+
+  .fb-an-page h2,
+  .fb-an-page h3 {
+    font-size: 0.86rem;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    color: var(--navy);
+  }
+
+  .fb-an-page .fb-an-chart {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .fb-an-page .fb-an-view-link,
+  .fb-an-page .fb-an-section-actions button {
+    min-height: 0;
+    height: auto;
+    padding: 2px 0;
+    font-size: 0.7rem;
+    line-height: 1.2;
+    color: var(--muted);
+  }
+
+  .fb-an-page .fb-an-section-head,
+  .fb-an-page .fb-an-section-head > :first-child {
+    line-height: 1.2;
+  }
+
+  .fb-an-page .fb-an-section-head h2,
+  .fb-an-page .fb-an-section-head h3 {
+    margin: 0;
+  }
+
+  /* ── Compact heading + filters ── */
+  .fb-an-page .fb-an-toolbar {
+    padding: 0;
+    gap: 8px;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+  }
+
+  .fb-an-page .fb-an-toolbar-top {
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .fb-an-page .fb-an-toolbar-title {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .fb-an-page .fb-an-toolbar-title h1 {
+    font-size: 1.3rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    color: var(--navy);
+  }
+
+  /* The department subtitle repeats what the app shell already says. */
+  .fb-an-page .fb-an-toolbar-title p {
+    display: none;
+  }
+
+  .fb-an-page .fb-an-toolbar-meta {
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .fb-an-page .fb-an-asof {
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+    line-height: 1.15;
+  }
+
+  .fb-an-page .fb-an-asof-label {
+    font-size: 0.58rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--muted);
+  }
+
+  .fb-an-page .fb-an-asof strong {
+    font-size: 0.74rem;
+    font-weight: 700;
+    color: var(--navy);
+    white-space: nowrap;
+  }
+
+  .fb-an-page .fb-an-toolbar-meta .fb-an-toolbar-btn {
+    width: 32px;
+    height: 32px;
+    min-height: 0;
+    padding: 0;
+    font-size: 0;
+    border-radius: 50%;
+    display: inline-grid;
+    place-items: center;
+    background: #fff;
+    border: 1px solid var(--m-border);
+    color: var(--ink-soft);
+    box-shadow: 0 1px 2px rgb(16 24 40 / 4%);
+  }
+
+  .fb-an-page .fb-an-toolbar-meta .fb-an-toolbar-btn::before {
+    content: "↻";
+    font-size: 1rem;
+    line-height: 1;
+  }
+
+  .fb-an-page .fb-an-toolbar-filters {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .fb-an-page .fb-an-range-chips {
+    flex: 1 1 0;
+    min-width: 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 7px;
+    padding: 2px 0;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .fb-an-page .fb-an-range-chips::-webkit-scrollbar {
+    display: none;
+  }
+
+  .fb-an-page .fb-an-range-chips .fb-chip,
+  .fb-an-page .fb-an-toolbar-actions .fb-an-toolbar-btn {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    height: 32px;
+    min-height: 0;
+    padding: 0 13px;
+    border-radius: 999px;
+    font-size: 0.74rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    background: #fff;
+    border: 1px solid var(--m-border);
+    color: var(--ink-soft);
+    box-shadow: 0 1px 2px rgb(16 24 40 / 3%);
+  }
+
+  .fb-an-page .fb-an-range-chips .fb-chip.fb-chip-active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+    font-weight: 700;
+    box-shadow: 0 2px 8px -2px rgb(180 35 24 / 45%);
+  }
+
+  .fb-an-page .fb-an-toolbar-actions {
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+  }
+
+  .fb-an-page .fb-an-compare-note {
+    display: none;
+  }
+
+  /* ── Hero: Total Spending ── */
+  .fb-an-hero {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+    width: 100%;
+    min-height: 0;
+    padding: 12px 14px 12px;
+    text-align: left;
+    font: inherit;
+    color: var(--navy);
+    cursor: pointer;
+    overflow: hidden;
+  }
+
+  .fb-an-page .fb-an-hero:hover,
+  .fb-an-page .fb-an-hero:focus-visible {
+    background: #fff;
+    color: var(--navy);
+    border-color: #dde3ec;
+  }
+
+  .fb-an-hero-head {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .fb-an-hero-heading {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .fb-an-hero-label {
+    font-size: 0.88rem;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    line-height: 1.2;
+    color: var(--navy);
+  }
+
+  .fb-an-hero-sub {
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .fb-an-hero-range {
+    flex: 0 0 auto;
+    padding: 5px 11px;
+    border-radius: 999px;
+    border: 1px solid var(--m-border);
+    background: #fbfcfe;
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--ink-soft);
+    white-space: nowrap;
+  }
+
+  .fb-an-hero-value {
+    position: relative;
+    z-index: 1;
+    margin-top: 8px;
+    font-size: 1.85rem;
+    font-weight: 800;
+    letter-spacing: -0.045em;
+    line-height: 1;
+    color: var(--navy);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .fb-an-hero-trend {
+    position: relative;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    font-size: 0.74rem;
+    font-weight: 700;
+  }
+
+  .fb-an-hero-trend-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .fb-an-hero-trend-note {
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: var(--muted);
+  }
+
+  .fb-an-hero-trend--up { color: var(--danger); }
+  .fb-an-hero-trend--up .fb-an-hero-trend-pill { background: #fdeceb; color: #b42318; }
+  .fb-an-hero-trend--down { color: var(--success); }
+  .fb-an-hero-trend--down .fb-an-hero-trend-pill { background: #e9f8f0; color: #067647; }
+  .fb-an-hero-trend--flat { color: var(--muted); font-weight: 500; }
+
+  .fb-an-hero-spark {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 54%;
+    height: 58px;
+  }
+
+  /* ── KPI tiles: 2 x 2 ── */
+  .fb-an-kpi-tiles {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+  }
+
+  .fb-an-kpi-tile {
+    --tile-bg: #fff;
+    --tile-border: var(--m-border);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+    min-height: 0;
+    min-width: 0;
+    padding: 9px 8px 8px;
+    border: 1px solid var(--tile-border);
+    border-radius: var(--m-radius-sm);
+    background: var(--tile-bg);
+    color: var(--navy);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    box-shadow: 0 1px 2px rgb(16 24 40 / 3%);
+  }
+
+  .fb-an-kpi-tile:hover,
+  .fb-an-kpi-tile:focus-visible {
+    background: var(--tile-bg);
+    color: var(--navy);
+    border-color: #dde3ec;
+  }
+
+  .fb-an-kpi-tile--red { --tile-bg: #fdf5f4; --tile-border: #f6e3e0; }
+  .fb-an-kpi-tile--blue { --tile-bg: #f4f8fd; --tile-border: #e0ebf6; }
+  .fb-an-kpi-tile--orange { --tile-bg: #fef8f1; --tile-border: #f7e7d4; }
+  .fb-an-kpi-tile--green { --tile-bg: #f3faf6; --tile-border: #dcf0e5; }
+
+  .fb-an-kpi-tile-icon {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    margin-bottom: 6px;
+    border-radius: 50%;
+  }
+
+  .fb-an-kpi-tile-icon svg {
+    width: 13px;
+    height: 13px;
+  }
+
+  .fb-an-kpi-tile-icon--red { background: #fae3e0; color: #b42318; }
+  .fb-an-kpi-tile-icon--blue { background: #dcebf8; color: #026aa2; }
+  .fb-an-kpi-tile-icon--orange { background: #fbe6cd; color: #b54708; }
+  .fb-an-kpi-tile-icon--green { background: #d6efe0; color: #067647; }
+
+  .fb-an-kpi-tile-label {
+    max-width: 100%;
+    font-size: 0.6rem;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .fb-an-kpi-tile-value {
+    max-width: 100%;
+    margin-top: 2px;
+    font-size: 0.92rem;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    line-height: 1.15;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .fb-an-kpi-tile-hint {
+    max-width: calc(100% - 10px);
+    min-height: 1.2em;
+    margin-top: 2px;
+    font-size: 0.56rem;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .fb-an-kpi-tile-chevron {
+    position: absolute;
+    right: 6px;
+    bottom: 8px;
+    display: grid;
+    place-items: center;
+    color: #9aa4b5;
+  }
+
+  .fb-an-kpi-tile-chevron svg {
+    width: 11px;
+    height: 11px;
+  }
+
+  /* ── Department Health + 2% Fund: compact side-by-side cards ── */
+  .fb-an-kpi-row > :nth-child(-n + 2) {
+    display: flex;
+    flex-direction: column;
+    padding: 10px 10px 8px;
+  }
+
+  .fb-an-kpi-row > :nth-child(-n + 2) .fb-an-section-head {
+    margin-bottom: 6px;
+    flex-wrap: nowrap;
+  }
+
+  .fb-an-kpi-row > :nth-child(-n + 2) h2 {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .fb-an-kpi-row > :nth-child(-n + 2) .fb-an-section-head > :first-child {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .fb-an-kpi-row > :nth-child(-n + 2) .fb-an-section-actions {
+    flex: 0 0 auto;
+  }
+
+  .fb-an-kpi-row > :nth-child(-n + 2) h2 {
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+  }
+
+  .fb-an-kpi-row > :nth-child(-n + 2) .fb-an-view-link {
+    font-size: 0;
+    color: #9aa4b5;
+  }
+
+  .fb-an-kpi-row > :nth-child(-n + 2) .fb-an-view-link::after {
+    content: "›";
+    font-size: 1.25rem;
+    line-height: 1;
+  }
+
+  .fb-an-health-hero {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .fb-an-health-shield {
+    width: 30px;
+    height: 30px;
+    flex: 0 0 auto;
+    border-radius: 10px;
+  }
+
+  .fb-an-health-shield svg {
+    width: 17px;
+    height: 17px;
+  }
+
+  .fb-an-health-status {
+    gap: 8px;
+    align-items: center;
+    padding: 0 0 4px;
+  }
+
+  .fb-an-health-status-label {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    font-size: 0.86rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1.15;
+  }
+
+  .fb-an-health-status-label[data-level="risk"],
+  .fb-an-icon-stat-value[data-level="risk"] {
+    color: var(--danger);
+  }
+
+  .fb-an-health-status-label[data-level="positive"] {
+    color: var(--success);
+  }
+
+  .fb-an-health-status-sub {
+    margin-top: 1px;
+    font-size: 0.6rem;
+    font-weight: 500;
+    line-height: 1.25;
+    color: var(--muted);
+    -webkit-line-clamp: 2;
+  }
+
+  .fb-an-icon-stat-row {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .fb-an-icon-stat {
+    flex: 1 1 auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 7px;
+    min-height: 27px;
+    max-height: 38px;
+    text-align: left;
+    padding: 0;
+    border: 0;
+    border-top: 1px solid var(--m-hairline);
+    border-radius: 0;
+    background: transparent;
+    color: var(--ink);
+  }
+
+  .fb-an-icon-stat:hover,
+  .fb-an-icon-stat:focus-visible {
+    background: transparent;
+    color: var(--ink);
+  }
+
+  .fb-an-icon-stat .fb-an-icon-chip {
+    width: 19px;
+    height: 19px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+  }
+
+  .fb-an-icon-stat .fb-an-icon-chip svg {
+    width: 11px;
+    height: 11px;
+  }
+
+  .fb-an-icon-stat-label {
+    flex: 1 1 0;
+    min-width: 0;
+    font-size: 0.68rem;
+    font-weight: 500;
+    letter-spacing: -0.012em;
+    line-height: 1.15;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--muted);
+  }
+
+  .fb-an-icon-stat-value {
+    flex: 0 0 auto;
+    font-size: 0.74rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  /* 2% Fund */
+  .fb-an-two-kpi {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+  }
+
+  .fb-an-two-visual,
+  .fb-an-two-visual .fb-an-util,
+  .fb-an-two-visual .fb-an-util-chart {
+    width: 100%;
+  }
+
+  .fb-an-two-visual .fb-an-util-chart {
+    height: 92px !important;
+  }
+
+  .fb-an-two-visual .recharts-responsive-container,
+  .fb-an-two-visual .recharts-wrapper {
+    height: 92px !important;
+  }
+
+  .fb-an-two-kpi-copy {
+    display: contents;
+  }
+
+  .fb-an-two-kpi-label {
+    order: 1;
+    font-size: 0.6rem;
+    font-weight: 500;
+    color: var(--muted);
+  }
+
+  .fb-an-two-kpi-spend {
+    order: 2;
+    margin: 1px 0 0;
+    font-size: 1.08rem;
+    font-weight: 800;
+    letter-spacing: -0.035em;
+    color: var(--navy);
+  }
+
+  .fb-an-two-visual {
+    order: 3;
+    margin: 4px 0 4px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    gap: 0;
+  }
+
+  .fb-an-two-kpi-meta {
+    order: 4;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin: 0;
+    padding: 0;
+  }
+
+  .fb-an-two-kpi-foot { order: 5; margin: 0; }
+
+  .fb-an-two-kpi-meta > div,
+  .fb-an-two-kpi-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    min-height: 22px;
+    border-top: 1px solid var(--m-hairline);
+    font-size: 0.62rem;
+  }
+
+  .fb-an-two-kpi-meta .fb-an-compact-metric-label,
+  .fb-an-two-kpi-foot > span:first-child {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 0.62rem;
+    font-weight: 500;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .fb-an-two-kpi-meta strong {
+    display: inline;
+    flex: 0 0 auto;
+    white-space: nowrap;
+    overflow-wrap: normal;
+    margin: 0;
+    font-size: 0.68rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--navy);
+    text-align: right;
+  }
+
+  .fb-an-two-kpi-foot-value {
+    flex: 0 0 auto;
+    font-size: 0.68rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--navy);
+    text-align: right;
+  }
+
+  .fb-an-kpi-row .fb-an-more {
+    display: none;
+  }
+
+  /* ── Spending breakdown ── */
+  .fb-an-spend-layout {
+    grid-template-columns: 104px minmax(0, 1fr);
+    gap: 12px;
+    align-items: center;
+  }
+
+  .fb-an-spend-chart {
+    max-width: none;
+    width: 104px;
+  }
+
+  .fb-an-spend-layout .fb-an-chart-canvas {
+    height: 104px !important;
+    max-height: 104px;
+  }
+
+  .fb-an-spend-layout .fb-an-donut-center-value {
+    font-size: 0.6rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+
+  .fb-an-spend-layout .fb-an-donut-center-label {
+    font-size: 0.48rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+  }
+
+  .fb-an-legend-row {
+    display: grid;
+    grid-template-columns: 7px minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 6px;
+    min-height: 22px;
+    padding: 0;
+    border: 0;
+  }
+
+  .fb-an-page .fb-an-legend li + li,
+  .fb-an-page .fb-an-legend-row + .fb-an-legend-row {
+    border-top: 0;
+  }
+
+  .fb-an-legend-copy,
+  .fb-an-legend-line {
+    display: contents;
+  }
+
+  .fb-an-legend-meta {
+    display: none;
+  }
+
+  .fb-an-legend-row .fb-an-swatch {
+    width: 7px;
+    height: 7px;
+    margin: 0;
+    border-radius: 50%;
+  }
+
+  .fb-an-legend-name {
+    font-size: 0.73rem;
+    font-weight: 500;
+    color: var(--ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .fb-an-legend-pct {
+    font-size: 0.66rem;
+    font-weight: 500;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .fb-an-legend-amount {
+    font-size: 0.73rem;
+    font-weight: 700;
+    color: var(--navy);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .fb-an-view-all {
+    display: none;
+  }
+
+  /* ── AI insights: top two ── */
+  .fb-an-insight-rows {
+    gap: 0;
+  }
+
+  .fb-an-insight-rows > li:nth-child(n + 3) {
+    display: none;
+  }
+
+  .fb-an-insight-more {
+    display: none;
+  }
+
+  .fb-an-insight-row {
+    align-items: center;
+    gap: 8px;
+    padding: 7px 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .fb-an-insight-rows > li + li .fb-an-insight-row {
+    border-top: 1px solid var(--m-hairline);
+  }
+
+  .fb-an-page .fb-an-insight-row:hover,
+  .fb-an-page .fb-an-insight-row:focus-visible {
+    background: transparent;
+  }
+
+  .fb-an-insight-row .fb-an-status {
+    max-width: 5.9rem;
+    gap: 4px;
+    padding: 3px 7px;
+    border-radius: 999px;
+    font-size: 0.6rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .fb-an-insight-row .fb-an-status-dot {
+    width: 5px;
+    height: 5px;
+  }
+
+  .fb-an-insight-row-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .fb-an-insight-row-title {
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: -0.012em;
+    line-height: 1.25;
+    color: var(--navy);
+  }
+
+  .fb-an-insight-row-sub {
+    font-size: 0.64rem;
+    font-weight: 500;
+    line-height: 1.3;
+    color: var(--muted);
+  }
+
+  .fb-an-insight-row-chevron {
+    margin-top: 0;
+    color: #9aa4b5;
+  }
+
+  /* ── Top vendors: compact bars ── */
+  .fb-an-vendor-bars {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .fb-an-vendor-bar-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(48px, 0.7fr) auto;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 26px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--ink);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .fb-an-vendor-bar-row:hover,
+  .fb-an-vendor-bar-row:focus-visible {
+    background: transparent;
+    color: var(--primary);
+  }
+
+  .fb-an-vendor-bar-name {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .fb-an-vendor-bar-track {
+    height: 6px;
+    border-radius: 999px;
+    background: #f0f3f8;
+    overflow: hidden;
+  }
+
+  .fb-an-vendor-bar-fill {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--primary);
+  }
+
+  .fb-an-vendor-bar-amount {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--navy);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  /* ── Secondary cards ── */
+  .fb-an-cash-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 12px;
+    margin-bottom: 0;
+  }
+
+  .fb-an-row-bottom > :nth-child(2) .fb-an-chart-canvas {
+    height: 150px !important;
+  }
+
+  .fb-an-cash-chart {
+    display: none;
+  }
+
+  .fb-an-page .fb-an-compact-metric-label {
+    font-size: 0.66rem;
+    font-weight: 500;
+    color: var(--muted);
+  }
+
+  .fb-an-page .fb-an-compact-metric-value {
+    font-size: 0.95rem;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+  }
+
+  .fb-an-page #analytics-readiness .fb-an-section-head {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  .fb-an-page #analytics-readiness .fb-an-section-head > :first-child {
+    flex-basis: 100%;
+  }
+
+  .fb-an-readiness-actions {
+    flex: 1 1 100%;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .fb-an-page .fb-an-readiness-cta {
+    min-height: 0;
+    height: 30px;
+    padding: 0 12px;
+    border-radius: 999px;
+    font-size: 0.72rem;
+  }
+
+  .fb-an-readiness-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .fb-an-readiness-metric {
+    flex-direction: column;
+    align-items: flex-start;
+    flex-wrap: nowrap;
+    gap: 3px;
+    min-height: 0;
+  }
+
+  /* ── Charts: compact tooltips that stay inside the viewport ── */
+  .recharts-tooltip-wrapper {
+    max-width: min(200px, 70vw);
+  }
+
+  .recharts-default-tooltip {
+    padding: 6px 8px !important;
+    font-size: 0.72rem !important;
+    white-space: normal !important;
+    box-shadow: 0 4px 12px rgb(15 23 42 / 12%) !important;
+    border-radius: 8px !important;
+  }
+
+  .recharts-default-tooltip .recharts-tooltip-label {
+    margin: 0 0 2px !important;
+    font-weight: 700;
+  }
+
+  .recharts-default-tooltip .recharts-tooltip-item {
+    padding: 0 !important;
+  }
+
+  .fb-an-page .recharts-legend-wrapper {
+    font-size: 0.7rem;
+  }
+}
+
+/* Narrow phones: give the spending legend back the width the donut takes. */
+@media (max-width: 389px) {
+  .fb-an-kpi-tiles {
+    gap: 5px;
+  }
+
+  .fb-an-kpi-tile {
+    padding: 8px 6px 7px;
+  }
+
+  .fb-an-kpi-tile-value {
+    font-size: 0.84rem;
+  }
+
+  .fb-an-spend-layout {
+    grid-template-columns: 100px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .fb-an-spend-chart {
+    width: 100px;
+  }
+
+  .fb-an-spend-layout .fb-an-chart-canvas {
+    height: 100px !important;
+    max-height: 100px;
+  }
+
+  .fb-an-spend-layout .fb-an-donut-center-value {
+    font-size: 0.56rem;
+  }
+
+  .fb-an-spend-layout .fb-an-donut-center-label {
+    font-size: 0.44rem;
+  }
+
+  .fb-an-legend-row {
+    gap: 6px;
+  }
+
+  .fb-an-legend-name,
+  .fb-an-legend-amount {
+    font-size: 0.7rem;
+  }
+
+  .fb-an-legend-pct {
+    font-size: 0.63rem;
+  }
+}
+
+@media (max-width: 370px) {
+  .fb-an-spend-layout {
+    grid-template-columns: 88px minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .fb-an-spend-chart {
+    width: 88px;
+  }
+
+  .fb-an-spend-layout .fb-an-chart-canvas {
+    height: 88px !important;
+    max-height: 88px;
+  }
+
+  .fb-an-spend-layout .fb-an-donut-center-value {
+    font-size: 0.5rem;
+  }
+
+  .fb-an-spend-layout .fb-an-donut-center-label {
+    font-size: 0.4rem;
+  }
+
+  .fb-an-legend-row {
+    gap: 5px;
+  }
+
+  .fb-an-legend-name,
+  .fb-an-legend-amount {
+    font-size: 0.66rem;
+  }
+
+  .fb-an-legend-pct {
+    font-size: 0.6rem;
+  }
+
+  .fb-an-kpi-row > :nth-child(-n + 2) h2 {
+    font-size: 0.72rem;
+  }
+}
+
+@media (max-width: 340px) {
+  .fb-an-kpi-row > :nth-child(-n + 2) {
+    grid-column: 1 / -1;
+  }
+
+  .fb-an-readiness-metrics {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fb-an-spend-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fb-an-spend-chart {
+    margin: 0 auto;
   }
 }

@@ -93,6 +93,9 @@ export function SpendingSection({
                     <span className="fb-an-legend-copy">
                       <span className="fb-an-legend-line">
                         <span className="fb-an-legend-name">{category.category}</span>
+                        <span className="fb-an-legend-pct fb-an-mobile-only">
+                          {formatPercent(category.percentOfTotal, 0)}
+                        </span>
                         <span className="fb-an-legend-amount">{formatMoney(category.amountCents)}</span>
                       </span>
                       <span className="fb-an-legend-meta">
