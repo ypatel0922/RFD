@@ -20,12 +20,7 @@ export async function POST(request: NextRequest) {
 
     const items = await supabase.from("plaid_items").select("id,access_token").eq("department_id", departmentId);
     if (items.error) throw new Error(items.error.message);
-    const expensesResult = await supabase
-      .from("expenses")
-      .select("id,transaction_date,total_amount,payee,merchant_name,category,reconciliation_status,receipt_path")
-      .eq("department_id", departmentId);
-    if (expensesResult.error) throw new Error(expensesResult.error.message);
-    const expenses = expensesResult.data || [];
+    const expenses = await loadMatchCandidates(supabase, departmentId);
 
     // Pre-load existing pending receipt requests so we don't duplicate
     const { data: existingRequests } = await supabase
@@ -67,8 +62,13 @@ export async function POST(request: NextRequest) {
       for (const tx of txResponse.data.added) {
         const amount = Math.abs(Number(tx.amount || 0));
         const match = expenses.find((expense) => {
-          const expenseAmount = Number(expense.total_amount || 0);
-          const amountClose = Math.abs(Math.abs(expenseAmount) - amount) <= 15;
+          const expenseAmount = Math.abs(Number(expense.total_amount || 0));
+          // A pending authorization is taken before the tip is added, so a
+          // tipped expense should also match its pre-tip amount.
+          const tip = Math.abs(Number(expense.tip_amount || 0));
+          const preTipAmount = tip > 0 ? expenseAmount - tip : expenseAmount;
+          const amountClose =
+            Math.abs(expenseAmount - amount) <= 15 || Math.abs(preTipAmount - amount) <= 15;
           const vendor = (expense.payee || expense.merchant_name || "").toLowerCase();
           const desc = (tx.name || "").toLowerCase();
           const vendorClose =
@@ -210,6 +210,45 @@ export async function POST(request: NextRequest) {
 }
 
 type PhoneEntry = { phone: string; userId: string | null };
+
+const BASE_MATCH_COLUMNS =
+  "id,transaction_date,total_amount,payee,merchant_name,category,reconciliation_status,receipt_path";
+
+type MatchCandidate = {
+  id: string;
+  transaction_date: string | null;
+  total_amount: number | string | null;
+  payee: string | null;
+  merchant_name: string | null;
+  category: string | null;
+  reconciliation_status: string | null;
+  receipt_path: string | null;
+  tip_amount?: number | string | null;
+};
+
+/**
+ * Load the expenses a synced transaction could match.
+ *
+ * tip_amount arrived in a later migration, so a project that has not run it yet
+ * falls back to the original column set rather than failing the whole sync.
+ */
+async function loadMatchCandidates(
+  supabase: ReturnType<typeof supabaseAdmin>,
+  departmentId: string,
+): Promise<MatchCandidate[]> {
+  const withTip = await supabase
+    .from("expenses")
+    .select(`${BASE_MATCH_COLUMNS},tip_amount`)
+    .eq("department_id", departmentId);
+  if (!withTip.error) return (withTip.data || []) as MatchCandidate[];
+
+  const base = await supabase
+    .from("expenses")
+    .select(BASE_MATCH_COLUMNS)
+    .eq("department_id", departmentId);
+  if (base.error) throw new Error(base.error.message);
+  return (base.data || []) as MatchCandidate[];
+}
 
 /**
  * Find phone numbers for SMS receipt requests in a department.
