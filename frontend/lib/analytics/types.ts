@@ -40,6 +40,12 @@ export type AnalyticsExpenseRow = {
   reconciliation_candidate: boolean | null;
   uses_two_percent_funds: boolean | null;
   two_percent_review_status: string | null;
+  /**
+   * Explicit ledger type recorded by Money In (income / refund / transfer).
+   * Null on rows that predate it, which fall back to the inferred rules.
+   */
+  transaction_type?: string | null;
+  counterparty_id?: string | null;
 };
 
 /** The `external_transactions` columns analytics reads (Plaid-imported rows). */

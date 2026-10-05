@@ -6,6 +6,9 @@ import type { User } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
 import { expenseAuditSnapshot, logAuditFromBrowser } from "../lib/audit";
 import type { BankAccount, DepartmentMembership, ExpenseRecord, ReceiptRequest } from "../lib/types";
+import { isTypedMoneyInRow } from "../lib/money-in/categories";
+import { BankDepositsPanel } from "./money-in/bank-deposits-panel";
+import type { MoneyInPrefill } from "./money-in/money-in-page";
 
 function expenseNumericAmount(total: ExpenseRecord["total_amount"]): number | null {
   if (total == null) return null;
@@ -59,6 +62,7 @@ export function expenseNeedsReconciliationAttention(expense: ExpenseRecord) {
 
 function expenseMissingReceipt(expense: ExpenseRecord, receiptUrls: Record<string, string>) {
   if (receiptUrls[expense.id]) return false;
+  if (isTypedMoneyInRow(expense)) return false;
   const path = (expense.receipt_path || "").toLowerCase();
   return path.includes("no-receipt") || path.includes("/manual/");
 }
@@ -409,6 +413,7 @@ export function ReconciliationInboxSection({
   onReceiptRequestsChanged,
   initialQueueFilter,
   onInitialQueueFilterApplied,
+  onRecordMoneyIn,
 }: {
   expenses: ExpenseRecord[];
   receiptUrls: Record<string, string>;
@@ -431,6 +436,8 @@ export function ReconciliationInboxSection({
    */
   initialQueueFilter?: ReconciliationQueueFilter | null;
   onInitialQueueFilterApplied?: () => void;
+  /** Opens Money In prefilled from an incoming bank credit. */
+  onRecordMoneyIn?: (prefill: MoneyInPrefill) => void;
 }) {
   const [accountFilter, setAccountFilter] = useState("");
   const [periodFilter, setPeriodFilter] = useState("");
@@ -761,6 +768,19 @@ export function ReconciliationInboxSection({
           </div>
         </div>
       </div>
+
+      {onRecordMoneyIn ? (
+        <BankDepositsPanel
+          membership={membership}
+          user={user}
+          expenses={expenses}
+          bankAccounts={bankAccounts}
+          onExpensesChanged={onExpensesChanged}
+          onRecordMoneyIn={onRecordMoneyIn}
+          showErrorMessage={showErrorMessage}
+          showSuccessMessage={showSuccessMessage}
+        />
+      ) : null}
 
       <div className="fb-recon-layout">
         <section className="card fb-ledger-card fb-recon-main">

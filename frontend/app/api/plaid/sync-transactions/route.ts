@@ -3,6 +3,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { plaidClient, supabaseAdmin } from "../_lib";
 import { logAuditEvent } from "../../../../lib/audit-server";
 import {
+  canAutoMatchBankRow,
+  planPendingSupersession,
+  type PendingSupersession,
+} from "../../../../lib/money-in/plaid";
+import {
   buildReceiptRequestMessage,
   generateRequestCode,
   isMissingReceiptPath,
@@ -33,35 +38,67 @@ export async function POST(request: NextRequest) {
     // Find SMS-enabled phones for this department
     const departmentPhones = await resolveDepartmentPhones(supabase, departmentId);
 
+    const accountIdByPlaidId = await loadAccountIdMap(supabase, departmentId);
+    const autoMatchedExpenseIds = new Set<string>();
+
     let inserted = 0;
     let matched = 0;
+    let superseded = 0;
     let receiptRequestsSent = 0;
 
     for (const item of items.data || []) {
       const txResponse = await client.transactionsSync({
         access_token: item.access_token,
       });
-      const rows = txResponse.data.added.map((tx) => ({
+      const added = txResponse.data.added;
+      const pendingPredecessors = await loadPendingPredecessors(
+        supabase,
+        departmentId,
+        added.map((tx) => tx.pending_transaction_id).filter((id): id is string => Boolean(id)),
+      );
+      const supersessions = planPendingSupersession(added, pendingPredecessors);
+      const inheritedLink = new Set(
+        supersessions.filter((plan) => plan.inheritExpenseId).map((plan) => plan.postedExternalId),
+      );
+
+      const rows = added.map((tx) => ({
         department_id: departmentId,
-        external_account_id: null,
+        external_account_id: accountIdByPlaidId.get(tx.account_id) ?? null,
         source: "plaid",
         external_transaction_id: tx.transaction_id,
         posted_date: tx.date,
         description: tx.name,
         amount: tx.amount,
         pending: tx.pending,
+        pending_transaction_id: tx.pending_transaction_id ?? null,
       }));
       if (rows.length) {
-        const insert = await supabase.from("external_transactions").upsert(rows, {
-          onConflict: "external_transaction_id",
-        });
-        if (insert.error) throw new Error(insert.error.message);
+        await upsertExternalTransactions(supabase, rows);
         inserted += rows.length;
       }
 
-      for (const tx of txResponse.data.added) {
+      superseded += await applySupersessions(supabase, departmentId, supersessions);
+
+      const removedIds = (txResponse.data.removed || [])
+        .map((tx) => tx.transaction_id)
+        .filter((id): id is string => Boolean(id));
+      if (removedIds.length) {
+        const removal = await supabase
+          .from("external_transactions")
+          .update({ match_status: "superseded" })
+          .eq("department_id", departmentId)
+          .in("external_transaction_id", removedIds);
+        if (removal.error) throw new Error(removal.error.message);
+      }
+
+      for (const tx of added) {
+        if (inheritedLink.has(tx.transaction_id)) continue;
         const amount = Math.abs(Number(tx.amount || 0));
         const match = expenses.find((expense) => {
+          // Incoming money is reviewed, never auto-matched, and a bank row only
+          // ever meets a ledger row moving money the same direction.
+          if (!canAutoMatchBankRow(Number(tx.amount || 0), expense)) return false;
+          if (autoMatchedExpenseIds.has(expense.id)) return false;
           const expenseAmount = Math.abs(Number(expense.total_amount || 0));
           // A pending authorization is taken before the tip is added, so a
           // tipped expense should also match its pre-tip amount.
@@ -79,6 +116,7 @@ export async function POST(request: NextRequest) {
           return amountClose && (vendorClose || Boolean(dateClose));
         });
         if (!match) continue;
+        autoMatchedExpenseIds.add(match.id);
         const updateExpense = await supabase
           .from("expenses")
           .update({
@@ -188,7 +226,7 @@ export async function POST(request: NextRequest) {
       departmentId,
       action: "plaid.sync_run",
       resourceType: "plaid",
-      metadata: { inserted, matched, receiptRequestsSent },
+      metadata: { inserted, matched, superseded, receiptRequestsSent },
       request,
     });
 
@@ -224,18 +262,123 @@ type MatchCandidate = {
   reconciliation_status: string | null;
   receipt_path: string | null;
   tip_amount?: number | string | null;
+  transaction_type?: string | null;
 };
+
+type AdminClient = ReturnType<typeof supabaseAdmin>;
+
+function isMissingColumnError(message: string | undefined, column: string): boolean {
+  const text = (message || "").toLowerCase();
+  return text.includes(column) && (text.includes("column") || text.includes("schema cache"));
+}
+
+/** Plaid account_id → external_accounts.id, so imported rows keep their account. */
+async function loadAccountIdMap(supabase: AdminClient, departmentId: string): Promise<Map<string, string>> {
+  const { data, error } = await supabase
+    .from("external_accounts")
+    .select("id,external_account_id")
+    .eq("department_id", departmentId);
+  if (error) return new Map();
+  return new Map((data || []).map((row) => [String(row.external_account_id), String(row.id)]));
+}
+
+async function loadPendingPredecessors(
+  supabase: AdminClient,
+  departmentId: string,
+  pendingIds: string[],
+): Promise<Map<string, { id: string; expense_id: string | null; match_status: string | null }>> {
+  const map = new Map<string, { id: string; expense_id: string | null; match_status: string | null }>();
+  if (!pendingIds.length) return map;
+  const { data, error } = await supabase
+    .from("external_transactions")
+    .select("id,external_transaction_id,expense_id,match_status")
+    .eq("department_id", departmentId)
+    .in("external_transaction_id", pendingIds);
+  if (error) throw new Error(error.message);
+  for (const row of data || []) {
+    map.set(String(row.external_transaction_id), {
+      id: String(row.id),
+      expense_id: (row.expense_id as string | null) ?? null,
+      match_status: (row.match_status as string | null) ?? null,
+    });
+  }
+  return map;
+}
+
+/** pending_transaction_id arrived with migration 024; older projects skip it. */
+async function upsertExternalTransactions(supabase: AdminClient, rows: Array<Record<string, unknown>>) {
+  const first = await supabase.from("external_transactions").upsert(rows, { onConflict: "external_transaction_id" });
+  if (!first.error) return;
+  if (!isMissingColumnError(first.error.message, "pending_transaction_id")) throw new Error(first.error.message);
+  const legacyRows = rows.map(({ pending_transaction_id: _omit, ...rest }) => rest);
+  const retry = await supabase.from("external_transactions").upsert(legacyRows, { onConflict: "external_transaction_id" });
+  if (retry.error) throw new Error(retry.error.message);
+}
+
+/**
+ * The posted row takes over the pending row's link and the pending row is
+ * marked superseded, so the same money is never counted twice.
+ */
+async function applySupersessions(
+  supabase: AdminClient,
+  departmentId: string,
+  plans: PendingSupersession[],
+): Promise<number> {
+  let applied = 0;
+  for (const plan of plans) {
+    const { data: posted, error } = await supabase
+      .from("external_transactions")
+      .select("id,expense_id")
+      .eq("department_id", departmentId)
+      .eq("external_transaction_id", plan.postedExternalId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!posted) continue;
+
+    if (plan.inheritExpenseId && !posted.expense_id) {
+      const link = await supabase
+        .from("external_transactions")
+        .update({ expense_id: plan.inheritExpenseId, match_status: plan.inheritMatchStatus || "matched" })
+        .eq("id", posted.id);
+      if (link.error) throw new Error(link.error.message);
+    }
+
+    const supersede = await supabase
+      .from("external_transactions")
+      .update({ match_status: "superseded", superseded_by_id: posted.id, expense_id: null })
+      .eq("id", plan.pendingRowId)
+      .eq("department_id", departmentId);
+    if (supersede.error) {
+      if (!isMissingColumnError(supersede.error.message, "superseded_by_id")) throw new Error(supersede.error.message);
+      const legacy = await supabase
+        .from("external_transactions")
+        .update({ match_status: "superseded", expense_id: null })
+        .eq("id", plan.pendingRowId)
+        .eq("department_id", departmentId);
+      if (legacy.error) throw new Error(legacy.error.message);
+    }
+    applied += 1;
+  }
+  return applied;
+}
 
 /**
  * Load the expenses a synced transaction could match.
  *
- * tip_amount arrived in a later migration, so a project that has not run it yet
- * falls back to the original column set rather than failing the whole sync.
+ * tip_amount and transaction_type arrived in later migrations, so a project
+ * that has not run them yet falls back to an older column set rather than
+ * failing the whole sync.
  */
 async function loadMatchCandidates(
   supabase: ReturnType<typeof supabaseAdmin>,
   departmentId: string,
 ): Promise<MatchCandidate[]> {
+  const withType = await supabase
+    .from("expenses")
+    .select(`${BASE_MATCH_COLUMNS},tip_amount,transaction_type`)
+    .eq("department_id", departmentId);
+  if (!withType.error) return (withType.data || []) as MatchCandidate[];
+
   const withTip = await supabase
     .from("expenses")
     .select(`${BASE_MATCH_COLUMNS},tip_amount`)

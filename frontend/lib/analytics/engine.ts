@@ -33,6 +33,7 @@ import { classifyAccounts, normalizeAccountName } from "./accounts";
 import { normalizeLedger, type ImportedActivity } from "./classify";
 import { summarizeBudgets, type BudgetSummary } from "./budgets";
 import { summarizeCashFlow, type CashFlowSummary } from "./cash-flow";
+import { moneyInBySource, type MoneyInSourceRow } from "./money-in";
 import { documentationMetrics, type DocumentationMetrics } from "./documentation";
 import { assessDepartmentHealth, type DepartmentHealth } from "./health";
 import { generateInsights, type Insight } from "./insights";
@@ -128,6 +129,8 @@ export type AnalyticsResult = {
 
   budgets: BudgetSummary;
   cashFlow: CashFlowSummary;
+  /** Income in the selected period grouped by source (2% Funds, donations, …). */
+  moneyInBySource: MoneyInSourceRow[];
   documentation: DocumentationMetrics;
   priorDocumentation: DocumentationMetrics | null;
   health: DepartmentHealth;
@@ -315,6 +318,7 @@ export function runAnalytics(options: {
       : [],
     budgets,
     cashFlow,
+    moneyInBySource: moneyInBySource(currentTransactions),
     documentation,
     priorDocumentation,
     health,

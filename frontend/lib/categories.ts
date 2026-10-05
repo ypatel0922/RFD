@@ -14,6 +14,12 @@ import {
   type CategorySeed,
 } from "./category-seed";
 import { suggestTwoPctCategory } from "./two-percent-rules";
+import {
+  isMoneyInOnlyCategory,
+  isTypedMoneyInRow,
+  MONEY_IN_CATEGORY_SEEDS,
+  MONEY_IN_SEED_SOURCE,
+} from "./money-in/categories";
 
 export function normalizeCategoryName(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
@@ -187,6 +193,24 @@ export async function seedDepartmentCategories(
       }
     }
 
+    for (const seed of MONEY_IN_CATEGORY_SEEDS) {
+      const norm = normalizeCategoryName(seed.name);
+      if (!byNormalized.has(norm)) {
+        toInsert.push({
+          department_id: departmentId,
+          name: seed.name,
+          normalized_name: norm,
+          description: seed.description,
+          category_group: seed.category_group,
+          default_type: seed.default_type,
+          two_percent_guidance: seed.two_percent_guidance,
+          is_system_default: true,
+          is_active: true,
+          created_from: MONEY_IN_SEED_SOURCE,
+        });
+      }
+    }
+
     if (toInsert.length > 0) {
       const { error } = await supabase.from("department_categories").insert(toInsert);
       if (error) throw error;
@@ -272,6 +296,8 @@ export function buildCategoryOptions(
 
   const visible = (departmentCategories || []).filter((c) => {
     if (includeHidden) return isAllowedTwoPctCategory(c) || c.category_group === "general";
+    // Money In source categories have their own picker.
+    if (isMoneyInOnlyCategory(c)) return false;
     return isTwoPctDropdownVisible(c, usageStats, twoPctMode);
   });
 
@@ -289,6 +315,7 @@ export function buildCategoryOptions(
   for (const expense of expenses) {
     const cat = (expense.category || "").trim();
     if (!cat) continue;
+    if (isTypedMoneyInRow(expense)) continue;
     const key = normalizeCategoryName(cat);
     if (seen.has(key)) continue;
     if (twoPctMode) {
