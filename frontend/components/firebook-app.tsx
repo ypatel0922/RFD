@@ -87,7 +87,7 @@ import type { DrilldownTarget } from "../lib/analytics/types";
 import { newEntryTarget } from "../lib/new-entry";
 import { NewEntryButton } from "./new-entry-ribbon";
 import { MoneyInPage, type MoneyInLaunch, type MoneyInPrefill } from "./money-in/money-in-page";
-import { isLedgerInflow } from "../lib/reconciliation/ledger";
+import { isLedgerInflow, ledgerSignedCents } from "../lib/reconciliation/ledger";
 
 type AuthMode = "login" | "signup";
 
@@ -222,6 +222,7 @@ function isExpenseInCurrentMonth(expense: ExpenseRecord) {
 function buildTwoPercentSnapshot(
   expenses: ExpenseRecord[],
   bankAccounts: BankAccount[],
+  beginningBalances?: OnboardingBeginningBalance[],
 ) {
   const twoPercentAccounts = bankAccounts.filter((a) => a.is_two_percent_account);
   if (!twoPercentAccounts.length) return null;
@@ -246,34 +247,22 @@ function buildTwoPercentSnapshot(
         typeof expense.total_amount === "number"
           ? expense.total_amount
           : Number(String(expense.total_amount || "0").replace(/[$,]/g, "")) || 0;
-      if (amount > 0) yearExpenses += amount;
+      // Only count spending from the 2% fund — money in and transfers are not expenses.
+      if (amount > 0 && expense.transaction_type !== "transfer") yearExpenses += amount;
     }
   }
 
-  // Balance: use the most recent balance_after_transaction for the primary 2% account
+  // Same register balance the Accounts tab shows for this 2% account.
   const primaryAccount = twoPercentAccounts[0];
-  let latestBalance: number | null = null;
-  if (primaryAccount) {
-    const accountMatches = expenses
-      .filter(
-        (e) =>
-          e.bank_account_name?.toLowerCase() === primaryAccount.name.toLowerCase() &&
-          e.balance_after_transaction != null,
+  const latestBalance = primaryAccount
+    ? latestBalanceForAccount(
+        expenses,
+        primaryAccount.name,
+        beginningBalances,
+        primaryAccount.id,
+        primaryAccount,
       )
-      .sort((a, b) => {
-        const da =
-          a.transaction_date?.slice(0, 10) || a.created_at?.slice(0, 10) || "";
-        const db =
-          b.transaction_date?.slice(0, 10) || b.created_at?.slice(0, 10) || "";
-        return db.localeCompare(da);
-      });
-    if (accountMatches.length) {
-      const raw = accountMatches[0].balance_after_transaction;
-      const parsed =
-        typeof raw === "number" ? raw : Number(String(raw).replace(/[$,]/g, ""));
-      if (Number.isFinite(parsed)) latestBalance = parsed;
-    }
-  }
+    : null;
 
   return {
     accounts: twoPercentAccounts,
@@ -363,18 +352,24 @@ function buildAccountSnapshots(
   return bankAccounts.map((account) => {
     const matches = expenses
       .filter((expense) => (expense.bank_account_name || "").trim().toLowerCase() === account.name.trim().toLowerCase())
-      .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+      .sort((a, b) => {
+        const byDate = parseExpenseSortDate(b).localeCompare(parseExpenseSortDate(a));
+        if (byDate) return byDate;
+        return (b.created_at || "").localeCompare(a.created_at || "");
+      });
     const latest = matches[0];
-    const expenseBalance =
-      latest && latest.balance_after_transaction != null && latest.balance_after_transaction !== ""
-        ? expenseNumericAmount(latest.balance_after_transaction)
-        : null;
     const openingBalance = beginningBalances?.find(
       (b) =>
         (b.account_id != null && b.account_id === account.id) ||
         normalizeName(b.account_name) === normalizeName(account.name),
     );
-    const lastBalance = expenseBalance ?? (openingBalance ? openingBalance.beginning_balance : null);
+    const lastBalance = latestBalanceForAccount(
+      expenses,
+      account.name,
+      beginningBalances,
+      account.id,
+      account,
+    );
     const lastActivityDate =
       latest?.transaction_date ||
       latest?.created_at?.slice(0, 10) ||
@@ -1893,6 +1888,7 @@ export default function Home() {
               user={session.user}
               expenses={expenses}
               bankAccounts={bankAccounts}
+              beginningBalances={onboardingBeginningBalances}
               onNavigateView={(next) => {
                 setView(next);
                 setMobileNavOpen(false);
@@ -2675,8 +2671,9 @@ function AccountsTabSection({
         <p className="eyebrow">Cash & credit</p>
         <h1 className="fb-dash-title">Accounts</h1>
         <p className="fb-dash-subtitle">
-          Department bank and card accounts. Balances reflect the latest register total on an
-          expense, or the onboarding beginning balance when no activity exists yet.
+          Department bank and card accounts. Balances start from the latest register total,
+          reconciled statement, or onboarding opening balance, then include later activity —
+          including Money In.
         </p>
       </section>
       {snapshots.length ? (
@@ -3681,6 +3678,7 @@ function Dashboard({
   user,
   expenses,
   bankAccounts,
+  beginningBalances,
   onNavigateView,
   onOpenReportsPanel,
   onOpenNewExpense,
@@ -3689,6 +3687,7 @@ function Dashboard({
   user: User;
   expenses: ExpenseRecord[];
   bankAccounts: BankAccount[];
+  beginningBalances?: OnboardingBeginningBalance[];
   onNavigateView: (next: AppView) => void;
   onOpenReportsPanel: (panel: "reconciliation" | "statements") => void;
   onOpenNewExpense: (tab: "receipt" | "manual") => void;
@@ -3696,8 +3695,8 @@ function Dashboard({
   const welcomeName = membership.role?.trim() || "member";
   const metrics = useMemo(() => buildDashboardMetrics(expenses), [expenses]);
   const twoPercentSnapshot = useMemo(
-    () => buildTwoPercentSnapshot(expenses, bankAccounts),
-    [expenses, bankAccounts],
+    () => buildTwoPercentSnapshot(expenses, bankAccounts, beginningBalances),
+    [expenses, bankAccounts, beginningBalances],
   );
 
   return (
@@ -3795,7 +3794,7 @@ function Dashboard({
                   : "—"}
               </p>
               <p className="fb-metric-hint">
-                {twoPercentSnapshot.accounts[0]?.name ?? "2% account"} · latest recorded
+                {twoPercentSnapshot.accounts[0]?.name ?? "2% account"} · same as Accounts
               </p>
             </div>
             <div className="fb-metric-card">
@@ -5205,34 +5204,79 @@ function uniqueCategoriesFromExpenses(expenses: ExpenseRecord[]) {
   return Array.from(set).sort((a, b) => a.localeCompare(b));
 }
 
+/**
+ * Current register balance for an account.
+ *
+ * Starts from the newest recorded running balance (or a reconciled statement /
+ * onboarding opening balance), then adds every later ledger movement for that
+ * account — including Money In — so the Accounts tab and the 2% dashboard stay
+ * in sync after deposits that do not write balance_after_transaction.
+ */
 function latestBalanceForAccount(
   expenses: ExpenseRecord[],
   accountName: string,
   beginningBalances?: OnboardingBeginningBalance[],
   bankAccountId?: string,
+  bankAccount?: BankAccount | null,
 ) {
-  const matches = expenses
-    .filter(
-      (expense) =>
-        expense.bank_account_name?.trim().toLowerCase() === accountName.trim().toLowerCase() &&
-        expense.balance_after_transaction != null,
-    )
-    .sort((a, b) => parseExpenseSortDate(b).localeCompare(parseExpenseSortDate(a)));
-  if (matches.length > 0) {
-    const value = matches[0].balance_after_transaction;
-    const parsed = typeof value === "number" ? value : Number(String(value).replace(/[$,]/g, ""));
-    if (Number.isFinite(parsed)) return parsed;
+  const nameKey = accountName.trim().toLowerCase();
+  const accountRows = expenses.filter(
+    (expense) => (expense.bank_account_name || "").trim().toLowerCase() === nameKey,
+  );
+  const sorted = [...accountRows].sort((a, b) => {
+    const byDate = parseExpenseSortDate(b).localeCompare(parseExpenseSortDate(a));
+    if (byDate) return byDate;
+    return (b.created_at || "").localeCompare(a.created_at || "");
+  });
+
+  const registerIdx = sorted.findIndex(
+    (expense) => expense.balance_after_transaction != null && expense.balance_after_transaction !== "",
+  );
+  if (registerIdx >= 0) {
+    const anchor = expenseNumericAmount(sorted[registerIdx].balance_after_transaction);
+    if (anchor != null) {
+      let laterCents = 0;
+      for (let i = 0; i < registerIdx; i += 1) {
+        const signed = ledgerSignedCents(sorted[i]);
+        if (signed != null) laterCents += signed;
+      }
+      return anchor + laterCents / 100;
+    }
   }
-  // Fall back to beginning balance if no expense balance exists
-  if (beginningBalances) {
+
+  let anchorDollars: number | null = null;
+  let afterDate: string | null = null;
+
+  if (bankAccount?.last_reconciled_ending_balance != null && bankAccount.last_reconciled_ending_balance !== "") {
+    const reconciled = expenseNumericAmount(bankAccount.last_reconciled_ending_balance);
+    if (reconciled != null) {
+      anchorDollars = reconciled;
+      afterDate = bankAccount.last_reconciled_statement_end_date?.slice(0, 10) || null;
+    }
+  }
+
+  if (anchorDollars == null && beginningBalances) {
     const opening = beginningBalances.find(
       (b) =>
         (bankAccountId != null && b.account_id === bankAccountId) ||
         normalizeName(b.account_name) === normalizeName(accountName),
     );
-    if (opening) return opening.beginning_balance;
+    if (opening) {
+      anchorDollars = opening.beginning_balance;
+      afterDate = opening.balance_date?.slice(0, 10) || null;
+    }
   }
-  return null;
+
+  if (anchorDollars == null) return null;
+
+  let laterCents = 0;
+  for (const row of accountRows) {
+    const date = parseExpenseSortDate(row);
+    if (afterDate && (!date || date <= afterDate)) continue;
+    const signed = ledgerSignedCents(row);
+    if (signed != null) laterCents += signed;
+  }
+  return anchorDollars + laterCents / 100;
 }
 
 function buildDisplayBankRows(bankAccounts: BankAccount[], externalAccounts: ExternalPlaidAccount[]): DisplayBankRow[] {
@@ -5370,7 +5414,13 @@ function getDisplayRowMeta(
   const plaidMatch = row.source === "bank" ? row.plaid : row.plaid;
   const plaidConnected = Boolean(plaidMatch);
   const bankId = row.source === "bank" ? row.bank.id : null;
-  const balance = latestBalanceForAccount(expenses, name, beginningBalances, bankId ?? undefined);
+  const balance = latestBalanceForAccount(
+    expenses,
+    name,
+    beginningBalances,
+    bankId ?? undefined,
+    row.source === "bank" ? row.bank : null,
+  );
   const lastSynced = plaidConnected ? plaidSyncedAt || plaidMatch?.created_at : null;
   const id = row.source === "bank" ? row.bank.id : row.plaid.id;
   const accountType = formatAccountTypeLabel(row);
@@ -7156,7 +7206,13 @@ function Settings({
     const plaidMatch = row.source === "bank" ? row.plaid : row.plaid;
     const plaidConnected = Boolean(plaidMatch);
     const bankId = row.source === "bank" ? row.bank.id : null;
-    const balance = latestBalanceForAccount(expenses, name, beginningBalances, bankId ?? undefined);
+    const balance = latestBalanceForAccount(
+      expenses,
+      name,
+      beginningBalances,
+      bankId ?? undefined,
+      row.source === "bank" ? row.bank : null,
+    );
     const lastSynced = plaidConnected ? plaidSyncedAt || plaidMatch?.created_at : null;
 
     return (
@@ -7312,7 +7368,13 @@ function Settings({
                     const plaidMatch = row.source === "bank" ? row.plaid : row.plaid;
                     const plaidConnected = Boolean(plaidMatch);
                     const bankId = row.source === "bank" ? row.bank.id : null;
-                    const balance = latestBalanceForAccount(expenses, name, beginningBalances, bankId ?? undefined);
+                    const balance = latestBalanceForAccount(
+                      expenses,
+                      name,
+                      beginningBalances,
+                      bankId ?? undefined,
+                      row.source === "bank" ? row.bank : null,
+                    );
                     const lastSynced = plaidConnected ? plaidSyncedAt || plaidMatch?.created_at : null;
                     return (
                       <tr key={row.source === "bank" ? row.bank.id : row.plaid.id}>
