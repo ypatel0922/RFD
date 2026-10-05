@@ -51,6 +51,7 @@ import type {
 import { AnalyticsControls, type ControlsState } from "./controls";
 import { HealthSection } from "./health-section";
 import { InsightsSection } from "./insights-section";
+import { MobileSnapshot } from "./mobile-snapshot";
 import { ErrorState, MetricSkeletonGrid, SectionSkeleton } from "./primitives";
 import { TwoPercentSection } from "./two-percent-section";
 
@@ -352,6 +353,13 @@ export function AnalyticsDashboard({
         </>
       ) : (
         <>
+          <MobileSnapshot
+            result={result}
+            onScrollTo={(anchor) =>
+              document.getElementById(anchor)?.scrollIntoView({ behavior: "smooth", block: "start" })
+            }
+          />
+
           <div className="fb-an-kpi-row">
             <HealthSection
               result={result}

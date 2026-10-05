@@ -8,7 +8,7 @@
  * dashboard can stay above the fold.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   COMPARISON_MODES,
@@ -62,6 +62,19 @@ export function AnalyticsControls({
   const [customError, setCustomError] = useState<string | null>(null);
 
   const [showFilters, setShowFilters] = useState(false);
+
+  // On narrow screens the chip row scrolls sideways; keep the active range visible.
+  // Deferred a frame so the chips have their final widths before we measure.
+  const chipRowRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      const row = chipRowRef.current;
+      const active = row?.querySelector<HTMLElement>(".fb-chip-active");
+      if (!row || !active) return;
+      row.scrollLeft = Math.max(0, active.offsetLeft - row.offsetLeft - 8);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [state.preset]);
 
   const accountGroups = useMemo(() => groupAccounts(accounts), [accounts]);
   const selectedAccountCount = state.filters.accountIds.length;
@@ -119,7 +132,7 @@ export function AnalyticsControls({
       </div>
 
       <div className="fb-an-toolbar-filters">
-        <div className="fb-chip-row fb-an-range-chips" role="group" aria-label="Date range">
+        <div ref={chipRowRef} className="fb-chip-row fb-an-range-chips" role="group" aria-label="Date range">
           {DATE_RANGE_PRESETS.map((preset) => (
             <button
               key={preset.id}
