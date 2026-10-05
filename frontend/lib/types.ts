@@ -146,6 +146,23 @@ export type ExtractedReceiptData = {
   extraction_status: "extracted" | "needs_review" | "failed";
   confidence: number;
   notes: string | null;
+  /** Receipt line items, when legible. Used as a categorization signal. */
+  line_items?: string[] | null;
+  /** Category chosen from the department's existing list during extraction. */
+  suggested_category?: string | null;
+  category_confidence?: number | null;
+  category_reason?: string | null;
+  /** 2% fund recommendation — guidance only, never applied automatically. */
+  suggest_two_percent?: boolean | null;
+  two_percent_confidence?: number | null;
+  /** Pre-tax subtotal, used to tell sales tax apart from a tip. */
+  subtotal_amount?: string | null;
+  /** Printed pre-tip receipt total — already includes tax. */
+  base_amount?: string | null;
+  /** Handwritten or printed gratuity. Null when the handwriting is unclear. */
+  tip_amount?: string | null;
+  /** True when a printed service charge is already inside the receipt total. */
+  gratuity_included_in_total?: boolean | null;
 };
 
 export type ExpenseDraft = {
@@ -166,6 +183,11 @@ export type ReviewForm = {
   description: string;
   bank_account_name: string;
   transaction_date: string;
+  /** Printed receipt amount before any tip. */
+  base_amount: string;
+  /** Gratuity. Blank means no tip was detected or entered. */
+  tip_amount: string;
+  /** Always base_amount + tip_amount — the amount saved on the expense. */
   total_amount: string;
   tax_amount: string;
   balance_after_transaction: string;

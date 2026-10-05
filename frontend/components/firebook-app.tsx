@@ -2,6 +2,7 @@
 
 import {
   ChangeEvent,
+  DragEvent,
   FormEvent,
   useCallback,
   useEffect,
@@ -55,6 +56,23 @@ import {
   seedDepartmentCategories,
   suggestCategory,
 } from "../lib/categories";
+import {
+  isSuggestionVisible,
+  shouldApplyExtractionResult,
+  suggestExpenseCategory,
+  suggestTwoPercentFunds,
+  type CategorySuggestion,
+  type TwoPercentSuggestion,
+} from "../lib/category-suggestion";
+import {
+  addTip,
+  centsToMoneyString,
+  isTipDisproportionate,
+  isTipLikely,
+  manualAmountPayload,
+  moneyToCents,
+  reconcileReceiptAmounts,
+} from "../lib/tip";
 import { StatementWizard } from "./reconciliation/statement-wizard";
 import { AnalyticsDashboard } from "./analytics/analytics-dashboard";
 import type { LedgerInitialFilters } from "./TransactionsLedger";
@@ -481,6 +499,8 @@ type ManualExpenseFormValues = {
   transaction_date: string;
   payee: string;
   total_amount: number | null;
+  base_amount: number | null;
+  tip_amount: number | null;
   payment_method: string;
   category: string;
   bank_account_name: string;
@@ -863,23 +883,28 @@ function ManualExpenseForm({
   defaultBankAccount,
   disabled,
   onSubmit,
+  onCancel,
   showTwoPercentPanel,
   departmentCategories,
   departmentVendors,
   prefill,
+  loggedBy,
 }: {
   expenses: ExpenseRecord[];
   bankAccounts: BankAccount[];
   defaultBankAccount: string;
   disabled: boolean;
   onSubmit: (values: ManualExpenseFormValues) => Promise<void>;
+  onCancel: () => void;
   showTwoPercentPanel?: boolean;
   departmentCategories?: DepartmentCategory[];
   departmentVendors?: DepartmentVendor[];
   prefill?: ManualExpensePrefill;
+  loggedBy: string;
 }) {
   const [payee, setPayee] = useState(prefill?.payee || "");
-  const [totalAmount, setTotalAmount] = useState(prefill?.amount || "");
+  const [amount, setAmount] = useState(prefill?.amount || "");
+  const [tipAmount, setTipAmount] = useState("");
   const [category, setCategory] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("");
   const [bankAccount, setBankAccount] = useState(prefill?.bank_account_name || defaultBankAccount);
@@ -899,6 +924,13 @@ function ManualExpenseForm({
     () => bankAccounts.find((a) => a.name.toLowerCase() === (bankAccount || "").toLowerCase()),
     [bankAccounts, bankAccount],
   );
+
+  const amountCents = amountStringToCents(amount);
+  const tipCents = moneyIn ? 0 : amountStringToCents(tipAmount);
+  const totalLabel = formatUsd(addTip(amountCents, tipCents) / 100);
+  const showTipRow =
+    !moneyIn && (tipCents > 0 || isTipLikely({ category, vendor: payee, description }));
+  const tipWarning = isTipDisproportionate(amountCents, tipCents);
 
   function handleBankAccountChange(newAccount: string) {
     setBankAccount(newAccount);
@@ -940,14 +972,12 @@ function ManualExpenseForm({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const amountCents = amountStringToCents(totalAmount);
     // Hallix stores money coming in as a negative total_amount, the opposite of
     // an expense. Deposits reach this form only from a statement line.
-    const signedCents = moneyIn ? -amountCents : amountCents;
     await onSubmit({
       transaction_date: String(form.get("transaction_date") || ""),
       payee: payee.trim(),
-      total_amount: amountCents > 0 ? signedCents / 100 : null,
+      ...manualAmountPayload({ amountCents, tipCents, moneyIn }),
       payment_method: paymentMethod,
       category: category.trim(),
       bank_account_name: bankAccount.trim(),
@@ -960,7 +990,7 @@ function ManualExpenseForm({
   }
 
   return (
-    <form className="upload-form fb-expense-form fb-new-expense-manual-form" onSubmit={handleSubmit}>
+    <div className="fb-review-stack">
       {prefill ? (
         <div className="fb-stmt-prefill-note">
           <strong>From your bank statement.</strong> Check the details below, then save it to add
@@ -968,86 +998,141 @@ function ManualExpenseForm({
         </div>
       ) : null}
 
-      {/* Core fields always visible */}
-      <div className="form-grid two-column">
-        <label>
-          Date
-          <input
-            type="date"
-            name="transaction_date"
-            required
-            defaultValue={prefill?.transaction_date || formatLocalYMD(new Date())}
-          />
-        </label>
-        <VendorAutocompleteField
-          label="Vendor / payee"
-          value={payee}
-          onChange={setPayee}
-          expenses={expenses}
-          departmentVendors={departmentVendors}
-          required
-          onVendorChange={handleVendorChange}
-        />
-        <CentsMoneyInput label="Amount" value={totalAmount} onChange={setTotalAmount} required />
-        <BankAccountSelect
-          label="Bank / Credit account"
-          value={bankAccount}
-          onChange={handleBankAccountChange}
-          bankAccounts={bankAccounts}
-          required
-          emptyMessage="Add an account in Settings before logging manual expenses."
-        />
-        <CategoryComboboxField label="Category" value={category} onChange={setCategory} expenses={expenses} departmentCategories={departmentCategories} twoPctMode={isTwoPctTagged} />
-      </div>
-      {prefill ? (
-        <fieldset className="fb-stmt-direction">
-          <legend>Is this money in or money out?</legend>
-          <label>
-            <input
-              type="radio"
-              name="money_direction"
-              checked={!moneyIn}
-              onChange={() => setMoneyIn(false)}
-            />
-            <span>Money out (expense, check, fee)</span>
-          </label>
-          <label>
-            <input
-              type="radio"
-              name="money_direction"
-              checked={moneyIn}
-              onChange={() => setMoneyIn(true)}
-            />
-            <span>Money in (deposit, interest, refund)</span>
-          </label>
-        </fieldset>
-      ) : null}
-      <div className="fb-2pct-tag-row">
-        <label className="fb-2pct-tag-label">
-          <input type="checkbox" checked={isTwoPctTagged} onChange={(e) => handleTwoPctToggle(e.target.checked)} />
-          <span>Tag as 2% Funds expense</span>
-          {isTwoPctTagged && <TwoPercentFundBadge className="fb-2pct-tag-badge" />}
-        </label>
-      </div>
-      <label>
-        Description
-        <textarea rows={2} value={description} onChange={(event) => setDescription(event.target.value)} />
-      </label>
+      <form className="fb-review-form fb-expense-form fb-new-expense-manual-form" onSubmit={handleSubmit}>
+        <section className="card fb-extracted-card">
+          <div className="fb-manual-head">
+            <p className="fb-extracted-eyebrow">Manual expense</p>
+            <h2 className="fb-manual-title">Expense details</h2>
+          </div>
 
-      {/* More details toggle */}
-      <button
-        type="button"
-        className="fb-more-details-toggle link-button"
-        onClick={() => setShowMoreDetails((v) => !v)}
-      >
-        {showMoreDetails ? "▲ Fewer details" : "▼ More details"}
-      </button>
+          {prefill ? (
+            <fieldset className="fb-stmt-direction">
+              <legend>Is this money in or money out?</legend>
+              <label>
+                <input
+                  type="radio"
+                  name="money_direction"
+                  checked={!moneyIn}
+                  onChange={() => setMoneyIn(false)}
+                />
+                <span>Money out (expense, check, fee)</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="money_direction"
+                  checked={moneyIn}
+                  onChange={() => setMoneyIn(true)}
+                />
+                <span>Money in (deposit, interest, refund)</span>
+              </label>
+            </fieldset>
+          ) : null}
 
-      {showMoreDetails && (
-        <div className="fb-more-details form-grid two-column">
-          <PaymentMethodSelect label="Payment type" value={paymentMethod} onChange={setPaymentMethod} />
-          {isTwoPctTagged && showTwoPercentPanel && (
-            <div className="form-grid-full">
+          <div className="fb-extracted-grid fb-manual-grid">
+            <DetailRow kind="date">
+              <div className="fb-detail-editor">
+                <label>
+                  Date
+                  <input
+                    type="date"
+                    name="transaction_date"
+                    required
+                    defaultValue={prefill?.transaction_date || formatLocalYMD(new Date())}
+                  />
+                </label>
+              </div>
+            </DetailRow>
+
+            <DetailRow kind="vendor">
+              <div className="fb-detail-editor">
+                <VendorAutocompleteField
+                  label="Vendor / Paid to"
+                  value={payee}
+                  onChange={setPayee}
+                  expenses={expenses}
+                  departmentVendors={departmentVendors}
+                  required
+                  placeholder="Enter vendor"
+                  onVendorChange={handleVendorChange}
+                />
+              </div>
+            </DetailRow>
+
+            <DetailRow kind="amount">
+              <div className="fb-detail-editor">
+                <CentsMoneyInput label="Amount" value={amount} onChange={setAmount} required />
+              </div>
+            </DetailRow>
+
+            {showTipRow ? (
+              <DetailRow kind="tip">
+                <div className="fb-detail-editor">
+                  <CentsMoneyInput
+                    label="Tip"
+                    value={tipAmount}
+                    onChange={setTipAmount}
+                    placeholder="Add tip"
+                  />
+                </div>
+                {tipWarning ? (
+                  <p className="fb-detail-note">Tip is larger than the amount — double-check it.</p>
+                ) : null}
+              </DetailRow>
+            ) : null}
+
+            {showTipRow ? <TotalExpenseRow totalLabel={totalLabel} /> : null}
+
+            <DetailRow kind="category">
+              <div className="fb-detail-editor">
+                <CategoryComboboxField
+                  label="Category / Purpose"
+                  value={category}
+                  onChange={setCategory}
+                  expenses={expenses}
+                  departmentCategories={departmentCategories}
+                  placeholder="Select category"
+                  twoPctMode={isTwoPctTagged}
+                />
+              </div>
+            </DetailRow>
+
+            <DetailRow kind="account">
+              <div className="fb-detail-editor">
+                <BankAccountSelect
+                  label="Account"
+                  value={bankAccount}
+                  onChange={handleBankAccountChange}
+                  bankAccounts={bankAccounts}
+                  required
+                  emptyMessage="Add an account in Settings before logging manual expenses."
+                />
+                {accountMetaLine(selectedAccount) ? (
+                  <span className="fb-detail-sub">{accountMetaLine(selectedAccount)}</span>
+                ) : null}
+              </div>
+            </DetailRow>
+
+            <TwoPercentDetailRow isTwoPct={isTwoPctTagged} onToggle={handleTwoPctToggle} />
+          </div>
+        </section>
+
+        <MoreDetailsCard open={showMoreDetails} onToggle={() => setShowMoreDetails((v) => !v)}>
+          <div className="fb-more-details-group">
+            <p className="fb-more-details-group-title">Payment details</p>
+            <PaymentMethodSelect label="Payment method" value={paymentMethod} onChange={setPaymentMethod} />
+          </div>
+
+          <div className="fb-more-details-group">
+            <p className="fb-more-details-group-title">Notes</p>
+            <label>
+              Description / memo
+              <textarea rows={2} value={description} onChange={(event) => setDescription(event.target.value)} />
+            </label>
+          </div>
+
+          {isTwoPctTagged && showTwoPercentPanel ? (
+            <div className="fb-more-details-group">
               <TwoPercentGuidancePanel
                 vendor={payee}
                 category={category}
@@ -1060,18 +1145,14 @@ function ManualExpenseForm({
                 onSupportNoteChange={setSupportNote}
               />
             </div>
-          )}
-        </div>
-      )}
+          ) : null}
 
-      <button
-        type="submit"
-        className="fb-primary-btn fb-new-expense-submit"
-        disabled={disabled || !bankAccounts.length}
-      >
-        {disabled ? "Saving..." : "Save manual expense"}
-      </button>
-    </form>
+          <p className="fb-review-logged-by">Logged by {loggedBy}</p>
+        </MoreDetailsCard>
+
+        <ExpenseFormActions busy={disabled} disabled={!bankAccounts.length} onCancel={onCancel} />
+      </form>
+    </div>
   );
 }
 
@@ -2618,6 +2699,11 @@ function NewExpensePage({
   const [manualFormKey, setManualFormKey] = useState(0);
   const [manualPrefill, setManualPrefill] = useState<ManualExpensePrefill | undefined>(undefined);
   const [isMobileDevice, setIsMobileDevice] = useState(false);
+  const [categorySuggestion, setCategorySuggestion] = useState<CategorySuggestion | null>(null);
+  const [twoPercentSuggestion, setTwoPercentSuggestion] = useState<TwoPercentSuggestion | null>(null);
+  const [tipSource, setTipSource] = useState<"extracted" | "derived" | null>(null);
+  /** Guards against a slow extraction response landing on a newer draft. */
+  const extractionRequestRef = useRef(0);
 
   useEffect(() => {
     if (typeof window === "undefined" || !window.matchMedia) return;
@@ -2653,6 +2739,15 @@ function NewExpensePage({
     setReviewForm(null);
     setManualPrefill(undefined);
     setMessage(null);
+    discardSuggestions();
+  }
+
+  /** Drop pending suggestions and invalidate any in-flight extraction. */
+  function discardSuggestions() {
+    extractionRequestRef.current += 1;
+    setCategorySuggestion(null);
+    setTwoPercentSuggestion(null);
+    setTipSource(null);
   }
 
   const defaultBankAccount = bankAccounts.find((account) => account.is_default)?.name || "";
@@ -2672,10 +2767,19 @@ function NewExpensePage({
   async function prepareReviewFromFile(file: File) {
     setMessage(null);
     setWorking(true);
+    setCategorySuggestion(null);
+    setTwoPercentSuggestion(null);
+    setTipSource(null);
+
+    const requestId = extractionRequestRef.current + 1;
+    extractionRequestRef.current = requestId;
 
     const expenseId = crypto.randomUUID();
     const receiptId = crypto.randomUUID();
-    const extracted = await extractReceipt(file);
+    const allowedCategories = buildCategoryOptions(expenses, departmentCategories);
+    const extracted = await extractReceipt(file, allowedCategories);
+    // A newer upload (or a cancelled review) must never be overwritten by this response.
+    if (!shouldApplyExtractionResult(requestId, extractionRequestRef.current)) return;
     const receiptPath = buildReceiptPath({
       departmentId: membership.department_id,
       expenseId,
@@ -2699,18 +2803,69 @@ function NewExpensePage({
     const isTwoPct = Boolean(resolvedAccount?.is_two_percent_account);
     const payee = extracted.payee || extracted.merchant_name || "";
     const ocrCategory = extracted.category || "";
-    const suggestedCategory =
-      ocrCategory ||
-      suggestCategory({
+    const ocrText = [
+      extracted.description,
+      extracted.merchant_name,
+      extracted.payee,
+      ...(extracted.line_items || []),
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    // Categorization must never block logging an expense, so failures here just
+    // leave the field on its existing default.
+    let suggestion: CategorySuggestion | null = null;
+    try {
+      suggestion = suggestExpenseCategory({
         vendor: payee,
         description: extracted.description,
-        ocrText: [extracted.description, extracted.merchant_name, extracted.payee].filter(Boolean).join(" "),
+        ocrText,
+        allowedCategories,
         expenses,
+        departmentId: membership.department_id,
         departmentCategories,
         departmentVendors,
         isTwoPctAccount: isTwoPct,
-      }) ||
-      "";
+        aiCategory: extracted.suggested_category || ocrCategory,
+        aiConfidence: extracted.category_confidence,
+      });
+    } catch {
+      suggestion = null;
+    }
+    const suggestedCategory = suggestion?.category || ocrCategory || "";
+
+    let twoPctSuggestion: TwoPercentSuggestion | null = null;
+    try {
+      twoPctSuggestion = suggestTwoPercentFunds({
+        vendor: payee,
+        category: suggestedCategory,
+        description: extracted.description,
+        expenses,
+        departmentId: membership.department_id,
+        departmentCategories,
+        hasTwoPercentAccount: bankAccounts.some((a) => a.is_two_percent_account),
+        alreadyTwoPercent: isTwoPct,
+        aiSuggestsTwoPercent: extracted.suggest_two_percent,
+        aiConfidence: extracted.two_percent_confidence,
+      });
+    } catch {
+      twoPctSuggestion = null;
+    }
+
+    // Keep the printed amount and the gratuity apart; total_amount stays the
+    // single saved figure so nothing downstream has to know about tips. Tax is
+    // passed through so it is never mistaken for a tip.
+    const amounts = reconcileReceiptAmounts({
+      subtotalCents: moneyToCents(extracted.subtotal_amount ?? null),
+      taxCents: moneyToCents(extracted.tax_amount ?? null),
+      baseCents: moneyToCents(extracted.base_amount ?? null),
+      tipCents: moneyToCents(extracted.tip_amount ?? null),
+      totalCents: moneyToCents(extracted.total_amount ?? null),
+    });
+    setTipSource(amounts.tipCents != null ? amounts.tipSource : null);
+
+    setCategorySuggestion(suggestion);
+    setTwoPercentSuggestion(twoPctSuggestion);
     setReviewForm({
       fund: nextDraft.fund,
       payment_reference: extracted.payment_reference || "",
@@ -2718,7 +2873,9 @@ function NewExpensePage({
       description: extracted.description || "",
       bank_account_name: resolvedBankAccount,
       transaction_date: extracted.transaction_date || "",
-      total_amount: extracted.total_amount || "",
+      base_amount: centsToMoneyString(amounts.baseCents),
+      tip_amount: centsToMoneyString(amounts.tipCents),
+      total_amount: centsToMoneyString(amounts.totalCents),
       tax_amount: extracted.tax_amount || "",
       balance_after_transaction: extracted.balance_after_transaction || "",
       category: suggestedCategory,
@@ -2783,7 +2940,11 @@ function NewExpensePage({
         bank_account_name: optionalValue(reviewForm.bank_account_name),
         merchant_name: optionalValue(reviewForm.payee),
         transaction_date: optionalValue(reviewForm.transaction_date),
+        // total_amount keeps its meaning — the amount actually charged — while
+        // base_amount and tip_amount record how it was reached.
         total_amount: optionalNumber(reviewForm.total_amount),
+        base_amount: optionalNumber(reviewForm.base_amount),
+        tip_amount: optionalNumber(reviewForm.tip_amount),
         tax_amount: optionalNumber(reviewForm.tax_amount),
         balance_after_transaction: optionalNumber(reviewForm.balance_after_transaction),
         category: optionalValue(reviewForm.category),
@@ -2930,6 +3091,9 @@ function NewExpensePage({
       payee: optionalValue(values.payee),
       merchant_name: optionalValue(values.payee),
       total_amount: optionalNumber(values.total_amount),
+      ...(values.tip_amount != null
+        ? { base_amount: values.base_amount, tip_amount: values.tip_amount }
+        : {}),
       payment_method: optionalValue(values.payment_method),
       category: optionalValue(values.category),
       description: optionalValue(values.description),
@@ -2989,94 +3153,122 @@ function NewExpensePage({
     setManualWorking(false);
   }
 
+  const showReview = Boolean(draft && reviewForm);
+  // Review and Manual share the slim toolbar selector so switching between them
+  // doesn't re-flow the page.
+  const compactEntry = showReview || entryTab === "manual";
+
   return (
-    <div className="fb-tab-stack fb-new-expense-page">
-      <DepartmentSetupBanner membership={membership} user={user} bankAccounts={bankAccounts} />
+    <div className={`fb-tab-stack fb-new-expense-page${compactEntry ? " fb-new-expense-page--review" : ""}`}>
+      {!compactEntry ? (
+        <DepartmentSetupBanner membership={membership} user={user} bankAccounts={bankAccounts} />
+      ) : null}
 
-      <section className="card fb-new-expense-hero">
-        <p className="eyebrow">Entry</p>
-        <h1 className="fb-dash-title">New Expense</h1>
-        <p className="fb-dash-subtitle">Upload a receipt or manually enter an expense.</p>
-        <div className="fb-segmented" role="tablist" aria-label="Expense entry type">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={entryTab === "receipt"}
-            className={`fb-segment ${entryTab === "receipt" ? "fb-segment--active" : ""}`}
-            onClick={() => selectEntryTab("receipt")}
-          >
-            Log with Receipt
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={entryTab === "manual"}
-            className={`fb-segment ${entryTab === "manual" ? "fb-segment--active" : ""}`}
-            onClick={() => selectEntryTab("manual")}
-          >
-            Manual Entry
-          </button>
+      {compactEntry ? (
+        <div className="fb-review-mode-bar">
+          <div className="fb-segmented fb-review-mode-bar__segments" role="tablist" aria-label="Expense entry type">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={entryTab === "receipt"}
+              aria-label="Log with Receipt"
+              className={`fb-segment ${entryTab === "receipt" ? "fb-segment--active" : ""}`}
+              onClick={() => selectEntryTab("receipt")}
+            >
+              Receipt
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={entryTab === "manual"}
+              aria-label="Manual Entry"
+              className={`fb-segment ${entryTab === "manual" ? "fb-segment--active" : ""}`}
+              onClick={() => selectEntryTab("manual")}
+            >
+              Manual
+            </button>
+          </div>
         </div>
-      </section>
+      ) : (
+        <section className="card fb-new-expense-hero">
+          <p className="eyebrow">New Expense</p>
+          <h1 className="fb-dash-title">New Expense</h1>
+          <p className="fb-dash-subtitle">Add an expense with a receipt or enter it manually.</p>
+          <div className="fb-segmented" role="tablist" aria-label="Expense entry type">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={entryTab === "receipt"}
+              className={`fb-segment ${entryTab === "receipt" ? "fb-segment--active" : ""}`}
+              onClick={() => selectEntryTab("receipt")}
+            >
+              Log with Receipt
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected="false"
+              className="fb-segment"
+              onClick={() => selectEntryTab("manual")}
+            >
+              Manual Entry
+            </button>
+          </div>
+        </section>
+      )}
 
-      <section className="card upload-card fb-expense-card">
-        {draft && reviewForm ? (
-          <ReviewExpenseForm
-            draft={draft}
-            form={reviewForm}
-            expenses={expenses}
-            bankAccounts={bankAccounts}
-            loggedBy={loggedByLabel(user)}
-            setForm={setReviewForm}
+      {showReview && draft && reviewForm ? (
+        <ReviewExpenseForm
+          draft={draft}
+          form={reviewForm}
+          expenses={expenses}
+          bankAccounts={bankAccounts}
+          loggedBy={loggedByLabel(user)}
+          setForm={setReviewForm}
+          disabled={working}
+          onSubmit={confirmExpense}
+          onCancel={() => {
+            setDraft(null);
+            setReviewForm(null);
+            discardSuggestions();
+          }}
+          showTwoPercentPanel={showTwoPercentPanel}
+          departmentCategories={departmentCategories}
+          departmentVendors={departmentVendors}
+          categorySuggestion={categorySuggestion}
+          twoPercentSuggestion={twoPercentSuggestion}
+          tipSource={tipSource}
+          onCategoryOverridden={() => setCategorySuggestion(null)}
+          onTwoPercentSuggestionResolved={() => setTwoPercentSuggestion(null)}
+          onTipOverridden={() => setTipSource(null)}
+        />
+      ) : entryTab === "receipt" ? (
+        <div className="fb-new-expense-stage">
+          <ReceiptUploadAction
+            isMobileDevice={isMobileDevice}
             disabled={working}
-            onSubmit={confirmExpense}
-            onCancel={() => {
-              setDraft(null);
-              setReviewForm(null);
-            }}
-            showTwoPercentPanel={showTwoPercentPanel}
-            departmentCategories={departmentCategories}
-            departmentVendors={departmentVendors}
+            onFileSelected={prepareReviewFromFile}
           />
-        ) : entryTab === "receipt" ? (
-          <>
-            <div className="section-heading">
-              <p className="eyebrow">Receipt</p>
-              <h2>Add a receipt</h2>
-            </div>
-            <div className="fb-receipt-upload-wrap">
-              <ReceiptUploadAction
-                isMobileDevice={isMobileDevice}
-                disabled={working}
-                onFileSelected={prepareReviewFromFile}
-              />
-            </div>
-            <div className="integration-note">
-              Receipt fields are autofilled when extraction succeeds. You confirm the register fields before the expense is
-              logged.
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="section-heading">
-              <p className="eyebrow">Manual</p>
-              <h2>Enter expense details</h2>
-            </div>
-            <ManualExpenseForm
-              key={manualFormKey}
-              expenses={expenses}
-              bankAccounts={bankAccounts}
-              defaultBankAccount={defaultBankAccount}
-              disabled={manualWorking}
-              onSubmit={submitManualExpense}
-              showTwoPercentPanel={showTwoPercentPanel}
-              departmentCategories={departmentCategories}
-              departmentVendors={departmentVendors}
-              prefill={manualPrefill}
-            />
-          </>
-        )}
-      </section>
+        </div>
+      ) : (
+        <ManualExpenseForm
+          key={manualFormKey}
+          expenses={expenses}
+          bankAccounts={bankAccounts}
+          defaultBankAccount={defaultBankAccount}
+          disabled={manualWorking}
+          onSubmit={submitManualExpense}
+          onCancel={() => {
+            setManualPrefill(undefined);
+            setManualFormKey((k) => k + 1);
+          }}
+          showTwoPercentPanel={showTwoPercentPanel}
+          departmentCategories={departmentCategories}
+          departmentVendors={departmentVendors}
+          prefill={manualPrefill}
+          loggedBy={loggedByLabel(user)}
+        />
+      )}
     </div>
   );
 }
@@ -3598,33 +3790,387 @@ function ReceiptUploadAction({
   onFileSelected: (file: File) => Promise<void>;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const title = isMobileDevice ? "Add Receipt" : "Upload Receipt";
-  const description = isMobileDevice
-    ? "Take a photo or upload from your device."
-    : "Upload a receipt image or PDF.";
+  const inputId = "hallix-receipt-file-input";
+  const [dragOver, setDragOver] = useState(false);
+  const supportCopy = isMobileDevice
+    ? "Take a photo or choose a receipt file."
+    : "Drag & drop a receipt here or choose a file.";
+
+  async function handleSelectedFile(file: File | undefined | null) {
+    if (!file || disabled) return;
+    await onFileSelected(file);
+  }
 
   async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
-    if (!file) return;
-    await onFileSelected(file);
     event.target.value = "";
+    await handleSelectedFile(file);
+  }
+
+  function handleDragOver(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (disabled) return;
+    setDragOver(true);
+  }
+
+  function handleDragLeave(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    const nextTarget = event.relatedTarget as Node | null;
+    if (nextTarget && event.currentTarget.contains(nextTarget)) return;
+    setDragOver(false);
+  }
+
+  async function handleDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    setDragOver(false);
+    if (disabled) return;
+    const file = event.dataTransfer.files?.[0];
+    await handleSelectedFile(file);
   }
 
   return (
-    <div className="capture-option fb-receipt-upload-single">
-      <div>
-        <strong>{title}</strong>
-        <p className="muted">{description}</p>
+    <div
+      className={`fb-receipt-dropzone${dragOver ? " fb-drag-over" : ""}${disabled ? " fb-receipt-dropzone--busy" : ""}`}
+      onDragOver={handleDragOver}
+      onDragEnter={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      <div className="fb-receipt-dropzone-icon" aria-hidden="true">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="28"
+          height="28"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+          <path d="M12 18v-6" />
+          <path d="M9 15l3-3 3 3" />
+        </svg>
       </div>
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/*,application/pdf"
-        onChange={handleFileChange}
-        style={{ display: "none" }}
-      />
-      <button type="button" className="fb-receipt-opt-btn" disabled={disabled} onClick={() => inputRef.current?.click()}>
-        {disabled ? "Extracting..." : title}
+
+      {disabled ? (
+        <div className="fb-receipt-dropzone-status" role="status" aria-live="polite">
+          <span className="fb-receipt-spinner" aria-hidden="true" />
+          <h2 className="fb-receipt-dropzone-title">Reading receipt…</h2>
+          <p className="fb-receipt-dropzone-copy">Hallix is extracting the transaction details.</p>
+        </div>
+      ) : (
+        <>
+          <h2 className="fb-receipt-dropzone-title">Upload a receipt</h2>
+          <p className="fb-receipt-dropzone-copy">{supportCopy}</p>
+          <input
+            id={inputId}
+            ref={inputRef}
+            type="file"
+            accept="image/*,application/pdf"
+            className="fb-visually-hidden"
+            onChange={handleFileChange}
+            disabled={disabled}
+            aria-label="Choose receipt file"
+          />
+          <button
+            type="button"
+            className="fb-primary-btn fb-receipt-choose-btn"
+            disabled={disabled}
+            onClick={() => inputRef.current?.click()}
+          >
+            Choose file
+          </button>
+          <p className="fb-receipt-dropzone-formats">JPG, PNG or PDF</p>
+          <p className="fb-receipt-dropzone-note">
+            Hallix will extract the receipt details for you to review before saving.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function formatDisplayDate(iso: string): string {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  return `${String(m).padStart(2, "0")}/${String(d).padStart(2, "0")}/${y}`;
+}
+
+function formatFriendlyDate(iso: string): string {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function formatAmountLabel(value: string): string {
+  const n = optionalNumber(value);
+  return n == null ? "" : formatUsd(n);
+}
+
+function accountMetaLine(account: BankAccount | undefined): string {
+  if (!account) return "";
+  const parts = [
+    account.institution_name?.trim() || null,
+    account.account_mask?.trim() ? `•••• ${account.account_mask.trim()}` : null,
+  ].filter(Boolean);
+  return parts.join(" ");
+}
+
+type ReviewEditField = "date" | "vendor" | "amount" | "tip" | "account" | "category" | null;
+
+function ReviewDetailIcon({
+  kind,
+}: {
+  kind: "date" | "vendor" | "amount" | "tip" | "total" | "account" | "category" | "two_percent";
+}) {
+  const common = {
+    width: 18,
+    height: 18,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.8,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true as const,
+  };
+  if (kind === "date") {
+    return (
+      <svg {...common}>
+        <rect x="3" y="4" width="18" height="18" rx="2" />
+        <line x1="16" y1="2" x2="16" y2="6" />
+        <line x1="8" y1="2" x2="8" y2="6" />
+        <line x1="3" y1="10" x2="21" y2="10" />
+      </svg>
+    );
+  }
+  if (kind === "vendor") {
+    return (
+      <svg {...common}>
+        <path d="M3 9l1-5h16l1 5" />
+        <path d="M4 9v11h16V9" />
+        <path d="M9 20v-6h6v6" />
+      </svg>
+    );
+  }
+  if (kind === "amount") {
+    return (
+      <svg {...common}>
+        <line x1="12" y1="1" x2="12" y2="23" />
+        <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+      </svg>
+    );
+  }
+  if (kind === "tip") {
+    return (
+      <svg {...common}>
+        <path d="M5 11h11a4 4 0 0 1 0 8H8l-4-4V11z" />
+        <path d="M9 11V6a2 2 0 1 1 4 0v5" />
+      </svg>
+    );
+  }
+  if (kind === "total") {
+    return (
+      <svg {...common}>
+        <line x1="5" y1="9" x2="19" y2="9" />
+        <line x1="5" y1="15" x2="19" y2="15" />
+        <line x1="4" y1="20" x2="20" y2="20" />
+      </svg>
+    );
+  }
+  if (kind === "account") {
+    return (
+      <svg {...common}>
+        <path d="M3 21h18" />
+        <path d="M3 10h18" />
+        <path d="M5 6l7-3 7 3" />
+        <path d="M6 10v11" />
+        <path d="M10 10v11" />
+        <path d="M14 10v11" />
+        <path d="M18 10v11" />
+      </svg>
+    );
+  }
+  if (kind === "category") {
+    return (
+      <svg {...common}>
+        <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+        <line x1="7" y1="7" x2="7.01" y2="7" />
+      </svg>
+    );
+  }
+  return (
+    <svg {...common}>
+      <line x1="19" y1="5" x2="5" y2="19" />
+      <circle cx="6.5" cy="6.5" r="2.5" />
+      <circle cx="17.5" cy="17.5" r="2.5" />
+    </svg>
+  );
+}
+
+type DetailIconKind = Parameters<typeof ReviewDetailIcon>[0]["kind"];
+
+/**
+ * Presentation shared by Receipt review and Manual entry so the two modes keep
+ * one visual language. They own no data; callers pass in state and handlers.
+ */
+function DetailRow({
+  kind,
+  className,
+  rowRef,
+  children,
+}: {
+  kind: DetailIconKind;
+  className?: string;
+  rowRef?: { current: HTMLDivElement | null };
+  children: ReactNode;
+}) {
+  return (
+    <div className={`fb-detail-row${className ? ` ${className}` : ""}`} ref={rowRef}>
+      <span className="fb-detail-icon">
+        <ReviewDetailIcon kind={kind} />
+      </span>
+      {children}
+    </div>
+  );
+}
+
+function TotalExpenseRow({ totalLabel }: { totalLabel: string }) {
+  return (
+    <DetailRow kind="total" className="fb-detail-row--total">
+      <div className="fb-detail-hit fb-detail-hit--static">
+        <span className="fb-detail-label">Total expense</span>
+        <span className="fb-detail-value">{totalLabel}</span>
+      </div>
+    </DetailRow>
+  );
+}
+
+function TwoPercentDetailRow({
+  isTwoPct,
+  suggestion,
+  onToggle,
+  onAcceptSuggestion,
+  onDismissSuggestion,
+}: {
+  isTwoPct: boolean;
+  /** Present only when an existing, still-relevant 2% suggestion should be offered. */
+  suggestion?: { reason: string | null } | null;
+  onToggle: (checked: boolean) => void;
+  onAcceptSuggestion?: () => void;
+  onDismissSuggestion?: () => void;
+}) {
+  const offered = Boolean(suggestion) && !isTwoPct;
+  const primary = isTwoPct ? "Tagged for 2% Funds" : offered ? "Suggested" : "Not tagged";
+  const secondary = isTwoPct
+    ? "This expense is marked for 2% funds."
+    : offered
+      ? suggestion?.reason || "Likely a 2% Funds expense"
+      : null;
+
+  return (
+    <DetailRow kind="two_percent">
+      <div className="fb-detail-2pct">
+        <span className="fb-detail-label">2% Funds</span>
+        <span className="fb-detail-value fb-detail-value--inline">
+          {primary}
+          {offered || isTwoPct ? (
+            <span
+              className="fb-detail-info"
+              title={
+                suggestion?.reason ||
+                "Hallix guidance only — confirm with department policy before filing."
+              }
+              aria-label="2% funds guidance"
+            >
+              i
+            </span>
+          ) : null}
+        </span>
+        {secondary ? <span className="fb-detail-sub">{secondary}</span> : null}
+        <label className="fb-2pct-tag-label">
+          <input type="checkbox" checked={isTwoPct} onChange={(e) => onToggle(e.target.checked)} />
+          <span>Tag as 2% Funds expense</span>
+          {isTwoPct ? <TwoPercentFundBadge className="fb-2pct-tag-badge" /> : null}
+        </label>
+        {offered && onAcceptSuggestion ? (
+          <div className="fb-2pct-suggestion-actions">
+            <button type="button" className="fb-secondary-btn fb-2pct-suggestion-btn" onClick={onAcceptSuggestion}>
+              Use 2% Funds
+            </button>
+            <button type="button" className="link-button fb-2pct-suggestion-dismiss" onClick={onDismissSuggestion}>
+              Dismiss
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </DetailRow>
+  );
+}
+
+function MoreDetailsCard({
+  open,
+  onToggle,
+  children,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <section className="card fb-more-details-card">
+      <button type="button" className="fb-more-details-trigger" aria-expanded={open} onClick={onToggle}>
+        <span className="fb-more-details-icon" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+            <line x1="8" y1="13" x2="16" y2="13" />
+            <line x1="8" y1="17" x2="13" y2="17" />
+          </svg>
+        </span>
+        <span className="fb-more-details-copy">
+          <strong>More details</strong>
+          <span>Payment method, check ref, tax, description…</span>
+        </span>
+        <span className={`fb-more-details-chevron${open ? " is-open" : ""}`} aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </span>
+      </button>
+      {open ? <div className="fb-more-details-body">{children}</div> : null}
+    </section>
+  );
+}
+
+function ExpenseFormActions({
+  busy,
+  disabled,
+  onCancel,
+}: {
+  busy: boolean;
+  disabled?: boolean;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="fb-review-actions">
+      <button type="submit" className="fb-primary-btn fb-review-confirm" disabled={busy || disabled}>
+        {busy ? "Saving…" : "Confirm and log expense"}
+      </button>
+      <button type="button" className="fb-review-cancel" onClick={onCancel} disabled={busy}>
+        Cancel
       </button>
     </div>
   );
@@ -3643,6 +4189,12 @@ function ReviewExpenseForm({
   showTwoPercentPanel,
   departmentCategories,
   departmentVendors,
+  categorySuggestion,
+  twoPercentSuggestion,
+  tipSource,
+  onCategoryOverridden,
+  onTwoPercentSuggestionResolved,
+  onTipOverridden,
 }: {
   draft: ExpenseDraft;
   form: ReviewForm;
@@ -3656,22 +4208,86 @@ function ReviewExpenseForm({
   showTwoPercentPanel?: boolean;
   departmentCategories?: DepartmentCategory[];
   departmentVendors?: DepartmentVendor[];
+  categorySuggestion?: CategorySuggestion | null;
+  twoPercentSuggestion?: TwoPercentSuggestion | null;
+  tipSource?: "extracted" | "derived" | null;
+  onCategoryOverridden?: () => void;
+  onTwoPercentSuggestionResolved?: () => void;
+  onTipOverridden?: () => void;
 }) {
   const [showMoreDetails, setShowMoreDetails] = useState(false);
+  const [categoryTouched, setCategoryTouched] = useState(false);
+  const [editingField, setEditingField] = useState<ReviewEditField>(null);
+  const [receiptLightboxOpen, setReceiptLightboxOpen] = useState(false);
+  const [tipTouched, setTipTouched] = useState(false);
+  const editRowRef = useRef<HTMLDivElement>(null);
+
+  // Tap or click anywhere outside the open field to finish editing — no Done button.
+  useDismissOnOutsideClick(editRowRef, () => setEditingField(null), editingField != null);
+
+  useEffect(() => {
+    if (!editingField) return;
+    const input = editRowRef.current?.querySelector<HTMLElement>("input, select, textarea");
+    input?.focus();
+  }, [editingField]);
 
   function update(field: keyof ReviewForm, value: string | boolean) {
     setForm({ ...form, [field]: value });
   }
 
+  /** The base amount and the tip are edited separately; the total is derived. */
+  function updateAmounts(next: { base?: string; tip?: string }) {
+    const baseValue = next.base ?? form.base_amount;
+    const tipValue = next.tip ?? form.tip_amount;
+    const baseCents = moneyToCents(baseValue);
+    const tipCents = moneyToCents(tipValue);
+    setForm({
+      ...form,
+      base_amount: baseValue,
+      tip_amount: tipValue,
+      total_amount: centsToMoneyString(addTip(baseCents, tipCents)),
+    });
+  }
+
+  /** A tip the user typed is authoritative — extraction must not reclaim it. */
+  function handleTipChange(value: string) {
+    setTipTouched(true);
+    updateAmounts({ tip: value });
+    onTipOverridden?.();
+  }
+
+  function handleCategoryChange(value: string) {
+    setCategoryTouched(true);
+    update("category", value);
+    onCategoryOverridden?.();
+  }
+
   function handleBankAccountChange(newAcct: string) {
     const acct = bankAccounts.find((a) => a.name.toLowerCase() === newAcct.toLowerCase());
-    setForm({ ...form, bank_account_name: newAcct, uses_two_percent_funds: Boolean(acct?.is_two_percent_account) || form.uses_two_percent_funds });
+    setForm({
+      ...form,
+      bank_account_name: newAcct,
+      uses_two_percent_funds: Boolean(acct?.is_two_percent_account) || form.uses_two_percent_funds,
+    });
+  }
+
+  function acceptTwoPercentSuggestion() {
+    const twoPctAcct = bankAccounts.find((a) => a.is_two_percent_account);
+    setForm({
+      ...form,
+      uses_two_percent_funds: true,
+      bank_account_name: twoPctAcct?.name || form.bank_account_name,
+    });
+    onTwoPercentSuggestionResolved?.();
   }
 
   function handleTwoPctToggle(checked: boolean) {
     if (checked) {
       const twoPctAcct = bankAccounts.find((a) => a.is_two_percent_account);
-      const newAcct = twoPctAcct && form.bank_account_name.toLowerCase() !== twoPctAcct.name.toLowerCase() ? twoPctAcct.name : form.bank_account_name;
+      const newAcct =
+        twoPctAcct && form.bank_account_name.toLowerCase() !== twoPctAcct.name.toLowerCase()
+          ? twoPctAcct.name
+          : form.bank_account_name;
       const newCategory = !form.category
         ? (suggestCategory({
             vendor: form.payee,
@@ -3687,9 +4303,11 @@ function ReviewExpenseForm({
     } else {
       update("uses_two_percent_funds", false);
     }
+    onTwoPercentSuggestionResolved?.();
   }
 
   function handleVendorChange(vendor: string) {
+    if (categoryTouched) return;
     const suggestion = suggestCategory({
       vendor,
       description: form.description,
@@ -3703,107 +4321,396 @@ function ReviewExpenseForm({
   }
 
   const isTwoPct = Boolean(form.uses_two_percent_funds);
+  const showCategorySuggestion = isSuggestionVisible({
+    suggestion: categorySuggestion,
+    currentCategory: form.category,
+    userEdited: categoryTouched,
+  });
+  const showTwoPercentSuggestion = Boolean(twoPercentSuggestion?.suggested && !isTwoPct);
+  const selectedAccount = bankAccounts.find(
+    (a) => a.name.toLowerCase() === form.bank_account_name.trim().toLowerCase(),
+  );
+  const accountSubtitle = accountMetaLine(selectedAccount);
+  const baseCents = moneyToCents(form.base_amount) ?? 0;
+  const tipCents = moneyToCents(form.tip_amount);
+  const totalCents = addTip(baseCents, tipCents);
+  const amountLabel = formatAmountLabel(form.base_amount);
+  const tipLabel = formatAmountLabel(form.tip_amount);
+  const totalLabel = centsToMoneyString(totalCents) ? formatUsd(totalCents / 100) : "";
+  const showTipRow =
+    Boolean(tipLabel) ||
+    editingField === "tip" ||
+    isTipLikely({
+      category: form.category,
+      vendor: form.payee,
+      description: form.description,
+      lineItems: draft.extracted.line_items,
+    });
+  const tipWarning = isTipDisproportionate(baseCents, tipCents);
+  const dateLabel = formatDisplayDate(form.transaction_date);
+  const friendlyDate = formatFriendlyDate(form.transaction_date);
+  const receiptSummaryLine = [friendlyDate, amountLabel].filter(Boolean).join(" · ");
+  const hasReceiptPreview = Boolean(draft.receiptPreviewUrl);
+
+  useEffect(() => {
+    if (!receiptLightboxOpen && !editingField) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      if (receiptLightboxOpen) setReceiptLightboxOpen(false);
+      else setEditingField(null);
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [receiptLightboxOpen, editingField]);
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    if (!form.transaction_date) {
+      event.preventDefault();
+      setEditingField("date");
+      return;
+    }
+    if (!form.payee.trim()) {
+      event.preventDefault();
+      setEditingField("vendor");
+      return;
+    }
+    if (!form.total_amount || amountStringToCents(form.total_amount) <= 0) {
+      event.preventDefault();
+      setEditingField("amount");
+      return;
+    }
+    void onSubmit(event);
+  }
 
   return (
-    <>
-      <div className="section-heading">
-        <p className="eyebrow">Confirm expense details</p>
-        <h2>Review before logging</h2>
-      </div>
-      {draft.receiptPreviewUrl && (
-        <img className="receipt-preview" src={draft.receiptPreviewUrl} alt="Receipt preview" />
-      )}
-      {draft.extracted.notes && <div className="integration-note">{draft.extracted.notes}</div>}
-      <form onSubmit={onSubmit} className="upload-form fb-expense-form">
-        {/* Core fields — always visible */}
-        <div className="form-grid two-column">
-          <TextField label="Date" type="date" value={form.transaction_date} onChange={(v) => update("transaction_date", v)} required />
-          <VendorAutocompleteField
-            label="Paid to / vendor"
-            value={form.payee}
-            onChange={(v) => update("payee", v)}
-            expenses={expenses}
-            departmentVendors={departmentVendors}
-            required
-            onVendorChange={handleVendorChange}
-          />
-          <CentsMoneyInput label="Payment amount" value={form.total_amount} onChange={(v) => update("total_amount", v)} required />
-          <BankAccountSelect
-            label="Bank account"
-            value={form.bank_account_name}
-            onChange={handleBankAccountChange}
-            bankAccounts={bankAccounts}
-          />
-          <CategoryComboboxField
-            label="Category / purpose"
-            value={form.category}
-            onChange={(v) => update("category", v)}
-            expenses={expenses}
-            departmentCategories={departmentCategories}
-            twoPctMode={isTwoPct}
-          />
-        </div>
-        <div className="fb-2pct-tag-row">
-          <label className="fb-2pct-tag-label">
-            <input type="checkbox" checked={isTwoPct} onChange={(e) => handleTwoPctToggle(e.target.checked)} />
-            <span>Tag as 2% Funds expense</span>
-            {isTwoPct && <TwoPercentFundBadge className="fb-2pct-tag-badge" />}
-          </label>
-        </div>
-        <label>
-          Description / memo
-          <textarea
-            rows={3}
-            value={form.description}
-            onChange={(event) => update("description", event.target.value)}
-          />
-        </label>
+    <div className="fb-review-stack">
+      {draft.extracted.notes ? <div className="integration-note fb-review-note">{draft.extracted.notes}</div> : null}
 
-        {/* More details toggle */}
-        <button
-          type="button"
-          className="fb-more-details-toggle link-button"
-          onClick={() => setShowMoreDetails((v) => !v)}
-        >
-          {showMoreDetails ? "▲ Fewer details" : "▼ More details"}
-        </button>
-
-        {showMoreDetails && (
-          <div className="fb-more-details form-grid two-column">
-            <TextField label="Check / payment ref" value={form.payment_reference} onChange={(v) => update("payment_reference", v)} placeholder="Check #, debit, ACH, card..." />
-            <PaymentMethodSelect label="Payment method" value={form.payment_method} onChange={(v) => update("payment_method", v)} />
-            <CentsMoneyInput label="Tax" value={form.tax_amount} onChange={(v) => update("tax_amount", v)} />
-            <TextField label="Balance after transaction" value={form.balance_after_transaction} onChange={(v) => update("balance_after_transaction", v)} />
-            <TextField label="Fund / budget line" value={form.fund} onChange={(v) => update("fund", v)} placeholder="General, equipment, fuel..." />
-            {isTwoPct && showTwoPercentPanel && (
-              <div className="form-grid-full">
-                <TwoPercentGuidancePanel
-                  vendor={form.payee}
-                  category={form.category}
-                  description={form.description}
-                  memberVoteRecorded={form.member_vote_recorded}
-                  meetingDate={form.meeting_date}
-                  supportNote={form.support_note}
-                  onMemberVoteChange={(v) => update("member_vote_recorded", v)}
-                  onMeetingDateChange={(v) => update("meeting_date", v)}
-                  onSupportNoteChange={(v) => update("support_note", v)}
-                />
+      <section className="card fb-receipt-summary-card">
+        <div className="fb-receipt-summary">
+          <div className="fb-receipt-thumb-wrap">
+            {hasReceiptPreview ? (
+              <img
+                className="fb-receipt-thumb"
+                src={draft.receiptPreviewUrl!}
+                alt={`Receipt from ${form.payee || "vendor"}`}
+              />
+            ) : (
+              <div className="fb-receipt-thumb fb-receipt-thumb--placeholder" aria-hidden="true">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                </svg>
               </div>
             )}
           </div>
-        )}
-
-        <div className="integration-note">Logged by: {loggedBy}</div>
-        <div className="button-row">
-          <button type="submit" disabled={disabled}>
-            {disabled ? "Saving..." : "Confirm and log expense"}
-          </button>
-          <button type="button" className="secondary-action" onClick={onCancel}>
-            Cancel
-          </button>
+          <div className="fb-receipt-summary-copy">
+            <p className="fb-receipt-summary-title">Receipt captured</p>
+            <p className="fb-receipt-summary-vendor">{form.payee || draft.receiptFile.name || "Receipt"}</p>
+            {receiptSummaryLine ? <p className="fb-receipt-summary-meta">{receiptSummaryLine}</p> : null}
+            {hasReceiptPreview ? (
+              <button
+                type="button"
+                className="fb-view-receipt-link"
+                onClick={() => setReceiptLightboxOpen(true)}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                  <polyline points="15 3 21 3 21 9" />
+                  <line x1="10" y1="14" x2="21" y2="3" />
+                </svg>
+                View receipt
+              </button>
+            ) : (
+              <p className="fb-receipt-summary-meta">PDF attached — open after saving from Transactions.</p>
+            )}
+          </div>
         </div>
+      </section>
+
+      <form onSubmit={handleSubmit} className="fb-review-form">
+        <section className="card fb-extracted-card">
+          <p className="fb-extracted-eyebrow">Extracted details</p>
+          <div className="fb-extracted-grid">
+            <div
+              className={`fb-detail-row${editingField === "date" ? " fb-detail-row--editing" : ""}`}
+              ref={editingField === "date" ? editRowRef : undefined}
+            >
+              <span className="fb-detail-icon">
+                <ReviewDetailIcon kind="date" />
+              </span>
+              {editingField === "date" ? (
+                <div className="fb-detail-editor">
+                  <TextField
+                    label="Date"
+                    type="date"
+                    value={form.transaction_date}
+                    onChange={(v) => update("transaction_date", v)}
+                    required
+                  />
+                </div>
+              ) : (
+                <button type="button" className="fb-detail-hit" onClick={() => setEditingField("date")}>
+                  <span className="fb-detail-label">Date</span>
+                  <span className={`fb-detail-value${!dateLabel ? " fb-detail-value--empty" : ""}`}>
+                    {dateLabel || "Add date"}
+                  </span>
+                </button>
+              )}
+            </div>
+
+            <div
+              className={`fb-detail-row${editingField === "vendor" ? " fb-detail-row--editing" : ""}`}
+              ref={editingField === "vendor" ? editRowRef : undefined}
+            >
+              <span className="fb-detail-icon">
+                <ReviewDetailIcon kind="vendor" />
+              </span>
+              {editingField === "vendor" ? (
+                <div className="fb-detail-editor">
+                  <VendorAutocompleteField
+                    label="Vendor"
+                    value={form.payee}
+                    onChange={(v) => update("payee", v)}
+                    expenses={expenses}
+                    departmentVendors={departmentVendors}
+                    required
+                    onVendorChange={handleVendorChange}
+                  />
+                </div>
+              ) : (
+                <button type="button" className="fb-detail-hit" onClick={() => setEditingField("vendor")}>
+                  <span className="fb-detail-label">Vendor</span>
+                  <span className={`fb-detail-value${!form.payee ? " fb-detail-value--empty" : ""}`}>
+                    {form.payee || "Add vendor"}
+                  </span>
+                </button>
+              )}
+            </div>
+
+            <div
+              className={`fb-detail-row${editingField === "amount" ? " fb-detail-row--editing" : ""}`}
+              ref={editingField === "amount" ? editRowRef : undefined}
+            >
+              <span className="fb-detail-icon">
+                <ReviewDetailIcon kind="amount" />
+              </span>
+              {editingField === "amount" ? (
+                <div className="fb-detail-editor">
+                  <CentsMoneyInput
+                    label="Amount"
+                    value={form.base_amount}
+                    onChange={(v) => updateAmounts({ base: v })}
+                    required
+                  />
+                </div>
+              ) : (
+                <button type="button" className="fb-detail-hit" onClick={() => setEditingField("amount")}>
+                  <span className="fb-detail-label">Amount</span>
+                  <span className={`fb-detail-value${!amountLabel ? " fb-detail-value--empty" : ""}`}>
+                    {amountLabel || "Add amount"}
+                  </span>
+                </button>
+              )}
+            </div>
+
+            {showTipRow ? (
+              <div
+                className={`fb-detail-row${editingField === "tip" ? " fb-detail-row--editing" : ""}`}
+                ref={editingField === "tip" ? editRowRef : undefined}
+              >
+                <span className="fb-detail-icon">
+                  <ReviewDetailIcon kind="tip" />
+                </span>
+                {editingField === "tip" ? (
+                  <div className="fb-detail-editor">
+                    <CentsMoneyInput label="Tip" value={form.tip_amount} onChange={handleTipChange} />
+                  </div>
+                ) : (
+                  <button type="button" className="fb-detail-hit" onClick={() => setEditingField("tip")}>
+                    <span className="fb-detail-label">
+                      Tip
+                      {tipLabel && tipSource && !tipTouched ? (
+                        <span className="fb-detail-flag">Extracted</span>
+                      ) : null}
+                    </span>
+                    <span className={`fb-detail-value${!tipLabel ? " fb-detail-value--empty" : ""}`}>
+                      {tipLabel || "+ Add tip"}
+                    </span>
+                  </button>
+                )}
+                {tipWarning ? (
+                  <p className="fb-detail-note">Tip is larger than the amount — double-check it.</p>
+                ) : null}
+              </div>
+            ) : null}
+
+            {(tipCents ?? 0) > 0 ? <TotalExpenseRow totalLabel={totalLabel} /> : null}
+
+            <div
+              className={`fb-detail-row${editingField === "category" ? " fb-detail-row--editing" : ""}`}
+              ref={editingField === "category" ? editRowRef : undefined}
+            >
+              <span className="fb-detail-icon">
+                <ReviewDetailIcon kind="category" />
+              </span>
+              {editingField === "category" ? (
+                <div className="fb-detail-editor">
+                  <CategoryComboboxField
+                    label="Category / Purpose"
+                    value={form.category}
+                    onChange={handleCategoryChange}
+                    expenses={expenses}
+                    departmentCategories={departmentCategories}
+                    twoPctMode={isTwoPct}
+                  />
+                </div>
+              ) : (
+                <button type="button" className="fb-detail-hit" onClick={() => setEditingField("category")}>
+                  <span className="fb-detail-label">Category / Purpose</span>
+                  <span className={`fb-detail-value${!form.category ? " fb-detail-value--empty" : ""}`}>
+                    {form.category || "Select category"}
+                  </span>
+                  {showCategorySuggestion ? (
+                    <span
+                      className="fb-suggested-chip fb-suggested-chip--positive"
+                      title="Hallix selected this category from the receipt and your department's transaction history."
+                    >
+                      Suggested
+                    </span>
+                  ) : null}
+                </button>
+              )}
+            </div>
+
+            <div
+              className={`fb-detail-row${editingField === "account" ? " fb-detail-row--editing" : ""}`}
+              ref={editingField === "account" ? editRowRef : undefined}
+            >
+              <span className="fb-detail-icon">
+                <ReviewDetailIcon kind="account" />
+              </span>
+              {editingField === "account" ? (
+                <div className="fb-detail-editor">
+                  <BankAccountSelect
+                    label="Account"
+                    value={form.bank_account_name}
+                    onChange={handleBankAccountChange}
+                    bankAccounts={bankAccounts}
+                    required
+                  />
+                </div>
+              ) : (
+                <button type="button" className="fb-detail-hit" onClick={() => setEditingField("account")}>
+                  <span className="fb-detail-label">Account</span>
+                  <span className={`fb-detail-value${!form.bank_account_name ? " fb-detail-value--empty" : ""}`}>
+                    {form.bank_account_name || "Choose account"}
+                  </span>
+                  {accountSubtitle ? <span className="fb-detail-sub">{accountSubtitle}</span> : null}
+                </button>
+              )}
+            </div>
+
+            <TwoPercentDetailRow
+              isTwoPct={isTwoPct}
+              suggestion={showTwoPercentSuggestion ? { reason: twoPercentSuggestion?.reason ?? null } : null}
+              onToggle={handleTwoPctToggle}
+              onAcceptSuggestion={acceptTwoPercentSuggestion}
+              onDismissSuggestion={() => onTwoPercentSuggestionResolved?.()}
+            />
+          </div>
+        </section>
+
+        <MoreDetailsCard open={showMoreDetails} onToggle={() => setShowMoreDetails((v) => !v)}>
+          <div className="fb-more-details-group">
+            <p className="fb-more-details-group-title">Payment details</p>
+            <div className="form-grid two-column">
+              <PaymentMethodSelect
+                label="Payment method"
+                value={form.payment_method}
+                onChange={(v) => update("payment_method", v)}
+              />
+              <TextField
+                label="Check / payment ref"
+                value={form.payment_reference}
+                onChange={(v) => update("payment_reference", v)}
+                placeholder="Check #, debit, ACH, card..."
+              />
+            </div>
+          </div>
+
+          <div className="fb-more-details-group">
+            <p className="fb-more-details-group-title">Additional accounting</p>
+            <div className="form-grid two-column">
+              <CentsMoneyInput label="Tax" value={form.tax_amount} onChange={(v) => update("tax_amount", v)} />
+              <TextField
+                label="Fund / budget line"
+                value={form.fund}
+                onChange={(v) => update("fund", v)}
+                placeholder="General, equipment, fuel..."
+              />
+              <TextField
+                label="Balance after transaction"
+                value={form.balance_after_transaction}
+                onChange={(v) => update("balance_after_transaction", v)}
+              />
+            </div>
+          </div>
+
+          <div className="fb-more-details-group">
+            <p className="fb-more-details-group-title">Notes</p>
+            <label>
+              Description / memo
+              <textarea
+                rows={2}
+                value={form.description}
+                onChange={(event) => update("description", event.target.value)}
+              />
+            </label>
+          </div>
+
+          {isTwoPct && showTwoPercentPanel ? (
+            <div className="fb-more-details-group">
+              <TwoPercentGuidancePanel
+                vendor={form.payee}
+                category={form.category}
+                description={form.description}
+                memberVoteRecorded={form.member_vote_recorded}
+                meetingDate={form.meeting_date}
+                supportNote={form.support_note}
+                onMemberVoteChange={(v) => update("member_vote_recorded", v)}
+                onMeetingDateChange={(v) => update("meeting_date", v)}
+                onSupportNoteChange={(v) => update("support_note", v)}
+              />
+            </div>
+          ) : null}
+
+          <p className="fb-review-logged-by">Logged by {loggedBy}</p>
+        </MoreDetailsCard>
+
+        <ExpenseFormActions busy={disabled} onCancel={onCancel} />
       </form>
-    </>
+
+      {receiptLightboxOpen && hasReceiptPreview ? (
+        <div
+          className="fb-receipt-lightbox"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Receipt preview"
+          onClick={() => setReceiptLightboxOpen(false)}
+        >
+          <div className="fb-receipt-lightbox-panel" onClick={(event) => event.stopPropagation()}>
+            <div className="fb-receipt-lightbox-bar">
+              <p>Receipt preview</p>
+              <button type="button" className="fb-receipt-lightbox-close" onClick={() => setReceiptLightboxOpen(false)}>
+                Close
+              </button>
+            </div>
+            <img src={draft.receiptPreviewUrl!} alt={`Full receipt from ${form.payee || "vendor"}`} />
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -6998,17 +7905,27 @@ async function createMembershipFromMetadata(user: User | null, role: string, dep
   return row as unknown as DepartmentMembership;
 }
 
-async function extractReceipt(file: File): Promise<ExtractedReceiptData> {
+async function extractReceipt(
+  file: File,
+  allowedCategories?: string[],
+): Promise<ExtractedReceiptData> {
   const form = new FormData();
   form.append("receipt", file);
-  const response = await fetch("/api/extract-receipt", {
-    method: "POST",
-    body: form,
-  });
-  if (!response.ok) {
+  if (allowedCategories?.length) {
+    form.append("categories", JSON.stringify(allowedCategories));
+  }
+  try {
+    const response = await fetch("/api/extract-receipt", {
+      method: "POST",
+      body: form,
+    });
+    if (!response.ok) {
+      return { ...EMPTY_EXTRACTION, notes: "Automatic extraction failed. Review manually." };
+    }
+    return await response.json();
+  } catch {
     return { ...EMPTY_EXTRACTION, notes: "Automatic extraction failed. Review manually." };
   }
-  return response.json();
 }
 
 function buildReceiptPath({
