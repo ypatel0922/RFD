@@ -433,6 +433,10 @@
   animation-delay: 240ms;
 }
 
+.hallix-mkt .mkt-hero-copy > *:nth-child(6) {
+  animation-delay: 300ms;
+}
+
 .hallix-mkt .mkt-eyebrow {
   font-size: 0.75rem;
   font-weight: 700;
@@ -498,6 +502,14 @@
 .hallix-mkt .mkt-hero-ctas .mkt-btn {
   flex: 1 1 auto;
   min-height: 52px;
+}
+
+.hallix-mkt .mkt-hero .mkt-checks {
+  margin-top: 1.25rem;
+}
+
+.hallix-mkt .mkt-hero .mkt-checks li {
+  color: #fff;
 }
 
 .hallix-mkt .mkt-hero-visual {
@@ -732,7 +744,8 @@
   .hallix-mkt .mkt-eyebrow,
   .hallix-mkt .mkt-hero h1,
   .hallix-mkt .mkt-built-by,
-  .hallix-mkt .mkt-hero-ctas {
+  .hallix-mkt .mkt-hero-ctas,
+  .hallix-mkt .mkt-hero .mkt-checks {
     grid-column: 1 / -1;
   }
 
@@ -752,6 +765,11 @@
   .hallix-mkt .mkt-hero-ctas {
     grid-row: 5;
     margin-top: 1.5rem;
+  }
+
+  .hallix-mkt .mkt-hero .mkt-checks {
+    grid-row: 6;
+    margin-top: 1.1rem;
   }
 
   .hallix-mkt .mkt-hero-visual {
@@ -1460,6 +1478,7 @@
 
 .hallix-mkt .mkt-features {
   padding-top: 2.75rem;
+  padding-bottom: 1.75rem;
 }
 
 .hallix-mkt .mkt-checks {
@@ -1493,16 +1512,16 @@
 }
 
 @media (max-width: 479px) {
-  .hallix-mkt .mkt-features .mkt-checks {
+  .hallix-mkt .mkt-hero .mkt-checks {
     gap: 0.5rem 0.6rem;
   }
 
-  .hallix-mkt .mkt-features .mkt-checks li {
+  .hallix-mkt .mkt-hero .mkt-checks li {
     gap: 0.35rem;
     font-size: 0.92rem;
   }
 
-  .hallix-mkt .mkt-features .mkt-check {
+  .hallix-mkt .mkt-hero .mkt-check {
     width: 20px;
     height: 20px;
   }
@@ -1621,6 +1640,7 @@
 @media (min-width: 1024px) {
   .hallix-mkt .mkt-features {
     padding-top: 3.5rem;
+    padding-bottom: 2rem;
   }
 
   .hallix-mkt .mkt-feature-grid {
@@ -1647,17 +1667,44 @@
   }
 }
 
+/* Shared red + navy glow band (SMS, founder, etc.) */
+.hallix-mkt .mkt-glow-band {
+  background:
+    radial-gradient(58% 75% at 6% 40%, rgb(220 36 48 / 22%), transparent 62%),
+    radial-gradient(52% 70% at 96% 42%, rgb(11 18 36 / 16%), transparent 60%),
+    linear-gradient(
+      180deg,
+      var(--mkt-page) 0%,
+      #e7ecf5 8%,
+      #d8e0ee 28%,
+      #d2dceb 52%,
+      #dce4f0 78%,
+      var(--mkt-page) 100%
+    );
+}
+
 /* ------------------------------------------------------------ SMS workflow */
+
+.hallix-mkt .mkt-sms-section {
+  padding-top: 2.25rem;
+  padding-bottom: 1rem;
+}
 
 .hallix-mkt .mkt-sms {
   display: grid;
   gap: 1.75rem;
   padding: 1.6rem 1.25rem;
   border-radius: var(--mkt-radius-lg);
-  background:
-    radial-gradient(60% 80% at 100% 0%, rgb(37 99 235 / 7%), transparent 70%),
-    #eef3fa;
-  border: 1px solid #e1e8f3;
+  background: #fff;
+  border: 1px solid var(--mkt-line);
+  box-shadow: var(--mkt-shadow-sm);
+}
+
+@media (min-width: 1024px) {
+  .hallix-mkt .mkt-sms-section {
+    padding-top: 2.75rem;
+    padding-bottom: 1.25rem;
+  }
 }
 
 .hallix-mkt .mkt-sms-copy .mkt-h2 {
@@ -2168,9 +2215,23 @@
 
 /* ---------------------------------------------------------- How it works */
 
+.hallix-mkt .mkt-how {
+  padding-top: 0.25rem;
+  padding-bottom: 2.25rem;
+}
+
+.hallix-mkt .mkt-how-head {
+  margin-bottom: 1rem;
+}
+
+.hallix-mkt .mkt-how-head .mkt-sub {
+  margin-top: 0.4rem;
+  max-width: 34rem;
+}
+
 .hallix-mkt .mkt-steps {
   display: grid;
-  gap: 0.75rem;
+  gap: 0.55rem;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -2179,36 +2240,55 @@
 .hallix-mkt .mkt-step {
   display: flex;
   align-items: flex-start;
-  gap: 0.9rem;
-  padding: 1rem 1.1rem;
+  gap: 0.8rem;
+  padding: 0.85rem 1rem;
   background: #fff;
   border: 1px solid var(--mkt-line);
-  border-radius: var(--mkt-radius);
+  border-radius: 14px;
+  box-shadow: var(--mkt-shadow-sm);
+  opacity: 0;
+  transform: translateY(14px);
+  transition:
+    opacity 480ms ease,
+    transform 480ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.hallix-mkt .mkt-steps.is-visible .mkt-step {
+  opacity: 1;
+  transform: none;
+}
+
+.hallix-mkt .mkt-steps.is-visible .mkt-step--2 {
+  transition-delay: 280ms;
+}
+
+.hallix-mkt .mkt-steps.is-visible .mkt-step--3 {
+  transition-delay: 560ms;
 }
 
 .hallix-mkt .mkt-step-num {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 34px;
+  height: 34px;
   flex-shrink: 0;
   border-radius: 999px;
   background: var(--mkt-red);
   color: #fff;
   font-weight: 800;
-  font-size: 1.05rem;
+  font-size: 0.95rem;
 }
 
 .hallix-mkt .mkt-step h3 {
-  font-size: 1.05rem;
+  font-size: 1rem;
   font-weight: 800;
   line-height: 1.25;
 }
 
 .hallix-mkt .mkt-step p {
-  margin-top: 0.2rem;
-  font-size: 0.95rem;
+  margin-top: 0.15rem;
+  font-size: 0.9rem;
   line-height: 1.4;
   color: var(--mkt-muted);
 }
@@ -2218,34 +2298,69 @@
 }
 
 @media (min-width: 900px) {
+  .hallix-mkt .mkt-how {
+    padding-top: 0.35rem;
+    padding-bottom: 2.75rem;
+  }
+
+  .hallix-mkt .mkt-how-head {
+    margin-bottom: 1.25rem;
+  }
+
   .hallix-mkt .mkt-steps {
-    grid-template-columns: 1fr auto 1fr auto 1fr;
-    align-items: center;
-    gap: 1rem;
+    grid-template-columns: 1fr 28px 1fr 28px 1fr;
+    align-items: stretch;
+    gap: 0.65rem;
   }
 
   .hallix-mkt .mkt-step-arrow {
     display: flex;
+    align-items: center;
+    justify-content: center;
     color: var(--mkt-red);
+    opacity: 0;
+    transform: translateX(-6px);
+    transition:
+      opacity 360ms ease,
+      transform 360ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  }
+
+  .hallix-mkt .mkt-steps.is-visible .mkt-step-arrow--1 {
+    opacity: 1;
+    transform: none;
+    transition-delay: 180ms;
+  }
+
+  .hallix-mkt .mkt-steps.is-visible .mkt-step-arrow--2 {
+    opacity: 1;
+    transform: none;
+    transition-delay: 460ms;
   }
 
   .hallix-mkt .mkt-step {
     height: 100%;
-    padding: 1.25rem 1.35rem;
+    padding: 1.05rem 1.15rem;
   }
 
   .hallix-mkt .mkt-step-num {
-    width: 46px;
-    height: 46px;
-    font-size: 1.15rem;
+    width: 38px;
+    height: 38px;
+    font-size: 1.02rem;
   }
 
   .hallix-mkt .mkt-step h3 {
-    font-size: 1.12rem;
+    font-size: 1.05rem;
   }
 
   .hallix-mkt .mkt-step p {
-    font-size: 0.98rem;
+    font-size: 0.92rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .hallix-mkt .mkt-how {
+    padding-top: 0.5rem;
+    padding-bottom: 3rem;
   }
 }
 
@@ -2419,6 +2534,16 @@
 
 /* ----------------------------------------------------------- Founder */
 
+.hallix-mkt .mkt-founder-section {
+  padding-block: 2rem;
+}
+
+@media (min-width: 1024px) {
+  .hallix-mkt .mkt-founder-section {
+    padding-block: 2.5rem;
+  }
+}
+
 .hallix-mkt .mkt-founder {
   display: grid;
   gap: 1.5rem;
@@ -2506,23 +2631,35 @@
 
 .hallix-mkt .mkt-quote {
   position: relative;
-  padding: 1.35rem 1.4rem;
+  display: flex;
+  flex-direction: column;
+  padding: 1.35rem 1.4rem 1.4rem;
   border-radius: var(--mkt-radius);
   background: var(--mkt-page);
   border: 1px solid var(--mkt-line);
 }
 
 .hallix-mkt .mkt-quote-mark {
-  display: block;
-  height: 2rem;
-  font-size: 3.4rem;
-  line-height: 1;
+  font-size: 3.2rem;
+  line-height: 0.7;
   font-weight: 800;
   color: var(--mkt-red);
+  user-select: none;
+}
+
+.hallix-mkt .mkt-quote-mark--open {
+  align-self: flex-start;
+  margin-bottom: 0.55rem;
+}
+
+.hallix-mkt .mkt-quote-mark--close {
+  align-self: flex-end;
+  margin-top: 0.35rem;
+  line-height: 0.55;
 }
 
 .hallix-mkt .mkt-quote p {
-  margin-top: 0.4rem;
+  margin: 0;
   font-size: 1.08rem;
   line-height: 1.55;
   font-style: italic;
@@ -2530,9 +2667,25 @@
 }
 
 .hallix-mkt .mkt-quote footer {
-  margin-top: 0.9rem;
-  font-size: 0.9rem;
-  font-weight: 700;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-top: 1.1rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--mkt-line);
+  font-style: normal;
+}
+
+.hallix-mkt .mkt-quote-name {
+  font-size: 0.98rem;
+  font-weight: 800;
+  font-style: normal;
+  color: var(--mkt-ink);
+}
+
+.hallix-mkt .mkt-quote-role {
+  font-size: 0.85rem;
+  font-weight: 600;
   color: var(--mkt-muted);
 }
 
@@ -2616,6 +2769,7 @@
 .hallix-mkt .mkt-pricing {
   display: flex;
   flex-direction: column;
+  align-self: start;
   color: #fff;
   border: 0;
   background:
@@ -2943,7 +3097,9 @@
   }
 
   .hallix-mkt .mkt-reveal,
-  .hallix-mkt .mkt-flow-step {
+  .hallix-mkt .mkt-flow-step,
+  .hallix-mkt .mkt-step,
+  .hallix-mkt .mkt-step-arrow {
     opacity: 1 !important;
     transform: none !important;
   }

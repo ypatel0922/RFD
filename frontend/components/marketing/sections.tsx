@@ -19,6 +19,7 @@ import {
   UserCheck,
   Users,
 } from "lucide-react";
+import Link from "next/link";
 
 import {
   DashboardScreen,
@@ -93,8 +94,7 @@ export function MarketingHero() {
             </span>
           </h1>
           <p className="mkt-hero-lede">
-            Hallix helps fire departments track expenses, record money in, reconcile accounts, manage NYS 2%
-            funds, store receipts and documents, text receipts, and generate audit-ready reports.
+            Hallix replaces manual logs, scattered receipts, and your accountant, while keeping your department audit-ready.
           </p>
           <p className="mkt-built-by">
             <span className="mkt-built-by-icon" aria-hidden>
@@ -107,13 +107,11 @@ export function MarketingHero() {
               Request a demo
               <ArrowRight size={18} className="mkt-arrow" aria-hidden />
             </a>
-            <a href="#how-it-works" className="mkt-btn mkt-btn-ghost">
-              <span className="mkt-play-icon" aria-hidden>
-                <Play size={11} fill="currentColor" strokeWidth={0} />
-              </span>
-              See how it works
-            </a>
+            <Link href="/login" className="mkt-btn mkt-btn-ghost">
+              Sign In
+            </Link>
           </div>
+          <CheckList items={VALUE_CHECKS} />
         </div>
         <div className="mkt-hero-visual">
           <HeroDevices />
@@ -127,23 +125,23 @@ export function MarketingHero() {
 
 const TRUST_ITEMS = [
   {
-    title: "Transparency & analysis",
-    text: "AI insights, easy searches, and side-by-side comparisons.",
+    title: "Transparency & Analysis",
+    text: "Automatic reconciliation, AI insights, easy searches, and side-by-side comparisons.",
     icon: BarChart3,
   },
   {
-    title: "Plaid or manual",
+    title: "Plaid or Manual",
     text: "Every account in one place — connected or entered by hand.",
     icon: Landmark,
   },
   {
-    title: "Secure records",
+    title: "Secure Records",
     text: "Receipts and documents stored safely, ready for any report.",
     icon: FolderLock,
   },
   {
     title: "Compliance & audit-ready",
-    text: "Tax form reports and automatic activity logs, generated for you.",
+    text: "Automatically generate tax forms and activity logs.",
     icon: ClipboardCheck,
   },
 ] as const;
@@ -174,28 +172,28 @@ export function TrustStrip() {
 
 const FEATURES = [
   {
-    title: "Upload receipts & documents",
-    text: "Snap or upload a receipt. Hallix reads the details and files it with the transaction.",
+    title: "Upload & Save Receipts & Documents",
+    text: "Snap or upload a receipt. Hallix reads the details and files it with the transaction. No need to log it yourself",
     icon: Upload,
     bg: "#fdecec",
     fg: "#c81e2a",
   },
   {
-    title: "Generate tax forms and spending reports",
-    text: "NYS 2% and IRS 990 support, plus spending, vendor, and category reports in a click.",
+    title: "Generate Tax Forms and Spending Reports",
+    text: "NYS 2% support, plus spending, vendor, and yearly reports in a click so you are ready for your meetings.",
     icon: FileSpreadsheet,
     bg: "#e7f6ee",
     fg: "#067647",
   },
   {
-    title: "Text-message receipt upload",
-    text: "Members text a photo of a receipt. Hallix captures it and attaches it automatically.",
+    title: "Text-message Reminders & Receipt Upload",
+    text: "Users recieve a text when transactions post. Simply text a photo of the receipt back and Hallix attaches it automatically.",
     icon: MessageSquareText,
     bg: "#eaf1fe",
     fg: "#1d4ed8",
   },
   {
-    title: "Easy compliance & audit-ready reports",
+    title: "Easy Compliance & Audit-ready Reports",
     text: "Keep receipts, reports, transactions, and required records organized in one place. Stay ready without the paperwork.",
     icon: ShieldCheck,
     bg: "#f1eafe",
@@ -203,14 +201,14 @@ const FEATURES = [
   },
   {
     title: "NYS 2% Fund Intelligence",
-    text: "Track funds received, spending, remaining balances, documentation, and reporting — built around NY fire department needs.",
+    text: "Track spending, documentation, and reporting ensuring no misuse of funds — built around NY fire department needs.",
     icon: Percent,
     bg: "#fdecec",
     fg: "#c81e2a",
   },
   {
-    title: "Reconciliation & matching",
-    text: "Match bank activity to receipts and statements for full transparency, with analytics on where every dollar goes.",
+    title: "Reconciliation & Matching",
+    text: "Match bank activity to receipts and statements for full transparency, with analytics on where every dollar goes. No more chasing down receipts.",
     icon: RefreshCw,
     bg: "#eaf1fe",
     fg: "#1d4ed8",
@@ -225,7 +223,6 @@ export function FeaturesSection() {
           <h2 id="features-heading" className="mkt-h2">
             Stop spending thousands on accountants.
           </h2>
-          <CheckList items={VALUE_CHECKS} />
         </div>
         <div className="mkt-feature-grid">
           {FEATURES.map((feature) => (
@@ -323,7 +320,7 @@ export function TextReceiptWorkflow() {
   const { ref, visible } = useInViewOnce<HTMLDivElement>(0.3);
 
   return (
-    <section id="text-receipts" className="mkt-section" aria-labelledby="sms-heading">
+    <section id="text-receipts" className="mkt-section mkt-sms-section mkt-glow-band" aria-labelledby="sms-heading">
       <div className="mkt-container">
         <div className="mkt-sms">
           <div className="mkt-sms-copy">
@@ -332,7 +329,7 @@ export function TextReceiptWorkflow() {
               Just text it. We&apos;ll take care of the rest.
             </h2>
             <p className="mkt-sub">
-              Text a photo of your receipt to Hallix and we&apos;ll automatically extract the details, categorize
+              Text a photo of your receipt and we&apos;ll automatically extract the details, categorize
               it, and file it for you.
             </p>
             <a href="#demo" className="mkt-btn mkt-btn-primary">
@@ -347,7 +344,7 @@ export function TextReceiptWorkflow() {
                 <span className="mkt-flow-num">1</span>
                 <div>
                   <h3>Get a reminder</h3>
-                  <p>Hallix can remind members to send receipts.</p>
+                  <p>Hallix will remind you to send missing receipts.</p>
                 </div>
               </div>
               <div className="mkt-flow-visual">
@@ -387,7 +384,7 @@ export function TextReceiptWorkflow() {
               <div className="mkt-flow-head">
                 <span className="mkt-flow-num">3</span>
                 <div>
-                  <h3>It&apos;s added automatically</h3>
+                  <h3>It&apos;s logged automatically</h3>
                   <p>Hallix captures the details and updates the record.</p>
                 </div>
               </div>
@@ -446,27 +443,30 @@ export function TextReceiptWorkflow() {
 /* ---------------------------------------------------------- How it works */
 
 const STEPS = [
-  { title: "Set up your department", text: "Connect accounts with Plaid or work manually." },
-  { title: "Capture your records", text: "Upload receipts, text receipts, record Money In." },
-  { title: "Stay organized", text: "Reconcile accounts, track 2% funds, generate reports." },
+  { title: "Set up your department", text: "Connect your bank accounts with Plaid or work manually." },
+  { title: "Capture your records", text: "Start uploading receipts and receive text reminders." },
+  { title: "Stay organized", text: "Reconcile accounts, track 2% funds, generate reports, and file your tax forms." },
 ] as const;
 
 export function HowItWorks() {
+  const { ref, visible } = useInViewOnce<HTMLOListElement>(0.35);
+
   return (
-    <section id="how-it-works" className="mkt-section" style={{ paddingTop: 0 }} aria-labelledby="how-heading">
+    <section id="how-it-works" className="mkt-section mkt-how" aria-labelledby="how-heading">
       <div className="mkt-container">
-        <div className="mkt-head">
+        <div className="mkt-head mkt-how-head">
           <h2 id="how-heading" className="mkt-h2">
             How it works
           </h2>
-          <p className="mkt-sub">Get up and running in minutes. No complicated setup.</p>
+          <p className="mkt-sub">No complicated setup. We&apos;ll walk you through the process.</p>
         </div>
-        <ol className="mkt-steps">
+        <ol ref={ref} className={`mkt-steps${visible ? " is-visible" : ""}`}>
           {STEPS.flatMap((step, index) => {
+            const n = index + 1;
             const item = (
-              <li key={step.title} className="mkt-step">
+              <li key={step.title} className={`mkt-step mkt-step--${n}`}>
                 <span className="mkt-step-num" aria-hidden>
-                  {index + 1}
+                  {n}
                 </span>
                 <div>
                   <h3>{step.title}</h3>
@@ -477,8 +477,8 @@ export function HowItWorks() {
             if (index === STEPS.length - 1) return [item];
             return [
               item,
-              <li key={`${step.title}-arrow`} className="mkt-step-arrow" aria-hidden>
-                <ArrowRight size={22} strokeWidth={2.5} />
+              <li key={`${step.title}-arrow`} className={`mkt-step-arrow mkt-step-arrow--${n}`} aria-hidden>
+                <ArrowRight size={20} strokeWidth={2.4} />
               </li>,
             ];
           })}
@@ -500,14 +500,14 @@ const DEMOS = [
     Screen: DashboardScreen,
   },
   {
-    title: "Money In",
-    text: "Record donations, checks, and deposits in seconds.",
+    title: "Search & Analyze",
+    text: "Look for past donations and expenses in seconds.",
     href: "#how-it-works",
     Screen: MoneyInScreen,
   },
   {
-    title: "Text receipt upload",
-    text: "Text a photo. Hallix matches it to the transaction.",
+    title: "2% Reports",
+    text: "Automatically generate your annual 2% report.",
     href: "#text-receipts",
     Screen: ReconciliationScreen,
   },
@@ -577,7 +577,7 @@ const FOUNDER_PHOTO: { src: string; alt: string } | null = null;
 
 export function FounderTrust() {
   return (
-    <section id="about" className="mkt-section" style={{ paddingTop: 0 }} aria-labelledby="about-heading">
+    <section id="about" className="mkt-section mkt-founder-section mkt-glow-band" aria-labelledby="about-heading">
       <div className="mkt-container">
         <div className="mkt-founder">
           <div className="mkt-founder-copy">
@@ -587,8 +587,7 @@ export function FounderTrust() {
               accountant, and lawyer.
             </h2>
             <p>
-              Hallix was created from firsthand experience with fire department operations and financial
-              administration — so it fits the way departments actually work.
+              Hallix was created from years of firsthand experience with fire department operations — so it fits the way departments and companies actually work.
             </p>
             <ul className="mkt-roles" aria-label="Founding experience">
               <li>Firefighter</li>
@@ -616,14 +615,20 @@ export function FounderTrust() {
           </div>
 
           <blockquote className="mkt-quote">
-            <span className="mkt-quote-mark" aria-hidden>
+            <span className="mkt-quote-mark mkt-quote-mark--open" aria-hidden>
               &ldquo;
             </span>
             <p>
-              Department finances shouldn&apos;t feel like another emergency. Hallix gives fire departments the
-              tools, clarity, and confidence they deserve.
+              Department finances shouldn&apos;t feel complicated. Hallix gives you the
+              tools, clarity, and confidence to handle your&nbsp;money.
             </p>
-            <footer>The Hallix team</footer>
+            <span className="mkt-quote-mark mkt-quote-mark--close" aria-hidden>
+              &rdquo;
+            </span>
+            <footer>
+              <cite className="mkt-quote-name">Yash Patel</cite>
+              <span className="mkt-quote-role">Founder &amp; Lieutenant</span>
+            </footer>
           </blockquote>
         </div>
       </div>
@@ -644,7 +649,7 @@ export function SecurityAndPricing() {
     <section className="mkt-section" style={{ paddingTop: 0 }} aria-label="Security and pricing">
       <div className="mkt-container mkt-assure">
         <div id="security" className="mkt-assure-card">
-          <h2>Security that stays out of the way.</h2>
+          <h2>Security that keeps you in control.</h2>
           <p>Private records. Clear access. Bank connections you control.</p>
           <ul className="mkt-assure-list">
             {SECURITY_ITEMS.map((item) => (
@@ -726,9 +731,9 @@ export function FinalCta() {
       <FirehouseBackdrop />
       <div className="mkt-container mkt-final-grid">
         <div>
-          <p className="mkt-label">Ready to modernize your department finances?</p>
+          <p className="mkt-label">Ready to simplify your department finances?</p>
           <h2 id="final-heading" className="mkt-h2">
-            Ready to keep your finances contained?
+            Stop paying for what you already do.
           </h2>
           <p className="mkt-sub">
             See how Hallix can help your department spend less time on paperwork and more time serving your
@@ -796,7 +801,7 @@ export function FinalCta() {
               {demoErrorMessage}
             </p>
           ) : null}
-          <p className="mkt-form-note">No credit card required. Your data stays private to your department.</p>
+          <p className="mkt-form-note">We have answers to your questions.</p>
         </form>
       </div>
     </section>
