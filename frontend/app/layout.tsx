@@ -8,8 +8,8 @@ export const metadata: Metadata = {
     "Stop chasing fires in your finances. Hallix helps fire departments track expenses, record money in, manage NYS 2% funds, reconcile accounts, and stay audit-ready.",
   manifest: "/manifest.json",
   icons: {
-    icon: "/icon.png",
-    apple: "/icon.png",
+    icon: "/app-icon.png",
+    apple: "/app-icon.png",
   },
   openGraph: {
     title: "Hallix — Financial management for fire departments",

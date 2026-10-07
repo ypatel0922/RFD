@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { Menu, X } from "lucide-react";
 
@@ -16,6 +16,7 @@ const NAV_LINKS = [
 
 export function MarketingHeader() {
   const [open, setOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
     function onResize() {
@@ -24,16 +25,22 @@ export function MarketingHeader() {
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") setOpen(false);
     }
+    function onScroll() {
+      setScrolled(window.scrollY > 8);
+    }
+    onScroll();
     window.addEventListener("resize", onResize);
     window.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", onScroll, { passive: true });
     return () => {
       window.removeEventListener("resize", onResize);
       window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onScroll);
     };
   }, []);
 
   return (
-    <header className="mkt-header">
+    <header className={`mkt-header${open ? " is-menu-open" : ""}${scrolled ? " is-scrolled" : ""}`}>
       <div className="mkt-container">
         <div className="mkt-header-inner">
           <button
@@ -69,12 +76,25 @@ export function MarketingHeader() {
           </div>
         </div>
 
-        <nav id="mkt-mobile-nav" className="mkt-mobile-nav" aria-label="Mobile" hidden={!open}>
-          {NAV_LINKS.map((link) => (
-            <a key={link.href} href={link.href} onClick={() => setOpen(false)}>
-              {link.label}
-            </a>
-          ))}
+        <nav
+          id="mkt-mobile-nav"
+          className={`mkt-mobile-nav${open ? " is-open" : ""}`}
+          aria-label="Mobile"
+          aria-hidden={!open}
+        >
+          <div className="mkt-mobile-nav-panel">
+            {NAV_LINKS.map((link, index) => (
+              <a
+                key={link.href}
+                href={link.href}
+                tabIndex={open ? 0 : -1}
+                style={{ "--i": index } as CSSProperties}
+                onClick={() => setOpen(false)}
+              >
+                {link.label}
+              </a>
+            ))}
+          </div>
         </nav>
       </div>
     </header>

@@ -87,8 +87,9 @@ export function MarketingHero() {
             Stop chasing <br className="mkt-br-m" />
             fires in <br className="mkt-br-d" />
             your <br className="mkt-br-m" />
-            finances, let us <br />
+            finances,{" "}
             <span className="mkt-accent">
+              let us <br />
               keep everything <br className="mkt-br-m" />
               contained.
             </span>
@@ -814,14 +815,10 @@ export function MarketingFooter() {
   return (
     <footer className="mkt-footer">
       <div className="mkt-container mkt-footer-inner">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo-light.png" alt="Hallix" width={1024} height={207} loading="lazy" />
         <nav className="mkt-footer-links" aria-label="Footer">
           <a href="/privacy">Privacy Policy</a>
           <a href="/terms">Terms of Service</a>
           <a href="/sms-policy">SMS Policy</a>
-          <a href="/login">Sign In</a>
-          <a href="#demo">Request Demo</a>
         </nav>
         <p>© {new Date().getFullYear()} Hallix for Fire Departments</p>
       </div>
